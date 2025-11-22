@@ -1,0 +1,126 @@
+{
+  "dashboard": [
+    {
+      "title": "Dashboard",
+      "desc": "Main dashboard page",
+      "url": "/dashboard",
+      "subMenus": []
+    },
+    {
+      "title": "Trips",
+      "desc": "Manage trips",
+      "url": "/dashboard/trips",
+      "subMenus": [
+        {
+          "title": "All Trips",
+          "desc": "View all trips",
+          "url": "/dashboard/trips/all"
+        },
+        {
+          "title": "Create Trip",
+          "desc": "Create new trip",
+          "url": "/dashboard/trips/create"
+        },
+        {
+          "title": "My Trips",
+          "desc": "View my trips",
+          "url": "/dashboard/trips/my"
+        }
+      ]
+    },
+    {
+      "title": "Bookings",
+      "desc": "Manage bookings",
+      "url": "/dashboard/bookings",
+      "subMenus": [
+        {
+          "title": "All Bookings",
+          "desc": "View all bookings",
+          "url": "/dashboard/bookings/all"
+        },
+        {
+          "title": "Pending",
+          "desc": "View pending bookings",
+          "url": "/dashboard/bookings/pending"
+        },
+        {
+          "title": "Confirmed",
+          "desc": "View confirmed bookings",
+          "url": "/dashboard/bookings/confirmed"
+        }
+      ]
+    },
+    {
+      "title": "Users",
+      "desc": "Manage users",
+      "url": "/dashboard/users",
+      "subMenus": []
+    },
+    {
+      "title": "Settings",
+      "desc": "Application settings",
+      "url": "/dashboard/settings",
+      "subMenus": []
+    }
+  ],
+  "landingPage": [
+    {
+      "title": "Home",
+      "desc": "Home page",
+      "url": "/",
+      "subMenus": []
+    },
+    {
+      "title": "About",
+      "desc": "About us",
+      "url": "/about",
+      "subMenus": []
+    },
+    {
+      "title": "Destinations",
+      "desc": "Explore destinations",
+      "url": "/destinations",
+      "subMenus": [
+        {
+          "title": "Popular",
+          "desc": "Popular destinations",
+          "url": "/destinations/popular"
+        },
+        {
+          "title": "Domestic",
+          "desc": "Domestic destinations",
+          "url": "/destinations/domestic"
+        },
+        {
+          "title": "International",
+          "desc": "International destinations",
+          "url": "/destinations/international"
+        }
+      ]
+    },
+    {
+      "title": "Packages",
+      "desc": "Travel packages",
+      "url": "/packages",
+      "subMenus": [
+        {
+          "title": "All Packages",
+          "desc": "View all packages",
+          "url": "/packages/all"
+        },
+        {
+          "title": "Promotions",
+          "desc": "Special promotions",
+          "url": "/packages/promotions"
+        }
+      ]
+    },
+    {
+      "title": "Contact",
+      "desc": "Contact us",
+      "url": "/contact",
+      "subMenus": []
+    }
+  ]
+}
+

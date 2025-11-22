@@ -1,0 +1,130 @@
+{
+  "cities": [
+    {
+      "id": "1",
+      "name": "Jakarta Pusat",
+      "province": "DKI Jakarta"
+    },
+    {
+      "id": "2",
+      "name": "Jakarta Barat",
+      "province": "DKI Jakarta"
+    },
+    {
+      "id": "3",
+      "name": "Jakarta Selatan",
+      "province": "DKI Jakarta"
+    },
+    {
+      "id": "4",
+      "name": "Jakarta Timur",
+      "province": "DKI Jakarta"
+    },
+    {
+      "id": "5",
+      "name": "Jakarta Utara",
+      "province": "DKI Jakarta"
+    },
+    {
+      "id": "6",
+      "name": "Bandung",
+      "province": "Jawa Barat"
+    },
+    {
+      "id": "7",
+      "name": "Bogor",
+      "province": "Jawa Barat"
+    },
+    {
+      "id": "8",
+      "name": "Surabaya",
+      "province": "Jawa Timur"
+    },
+    {
+      "id": "9",
+      "name": "Malang",
+      "province": "Jawa Timur"
+    },
+    {
+      "id": "10",
+      "name": "Yogyakarta",
+      "province": "DI Yogyakarta"
+    },
+    {
+      "id": "11",
+      "name": "Semarang",
+      "province": "Jawa Tengah"
+    },
+    {
+      "id": "12",
+      "name": "Medan",
+      "province": "Sumatera Utara"
+    },
+    {
+      "id": "13",
+      "name": "Palembang",
+      "province": "Sumatera Selatan"
+    },
+    {
+      "id": "14",
+      "name": "Makassar",
+      "province": "Sulawesi Selatan"
+    },
+    {
+      "id": "15",
+      "name": "Denpasar",
+      "province": "Bali"
+    }
+  ],
+  "provinces": [
+    {
+      "id": "1",
+      "name": "DKI Jakarta"
+    },
+    {
+      "id": "2",
+      "name": "Jawa Barat"
+    },
+    {
+      "id": "3",
+      "name": "Jawa Timur"
+    },
+    {
+      "id": "4",
+      "name": "Jawa Tengah"
+    },
+    {
+      "id": "5",
+      "name": "DI Yogyakarta"
+    },
+    {
+      "id": "6",
+      "name": "Sumatera Utara"
+    },
+    {
+      "id": "7",
+      "name": "Sumatera Selatan"
+    },
+    {
+      "id": "8",
+      "name": "Sulawesi Selatan"
+    },
+    {
+      "id": "9",
+      "name": "Bali"
+    },
+    {
+      "id": "10",
+      "name": "Banten"
+    },
+    {
+      "id": "11",
+      "name": "Sumatera Barat"
+    },
+    {
+      "id": "12",
+      "name": "Lampung"
+    }
+  ]
+}
+
