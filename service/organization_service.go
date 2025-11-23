@@ -86,8 +86,8 @@ func (s *OrganizationService) CreateOrganization(userID string, org *model.Organ
 	}
 	org.OrganizationCode = orgCode
 
-	// Set user ID
-	org.UserID = userID
+	// Set username
+	org.Username = user.Username
 
 	// Create organization
 	createdOrg, err := s.orgRepo.Create(org)

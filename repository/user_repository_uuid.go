@@ -15,16 +15,12 @@ func (r *UserRepository) Create(user *model.User) (*model.User, error) {
 
 	if r.driver == "postgres" {
 		query := fmt.Sprintf(`
-			INSERT INTO users (user_id, username, name, email, password, phone, address, city, province, 
-			                    postal_code, npwp, gender, date_of_birth, status, created_at, updated_at)
-			VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+			INSERT INTO users (user_id, username, fullname, email, password, phone, is_active, is_verified, created_at, updated_at)
+			VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 			RETURNING created_at, updated_at
 		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
-			r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8),
-			r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12),
-			r.getPlaceholder(13), r.getPlaceholder(14), r.getPlaceholder(15), r.getPlaceholder(16))
+			r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10))
 
-		var dateOfBirth sql.NullTime
 		err := r.db.QueryRow(
 			query,
 			user.UserID,
@@ -33,14 +29,8 @@ func (r *UserRepository) Create(user *model.User) (*model.User, error) {
 			user.Email,
 			user.Password,
 			user.Phone,
-			user.Address,
-			user.City,
-			user.Province,
-			user.PostalCode,
-			user.NPWP,
-			user.Gender,
-			user.DateOfBirth,
-			user.Status,
+			user.IsActive,
+			user.IsVerified,
 			user.CreatedAt,
 			user.UpdatedAt,
 		).Scan(&user.CreatedAt, &user.UpdatedAt)
@@ -48,19 +38,12 @@ func (r *UserRepository) Create(user *model.User) (*model.User, error) {
 		if err != nil {
 			return nil, err
 		}
-		if user.DateOfBirth != nil {
-			dateOfBirth.Valid = true
-			dateOfBirth.Time = *user.DateOfBirth
-		}
 	} else {
 		query := fmt.Sprintf(`
-			INSERT INTO users (user_id, username, name, email, password, phone, address, city, province,
-			                    postal_code, npwp, gender, date_of_birth, status, created_at, updated_at)
-			VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+			INSERT INTO users (user_id, username, fullname, email, password, phone, is_active, is_verified, created_at, updated_at)
+			VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
-			r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8),
-			r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12),
-			r.getPlaceholder(13), r.getPlaceholder(14), r.getPlaceholder(15), r.getPlaceholder(16))
+			r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10))
 
 		_, err := r.db.Exec(
 			query,
@@ -70,14 +53,8 @@ func (r *UserRepository) Create(user *model.User) (*model.User, error) {
 			user.Email,
 			user.Password,
 			user.Phone,
-			user.Address,
-			user.City,
-			user.Province,
-			user.PostalCode,
-			user.NPWP,
-			user.Gender,
-			user.DateOfBirth,
-			user.Status,
+			user.IsActive,
+			user.IsVerified,
 			user.CreatedAt,
 			user.UpdatedAt,
 		)
@@ -92,30 +69,32 @@ func (r *UserRepository) Create(user *model.User) (*model.User, error) {
 // FindByID retrieves a user by ID (UUID) from database
 func (r *UserRepository) FindByID(id string) (*model.User, error) {
 	query := fmt.Sprintf(`
-		SELECT user_id, username, name, email, password, phone, address, city, province, postal_code,
-		       npwp, gender, date_of_birth, status, created_at, updated_at, deleted_at
+		SELECT user_id, username, fullname, email, password, phone, address, city, province, postal_code,
+		       npwp, gender, date_of_birth, is_active, is_verified, created_at, updated_at, deleted_at
 		FROM users
 		WHERE user_id = %s AND deleted_at IS NULL
 	`, r.getPlaceholder(1))
 
 	var user model.User
 	var deletedAt, dateOfBirth sql.NullTime
+	var fullname, address, city, province, postalCode, npwp, gender sql.NullString
 
 	err := r.db.QueryRow(query, id).Scan(
 		&user.UserID,
 		&user.Username,
-		&user.Name,
+		&fullname,
 		&user.Email,
 		&user.Password,
 		&user.Phone,
-		&user.Address,
-		&user.City,
-		&user.Province,
-		&user.PostalCode,
-		&user.NPWP,
-		&user.Gender,
+		&address,
+		&city,
+		&province,
+		&postalCode,
+		&npwp,
+		&gender,
 		&dateOfBirth,
-		&user.Status,
+		&user.IsActive,
+		&user.IsVerified,
 		&user.CreatedAt,
 		&user.UpdatedAt,
 		&deletedAt,
@@ -127,6 +106,27 @@ func (r *UserRepository) FindByID(id string) (*model.User, error) {
 		return nil, err
 	}
 
+	if fullname.Valid {
+		user.Name = fullname.String
+	}
+	if address.Valid {
+		user.Address = address.String
+	}
+	if city.Valid {
+		user.City = city.String
+	}
+	if province.Valid {
+		user.Province = province.String
+	}
+	if postalCode.Valid {
+		user.PostalCode = postalCode.String
+	}
+	if npwp.Valid {
+		user.NPWP = npwp.String
+	}
+	if gender.Valid {
+		user.Gender = gender.String
+	}
 	if deletedAt.Valid {
 		user.DeletedAt = &deletedAt.Time
 	}
@@ -138,32 +138,35 @@ func (r *UserRepository) FindByID(id string) (*model.User, error) {
 }
 
 // FindByEmail retrieves a user by email from database (updated for UUID)
+// Email comparison is case-insensitive using LOWER() function
 func (r *UserRepository) FindByEmail(email string) (*model.User, error) {
 	query := fmt.Sprintf(`
-		SELECT user_id, username, name, email, password, phone, address, city, province, postal_code,
-		       npwp, gender, date_of_birth, status, created_at, updated_at, deleted_at
+		SELECT user_id, username, fullname, email, password, phone, address, city, province, postal_code,
+		       npwp, gender, date_of_birth, is_active, is_verified, created_at, updated_at, deleted_at
 		FROM users
-		WHERE email = %s AND deleted_at IS NULL
+		WHERE LOWER(email) = LOWER(%s) AND deleted_at IS NULL
 	`, r.getPlaceholder(1))
 
 	var user model.User
 	var deletedAt, dateOfBirth sql.NullTime
+	var fullname, address, city, province, postalCode, npwp, gender sql.NullString
 
 	err := r.db.QueryRow(query, email).Scan(
 		&user.UserID,
 		&user.Username,
-		&user.Name,
+		&fullname,
 		&user.Email,
 		&user.Password,
 		&user.Phone,
-		&user.Address,
-		&user.City,
-		&user.Province,
-		&user.PostalCode,
-		&user.NPWP,
-		&user.Gender,
+		&address,
+		&city,
+		&province,
+		&postalCode,
+		&npwp,
+		&gender,
 		&dateOfBirth,
-		&user.Status,
+		&user.IsActive,
+		&user.IsVerified,
 		&user.CreatedAt,
 		&user.UpdatedAt,
 		&deletedAt,
@@ -175,6 +178,27 @@ func (r *UserRepository) FindByEmail(email string) (*model.User, error) {
 		return nil, err
 	}
 
+	if fullname.Valid {
+		user.Name = fullname.String
+	}
+	if address.Valid {
+		user.Address = address.String
+	}
+	if city.Valid {
+		user.City = city.String
+	}
+	if province.Valid {
+		user.Province = province.String
+	}
+	if postalCode.Valid {
+		user.PostalCode = postalCode.String
+	}
+	if npwp.Valid {
+		user.NPWP = npwp.String
+	}
+	if gender.Valid {
+		user.Gender = gender.String
+	}
 	if deletedAt.Valid {
 		user.DeletedAt = &deletedAt.Time
 	}

@@ -31,7 +31,7 @@ func (r *OrganizationRepository) getPlaceholder(pos int) string {
 func (r *OrganizationRepository) FindByID(id string) (*model.Organization, error) {
 	query := fmt.Sprintf(`
 		SELECT id, organization_code, organization_name, company_name, address, city, province,
-		       phone, email, user_id, created_at, updated_at
+		       phone, email, username, created_at, updated_at
 		FROM organizations
 		WHERE id = %s
 	`, r.getPlaceholder(1))
@@ -47,7 +47,7 @@ func (r *OrganizationRepository) FindByID(id string) (*model.Organization, error
 		&org.Province,
 		&org.Phone,
 		&org.Email,
-		&org.UserID,
+		&org.Username,
 		&org.CreatedAt,
 		&org.UpdatedAt,
 	)
@@ -65,7 +65,7 @@ func (r *OrganizationRepository) FindByID(id string) (*model.Organization, error
 func (r *OrganizationRepository) FindByCode(code string) (*model.Organization, error) {
 	query := fmt.Sprintf(`
 		SELECT id, organization_code, organization_name, company_name, address, city, province,
-		       phone, email, user_id, created_at, updated_at
+		       phone, email, username, created_at, updated_at
 		FROM organizations
 		WHERE organization_code = %s
 	`, r.getPlaceholder(1))
@@ -81,7 +81,7 @@ func (r *OrganizationRepository) FindByCode(code string) (*model.Organization, e
 		&org.Province,
 		&org.Phone,
 		&org.Email,
-		&org.UserID,
+		&org.Username,
 		&org.CreatedAt,
 		&org.UpdatedAt,
 	)
@@ -95,17 +95,17 @@ func (r *OrganizationRepository) FindByCode(code string) (*model.Organization, e
 	return &org, nil
 }
 
-// FindByUserID retrieves all organizations by user ID from database
-func (r *OrganizationRepository) FindByUserID(userID string) ([]model.Organization, error) {
+// FindByUsername retrieves all organizations by username from database
+func (r *OrganizationRepository) FindByUsername(username string) ([]model.Organization, error) {
 	query := fmt.Sprintf(`
 		SELECT id, organization_code, organization_name, company_name, address, city, province,
-		       phone, email, user_id, created_at, updated_at
+		       phone, email, username, created_at, updated_at
 		FROM organizations
-		WHERE user_id = %s
+		WHERE username = %s
 		ORDER BY created_at DESC
 	`, r.getPlaceholder(1))
 
-	rows, err := r.db.Query(query, userID)
+	rows, err := r.db.Query(query, username)
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +124,7 @@ func (r *OrganizationRepository) FindByUserID(userID string) ([]model.Organizati
 			&org.Province,
 			&org.Phone,
 			&org.Email,
-			&org.UserID,
+			&org.Username,
 			&org.CreatedAt,
 			&org.UpdatedAt,
 		)
@@ -150,7 +150,7 @@ func (r *OrganizationRepository) Create(org *model.Organization) (*model.Organiz
 	if r.driver == "postgres" {
 		query := fmt.Sprintf(`
 			INSERT INTO organizations (id, organization_code, organization_name, company_name, address, 
-			                          city, province, phone, email, user_id, created_at, updated_at)
+			                          city, province, phone, email, username, created_at, updated_at)
 			VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 			RETURNING created_at, updated_at
 		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
@@ -168,7 +168,7 @@ func (r *OrganizationRepository) Create(org *model.Organization) (*model.Organiz
 			org.Province,
 			org.Phone,
 			org.Email,
-			org.UserID,
+			org.Username,
 			org.CreatedAt,
 			org.UpdatedAt,
 		).Scan(&org.CreatedAt, &org.UpdatedAt)
@@ -179,7 +179,7 @@ func (r *OrganizationRepository) Create(org *model.Organization) (*model.Organiz
 	} else {
 		query := fmt.Sprintf(`
 			INSERT INTO organizations (id, organization_code, organization_name, company_name, address,
-			                          city, province, phone, email, user_id, created_at, updated_at)
+			                          city, province, phone, email, username, created_at, updated_at)
 			VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
 			r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8),
@@ -196,7 +196,7 @@ func (r *OrganizationRepository) Create(org *model.Organization) (*model.Organiz
 			org.Province,
 			org.Phone,
 			org.Email,
-			org.UserID,
+			org.Username,
 			org.CreatedAt,
 			org.UpdatedAt,
 		)
@@ -218,7 +218,7 @@ func (r *OrganizationRepository) Update(org *model.Organization) (*model.Organiz
 			SET organization_name = %s, company_name = %s, address = %s, city = %s, province = %s,
 			    phone = %s, email = %s, updated_at = %s
 			WHERE id = %s
-			RETURNING organization_code, user_id, created_at
+			RETURNING organization_code, username, created_at
 		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
 			r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8),
 			r.getPlaceholder(9))
@@ -234,7 +234,7 @@ func (r *OrganizationRepository) Update(org *model.Organization) (*model.Organiz
 			org.Email,
 			org.UpdatedAt,
 			org.ID,
-		).Scan(&org.OrganizationCode, &org.UserID, &org.CreatedAt)
+		).Scan(&org.OrganizationCode, &org.Username, &org.CreatedAt)
 
 		if err != nil {
 			if err == sql.ErrNoRows {
@@ -279,9 +279,9 @@ func (r *OrganizationRepository) Update(org *model.Organization) (*model.Organiz
 
 		// Fetch updated data
 		err = r.db.QueryRow(fmt.Sprintf(`
-			SELECT organization_code, user_id, created_at 
+			SELECT organization_code, username, created_at 
 			FROM organizations WHERE id = %s
-		`, r.getPlaceholder(1)), org.ID).Scan(&org.OrganizationCode, &org.UserID, &org.CreatedAt)
+		`, r.getPlaceholder(1)), org.ID).Scan(&org.OrganizationCode, &org.Username, &org.CreatedAt)
 		if err != nil {
 			return nil, err
 		}

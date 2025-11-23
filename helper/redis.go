@@ -11,6 +11,7 @@ import (
 
 var redisClient *redis.Client
 var ctx = context.Background()
+var otpTTL time.Duration // OTP TTL duration
 
 // InitRedis initializes Redis connection
 func InitRedis(cfg *configs.RedisConfig) (*redis.Client, error) {
@@ -27,15 +28,28 @@ func InitRedis(cfg *configs.RedisConfig) (*redis.Client, error) {
 	}
 
 	redisClient = client
+
+	// Set OTP TTL from config (in minutes), default to 5 minutes
+	ttlMinutes := cfg.OTPTTL
+	if ttlMinutes <= 0 {
+		ttlMinutes = 5 // Default to 5 minutes
+	}
+	otpTTL = time.Duration(ttlMinutes) * time.Minute
+
 	return client, nil
 }
 
-// SetOTP stores OTP in Redis with expiration (5 minutes)
+// SetOTP stores OTP in Redis with expiration (configured via OTP_TTL env or default 5 minutes)
 func SetOTP(key, otp string) error {
 	if redisClient == nil {
 		return fmt.Errorf("redis client not initialized")
 	}
-	return redisClient.Set(ctx, fmt.Sprintf("otp:%s", key), otp, 5*time.Minute).Err()
+	// Use configured TTL, or default to 5 minutes if not set
+	ttl := otpTTL
+	if ttl == 0 {
+		ttl = 5 * time.Minute
+	}
+	return redisClient.Set(ctx, fmt.Sprintf("otp:%s", key), otp, ttl).Err()
 }
 
 // GetOTP retrieves OTP from Redis
@@ -43,7 +57,12 @@ func GetOTP(key string) (string, error) {
 	if redisClient == nil {
 		return "", fmt.Errorf("redis client not initialized")
 	}
-	return redisClient.Get(ctx, fmt.Sprintf("otp:%s", key)).Result()
+	result, err := redisClient.Get(ctx, fmt.Sprintf("otp:%s", key)).Result()
+	if err != nil {
+		// Return error as string for easier checking
+		return "", err
+	}
+	return result, nil
 }
 
 // DeleteOTP removes OTP from Redis

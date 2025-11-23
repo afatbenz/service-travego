@@ -11,6 +11,8 @@ CREATE TABLE public.users
     province character varying(30),
     postal_code character varying(10),
     npwp character varying(25),
+    date_of_birth timestamp with time zone,
+    gender integer,
     is_active boolean,
     is_verified boolean,
     created_at timestamp with time zone,

@@ -24,6 +24,7 @@ type AppConfig struct {
 	Port         string `json:"port"`
 	Environment  string `json:"environment"`
 	AllowOrigins string `json:"allow_origins"`
+	OTPLength    int    `json:"otp_length"` // Default: 8
 }
 
 // DatabaseConfig holds database configuration
@@ -57,6 +58,7 @@ type RedisConfig struct {
 	Port     string `json:"port"`
 	Password string `json:"password"`
 	DB       int    `json:"db"`
+	OTPTTL   int    `json:"otp_ttl"` // OTP TTL in minutes, default: 5
 }
 
 // LoadConfig loads configuration from JSON file
@@ -94,6 +96,14 @@ func OverrideWithEnv(cfg *Config) {
 	}
 	if envOrigins := os.Getenv("APP_ALLOW_ORIGINS"); envOrigins != "" {
 		cfg.App.AllowOrigins = envOrigins
+	}
+	// OTP Length config - default to 8 if not set
+	if envOTPLength := os.Getenv("OTP_LENGTH"); envOTPLength != "" {
+		if otpLength, err := strconv.Atoi(envOTPLength); err == nil && otpLength > 0 {
+			cfg.App.OTPLength = otpLength
+		}
+	} else if cfg.App.OTPLength == 0 {
+		cfg.App.OTPLength = 8 // Default to 8 digits
 	}
 
 	// Database config - prioritize .env.dev over app.json
@@ -148,6 +158,14 @@ func OverrideWithEnv(cfg *Config) {
 		if db, err := strconv.Atoi(envDB); err == nil {
 			cfg.Redis.DB = db
 		}
+	}
+	// OTP TTL config - default to 5 minutes if not set
+	if envOTPTTL := os.Getenv("OTP_TTL"); envOTPTTL != "" {
+		if otpTTL, err := strconv.Atoi(envOTPTTL); err == nil && otpTTL > 0 {
+			cfg.Redis.OTPTTL = otpTTL
+		}
+	} else if cfg.Redis.OTPTTL == 0 {
+		cfg.Redis.OTPTTL = 5 // Default to 5 minutes
 	}
 
 	// JWT config

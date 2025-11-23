@@ -15,7 +15,7 @@ type Organization struct {
 	Province         string    `json:"province"`
 	Phone            string    `json:"phone"`
 	Email            string    `json:"email"`
-	UserID           string    `json:"user_id"` // User who created the organization
+	Username         string    `json:"username"` // Username who created the organization
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
 }

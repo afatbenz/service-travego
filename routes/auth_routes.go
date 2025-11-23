@@ -24,6 +24,7 @@ func SetupAuthRoutes(api fiber.Router, db *sql.DB, driver string, cfg *configs.C
 	auth := api.Group("/auth")
 	auth.Post("/register", authHandler.Register)
 	auth.Post("/verify-otp", authHandler.VerifyOTP)
+	auth.Post("/resend-otp", authHandler.ResendOTP)
 
 	// Placeholder routes - to be implemented later
 	auth.Post("/login", func(c *fiber.Ctx) error {

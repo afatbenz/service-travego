@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"service-travego/configs"
+	"strconv"
 	"time"
 )
 
@@ -19,9 +20,29 @@ type EmailTemplateData struct {
 	Year          int
 }
 
-func GenerateOTP() string {
+// GetOTPLength returns the OTP length from environment variable or default to 8
+func GetOTPLength() int {
+	if envLength := os.Getenv("OTP_LENGTH"); envLength != "" {
+		if length, err := strconv.Atoi(envLength); err == nil && length > 0 {
+			return length
+		}
+	}
+	return 8 // Default to 8 digits
+}
+
+// GenerateOTP generates a random OTP with configurable length
+// If length is 0 or not provided, it uses GetOTPLength() to get from env or default to 8
+func GenerateOTP(length int) string {
+	if length <= 0 {
+		length = GetOTPLength()
+	}
+
 	rand.Seed(time.Now().UnixNano())
-	return fmt.Sprintf("%08d", rand.Intn(100000000))
+	max := 1
+	for i := 0; i < length; i++ {
+		max *= 10
+	}
+	return fmt.Sprintf("%0*d", length, rand.Intn(max))
 }
 
 func getTemplatePath(filename string) (string, error) {
