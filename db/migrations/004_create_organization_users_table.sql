@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS organization_users (
     uuid uuid NOT NULL,
     user_id uuid NOT NULL,
     organization_id uuid NOT NULL,
-    role_user integer NOT NULL,
+    organization_role integer NOT NULL,
     is_active boolean,
     created_at timestamp with time zone,
     created_by uuid NOT NULL,

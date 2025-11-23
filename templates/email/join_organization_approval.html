@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Verify Your Email - TraveGO</title>
+    <title>New Member Request - TraveGO</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -47,42 +47,20 @@
             margin-bottom: 20px;
             color: #555;
         }
-        .otp-container {
-            text-align: center;
-            margin: 30px 0;
-            padding: 20px;
-            background-color: #f8f9fa;
-            border-radius: 8px;
-        }
-        .otp-code {
-            font-size: 32px;
-            font-weight: bold;
-            color: #2196F3;
-            letter-spacing: 8px;
-            font-family: 'Courier New', monospace;
-            margin: 10px 0;
-        }
-        .otp-label {
-            font-size: 14px;
-            color: #666;
-            margin-bottom: 10px;
-        }
-        .warning {
-            background-color: #fff3cd;
-            border-left: 4px solid #ffc107;
+        .info-box {
+            background-color: #e7f3ff;
+            border-left: 4px solid #2196F3;
             padding: 15px;
             margin: 20px 0;
             border-radius: 4px;
         }
-        .warning-text {
+        .info-text {
             font-size: 14px;
-            color: #ffc71f;
+            color: #004085;
         }
-        .expiry {
-            font-size: 14px;
-            color: #dc3545;
+        .highlight {
             font-weight: bold;
-            margin-top: 10px;
+            color: #00bcd4;
         }
         .footer {
             text-align: center;
@@ -102,20 +80,17 @@
         <div class="content">
             <div class="greeting">Hello {{.Username}}!</div>
             <div class="message">
-                Thank you for registering with TraveGO. To complete your registration, please verify your email address using the OTP code below.
+                A new member request has been submitted for your organization.
             </div>
-            <div class="otp-container">
-                <div class="otp-label">Your Verification Code:</div>
-                <div class="otp-code">{{.OTP}}</div>
-                <div class="expiry">This code will expire in {{.ExpiryMinutes}} minutes</div>
-            </div>
-            <div class="warning">
-                <div class="warning-text">
-                    <strong>Security Notice:</strong> Never share this code with anyone. TraveGO staff will never ask for your OTP code.
+            <div class="info-box">
+                <div class="info-text">
+                    <strong>Request Details:</strong><br>
+                    Requester: <span class="highlight">{{.RequesterName}}</span><br>
+                    Organization: <span class="highlight">{{.OrganizationName}}</span>
                 </div>
             </div>
             <div class="message">
-                If you didn't request this code, please ignore this email or contact our support team.
+                Please review and approve this request in your TraveGO dashboard.
             </div>
         </div>
         <div class="footer">

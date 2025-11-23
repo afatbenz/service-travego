@@ -35,3 +35,26 @@ func Truncate(s string, length int) string {
 	}
 	return s[:length] + "..."
 }
+
+// NormalizePhoneNumber normalizes phone number format
+// If phone starts with "0", replace with "62"
+// If phone already starts with "62", keep as is
+func NormalizePhoneNumber(phone string) string {
+	phone = strings.TrimSpace(phone)
+	if phone == "" {
+		return phone
+	}
+
+	// If already starts with 62, return as is
+	if strings.HasPrefix(phone, "62") {
+		return phone
+	}
+
+	// If starts with 0, replace with 62
+	if strings.HasPrefix(phone, "0") {
+		return "62" + phone[1:]
+	}
+
+	// Otherwise return as is
+	return phone
+}

@@ -7,25 +7,17 @@ import (
 )
 
 type Response struct {
-	Success       bool        `json:"success"`
+	Status        string      `json:"status"`
 	Message       string      `json:"message"`
-	TransactionID string      `json:"transactionid"`
 	Data          interface{} `json:"data,omitempty"`
-	Errors        interface{} `json:"errors,omitempty"`
+	TransactionID string      `json:"transaction_id"`
 }
 
 type ErrorResponse struct {
-	Success       bool        `json:"success"`
+	Status        string      `json:"status"`
 	Message       string      `json:"message"`
-	TransactionID string      `json:"transactionid"`
-	Errors        interface{} `json:"errors,omitempty"`
-}
-
-type ValidationErrorResponse struct {
-	Success       bool                    `json:"success"`
-	Message       string                  `json:"message"`
-	TransactionID string                  `json:"transactionid"`
-	Errors        []ValidationErrorDetail `json:"errors"`
+	Data          interface{} `json:"data"`
+	TransactionID string      `json:"transaction_id"`
 }
 
 type ValidationErrorDetail struct {
@@ -36,11 +28,15 @@ type ValidationErrorDetail struct {
 
 func SuccessResponse(c *fiber.Ctx, statusCode int, message string, data interface{}) error {
 	txID := GetTransactionID(c)
+	// Default status code to 200 if not specified or 0
+	if statusCode == 0 {
+		statusCode = fiber.StatusOK
+	}
 	return c.Status(statusCode).JSON(Response{
-		Success:       true,
+		Status:        "success",
 		Message:       message,
-		TransactionID: txID,
 		Data:          data,
+		TransactionID: txID,
 	})
 }
 
@@ -49,8 +45,9 @@ func SendErrorResponse(c *fiber.Ctx, statusCode int, message string) error {
 	errorLogMessage := fmt.Sprintf("TransactionID: %s - %s %s - Status: %d - Error: %s", txID, c.Method(), c.Path(), statusCode, message)
 
 	response := ErrorResponse{
-		Success:       false,
+		Status:        "error",
 		Message:       message,
+		Data:          nil,
 		TransactionID: txID,
 	}
 
@@ -64,22 +61,22 @@ func SendErrorResponse(c *fiber.Ctx, statusCode int, message string) error {
 
 func SendValidationErrorResponse(c *fiber.Ctx, validationErrors []ValidationError) error {
 	txID := GetTransactionID(c)
-	errors := make([]ValidationErrorDetail, 0, len(validationErrors))
-	for _, ve := range validationErrors {
-		errors = append(errors, ValidationErrorDetail{
-			Field:   ve.FailedField,
-			Tag:     ve.Tag,
-			Message: ve.Error,
-		})
+
+	// Get first error message
+	var firstErrorMessage string
+	if len(validationErrors) > 0 {
+		firstErrorMessage = validationErrors[0].Error
+	} else {
+		firstErrorMessage = "Validation failed"
 	}
 
 	errorLogMessage := fmt.Sprintf("TransactionID: %s - %s %s - Status: %d - Validation Error: %d errors", txID, c.Method(), c.Path(), fiber.StatusBadRequest, len(validationErrors))
 
-	response := ValidationErrorResponse{
-		Success:       false,
-		Message:       "Validation failed",
+	response := ErrorResponse{
+		Status:        "error",
+		Message:       firstErrorMessage,
+		Data:          nil,
 		TransactionID: txID,
-		Errors:        errors,
 	}
 
 	if err := LogErrorToFile(c, fiber.StatusBadRequest, errorLogMessage, response); err != nil {

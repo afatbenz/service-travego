@@ -30,7 +30,7 @@ func (r *UserRepository) getPlaceholder(pos int) string {
 // FindAll retrieves all users from database
 func (r *UserRepository) FindAll() ([]model.User, error) {
 	query := `
-		SELECT user_id, name, email, password, phone, address, created_at, updated_at, deleted_at
+		SELECT user_id, fullname, email, password, phone, address, created_at, updated_at, deleted_at
 		FROM users
 		WHERE deleted_at IS NULL
 		ORDER BY created_at DESC
@@ -46,14 +46,15 @@ func (r *UserRepository) FindAll() ([]model.User, error) {
 	for rows.Next() {
 		var user model.User
 		var deletedAt sql.NullTime
+		var fullname, address sql.NullString
 
 		err := rows.Scan(
 			&user.UserID,
-			&user.Name,
+			&fullname,
 			&user.Email,
 			&user.Password,
 			&user.Phone,
-			&user.Address,
+			&address,
 			&user.CreatedAt,
 			&user.UpdatedAt,
 			&deletedAt,
@@ -62,6 +63,12 @@ func (r *UserRepository) FindAll() ([]model.User, error) {
 			return nil, err
 		}
 
+		if fullname.Valid {
+			user.Name = fullname.String
+		}
+		if address.Valid {
+			user.Address = address.String
+		}
 		if deletedAt.Valid {
 			user.DeletedAt = &deletedAt.Time
 		}
@@ -92,7 +99,7 @@ func (r *UserRepository) Update(user *model.User) (*model.User, error) {
 	if r.driver == "postgres" {
 		query := fmt.Sprintf(`
 			UPDATE users
-			SET name = %s, email = %s, phone = %s, address = %s, updated_at = %s
+			SET fullname = %s, email = %s, phone = %s, address = %s, updated_at = %s
 			WHERE user_id = %s AND deleted_at IS NULL
 			RETURNING created_at
 		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
@@ -117,7 +124,7 @@ func (r *UserRepository) Update(user *model.User) (*model.User, error) {
 	} else {
 		query := fmt.Sprintf(`
 			UPDATE users
-			SET name = %s, email = %s, phone = %s, address = %s, updated_at = %s
+			SET fullname = %s, email = %s, phone = %s, address = %s, updated_at = %s
 			WHERE user_id = %s AND deleted_at IS NULL
 		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
 			r.getPlaceholder(5), r.getPlaceholder(6))

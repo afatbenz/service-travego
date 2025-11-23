@@ -1,0 +1,296 @@
+@startuml Auth Registration Flow
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam sequenceArrowThickness 2
+skinparam roundcorner 20
+skinparam maxmessagesize 60
+
+title Authentication Registration Flow
+
+actor User
+participant "API Handler" as Handler
+participant "Auth Service" as Service
+participant "User Repository" as Repo
+participant "Redis" as Redis
+participant "Email Service" as Email
+database "PostgreSQL" as DB
+
+== Registration Flow ==
+
+User -> Handler: POST /api/auth/register\n{username, fullname, email, password, phone}
+activate Handler
+
+Handler -> Handler: Validate request body
+Handler -> Handler: Validate struct (required, format)
+
+alt Validation Error
+    Handler -> User: 400 Bad Request\n{status: "error", message: "validation error", data: null}
+    deactivate Handler
+else Valid Request
+    Handler -> Service: Register(username, fullname, email, password, phone)
+    activate Service
+    
+    Service -> Service: Normalize email (lowercase)
+    Service -> Repo: FindByEmail(email)
+    activate Repo
+    Repo -> DB: SELECT WHERE email = ?
+    DB --> Repo: User or null
+    Repo --> Service: User or null
+    deactivate Repo
+    
+    alt Email Already Exists
+        Service --> Handler: Error: "email already exists"
+        Handler -> User: 400 Bad Request\n{status: "error", message: "email already exists"}
+        deactivate Service
+        deactivate Handler
+    else Email Available
+        Service -> Repo: FindByUsername(username)
+        activate Repo
+        Repo -> DB: SELECT WHERE username = ?
+        DB --> Repo: User or null
+        Repo --> Service: User or null
+        deactivate Repo
+        
+        alt Username Already Exists
+            Service --> Handler: Error: "username already exists"
+            Handler -> User: 400 Bad Request\n{status: "error", message: "username already exists"}
+            deactivate Service
+            deactivate Handler
+        else Username Available
+            Service -> Service: NormalizePhoneNumber(phone)\n(0 -> 62)
+            Service -> Repo: FindByPhone(normalizedPhone)
+            activate Repo
+            Repo -> DB: SELECT WHERE phone = ?
+            DB --> Repo: User or null
+            Repo --> Service: User or null
+            deactivate Repo
+            
+            alt Phone Already Exists
+                Service --> Handler: Error: "phone already exists"
+                Handler -> User: 400 Bad Request\n{status: "error", message: "phone already exists"}
+                deactivate Service
+                deactivate Handler
+            else Phone Available
+                Service -> Service: HashPassword(password)
+                Service -> Service: GenerateUUID() for user_id
+                
+                Service -> Repo: Create(user)\n{user_id, username, fullname, email, password, phone,\nis_active: true, is_verified: false}
+                activate Repo
+                Repo -> DB: INSERT INTO users\n(user_id, username, fullname, email, password, phone,\nis_active, is_verified, created_at, updated_at)
+                DB --> Repo: User created
+                Repo --> Service: User
+                deactivate Repo
+                
+                Service -> Service: GenerateOTP()\n(length from OTP_LENGTH env or 8)
+                Service -> Service: EncryptData(email, user_id)\n-> token
+                Service -> Redis: SetOTP(token, otp)\nTTL: OTP_TTL env or 5 minutes
+                activate Redis
+                Redis -> Redis: SET otp:{token} {otp} EX {ttl}
+                Redis --> Service: OK
+                deactivate Redis
+                
+                Service -> Email: SendOTPEmail(email, username, otp)
+                activate Email
+                Email -> Email: Render HTML template\nwith OTP
+                Email --> Service: Email sent
+                deactivate Email
+                
+                Service --> Handler: User, token
+                deactivate Service
+                
+                Handler -> Handler: Create response\n{profile: {email, username, user_id, phone}, token}
+                Handler -> User: 201 Created\n{status: "success", message: "Registration successful...",\ndata: {profile, token}, transaction_id}
+                deactivate Handler
+            end
+        end
+    end
+end
+
+== Verify OTP Flow ==
+
+User -> Handler: POST /api/auth/verify-otp\n{token, otp}
+activate Handler
+
+Handler -> Handler: Validate request body
+Handler -> Handler: Validate struct (required)
+Handler -> Handler: Validate OTP length\n(must match OTP_LENGTH env or 8)
+
+alt Validation Error
+    Handler -> User: 400 Bad Request\n{status: "error", message: "validation error"}
+    deactivate Handler
+else Valid Request
+    Handler -> Service: VerifyOTP(token, otp)
+    activate Service
+    
+    Service -> Service: DecryptData(token)\n-> email, user_id
+    alt Invalid Token
+        Service --> Handler: Error: "invalid token"
+        Handler -> User: 400 Bad Request\n{status: "error", message: "invalid token"}
+        deactivate Service
+        deactivate Handler
+    else Valid Token
+        Service -> Redis: GetOTP(token)
+        activate Redis
+        Redis -> Redis: GET otp:{token}
+        Redis --> Service: OTP or error
+        deactivate Redis
+        
+        alt OTP Not Found or Expired
+            Service --> Handler: Error: "OTP expired"
+            Handler -> User: 400 Bad Request\n{status: "error", message: "OTP expired"}
+            deactivate Service
+            deactivate Handler
+        else OTP Found
+            Service -> Service: Compare storedOTP == otp
+            
+            alt OTP Mismatch
+                Service --> Handler: Error: "missmatch"
+                Handler -> User: 400 Bad Request\n{status: "error", message: "missmatch"}
+                deactivate Service
+                deactivate Handler
+            else OTP Match
+                Service -> Repo: FindByID(user_id)
+                activate Repo
+                Repo -> DB: SELECT WHERE user_id = ?
+                DB --> Repo: User
+                Repo --> Service: User
+                deactivate Repo
+                
+                Service -> Service: Verify email matches\nuser.Email == email
+                
+                alt Email Mismatch
+                    Service --> Handler: Error: "missmatch"
+                    Handler -> User: 400 Bad Request\n{status: "error", message: "missmatch"}
+                    deactivate Service
+                    deactivate Handler
+                else Email Match
+                    Service -> Repo: VerifyUser(user_id)
+                    activate Repo
+                    Repo -> DB: UPDATE users\nSET is_verified = true, verified_at = now()\nWHERE user_id = ?
+                    DB --> Repo: Updated
+                    Repo --> Service: OK
+                    deactivate Repo
+                    
+                    Service -> Redis: DeleteOTP(token)
+                    activate Redis
+                    Redis -> Redis: DEL otp:{token}
+                    Redis --> Service: OK
+                    deactivate Redis
+                    
+                    Service -> Email: SendRegisterSuccessEmail(email, username)
+                    activate Email
+                    Email -> Email: Render HTML template
+                    Email --> Service: Email sent
+                    deactivate Email
+                    
+                    Service --> Handler: Success
+                    deactivate Service
+                    
+                    Handler -> User: 200 OK\n{status: "success", message: "Email verified...",\ndata: null, transaction_id}
+                    deactivate Handler
+                end
+            end
+        end
+    end
+end
+
+== Resend OTP Flow ==
+
+User -> Handler: POST /api/auth/resend-otp\n{email? OR token?}
+activate Handler
+
+Handler -> Handler: Validate request body
+Handler -> Handler: Validate: email OR token required
+
+alt Both Empty
+    Handler -> User: 400 Bad Request\n{status: "error", message: "Either email or token is required"}
+    deactivate Handler
+else Valid Request
+    Handler -> Service: ResendOTP(email, token)
+    activate Service
+    
+    alt Email Provided
+        Service -> Repo: FindByEmail(email)
+        activate Repo
+        Repo -> DB: SELECT WHERE email = ?
+        DB --> Repo: User or null
+        Repo --> Service: User or null
+        deactivate Repo
+        
+        alt User Not Found
+            Service --> Handler: Error: "user not found"
+            Handler -> User: 404 Not Found\n{status: "error", message: "user not found"}
+            deactivate Service
+            deactivate Handler
+        else User Found
+            Service -> Service: userEmail = user.Email\nuserID = user.UserID
+        end
+    else Token Provided (email empty)
+        Service -> Service: DecryptData(token)\n-> email, user_id
+        alt Invalid Token
+            Service --> Handler: Error: "invalid token"
+            Handler -> User: 400 Bad Request\n{status: "error", message: "invalid token"}
+            deactivate Service
+            deactivate Handler
+        else Valid Token
+            Service -> Service: userEmail = email\nuserID = user_id
+        end
+    end
+    
+    alt User Found/Decrypted
+        Service -> Repo: FindByEmail(userEmail)
+        activate Repo
+        Repo -> DB: SELECT WHERE email = ?
+        DB --> Repo: User
+        Repo --> Service: User
+        deactivate Repo
+        
+        alt Using Token - Verify user_id matches
+            Service -> Service: Verify user.UserID == userID
+            alt User ID Mismatch
+                Service --> Handler: Error: "user not found"
+                Handler -> User: 404 Not Found\n{status: "error", message: "user not found"}
+                deactivate Service
+                deactivate Handler
+            end
+        end
+        
+        alt User Already Verified
+            Service --> Handler: Error: "user telah diverifikasi"
+            Handler -> User: 400 Bad Request\n{status: "error", message: "user telah diverifikasi"}
+            deactivate Service
+            deactivate Handler
+        else User Not Verified
+            alt User Inactive
+                Service --> Handler: Error: "user inactive"
+                Handler -> User: 400 Bad Request\n{status: "error", message: "user inactive"}
+                deactivate Service
+                deactivate Handler
+            else User Active and Not Verified
+                Service -> Service: EncryptData(userEmail, userID)\n-> newToken
+                Service -> Service: GenerateOTP()\n(length from OTP_LENGTH env or 8)
+                Service -> Redis: SetOTP(newToken, otp)\nTTL: OTP_TTL env or 5 minutes
+                activate Redis
+                Redis -> Redis: SET otp:{newToken} {otp} EX {ttl}
+                Redis --> Service: OK
+                deactivate Redis
+                
+                Service -> Email: SendOTPEmail(userEmail, username, otp)
+                activate Email
+                Email -> Email: Render HTML template\nwith OTP
+                Email --> Service: Email sent
+                deactivate Email
+                
+                Service --> Handler: newToken
+                deactivate Service
+                
+                Handler -> Handler: Create response\n{token: newToken}
+                Handler -> User: 200 OK\n{status: "success", message: "OTP has been resent...",\ndata: {token}, transaction_id}
+                deactivate Handler
+            end
+        end
+    end
+end
+
+@enduml
+

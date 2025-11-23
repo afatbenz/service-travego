@@ -32,6 +32,8 @@ go.work
 *.swo
 *~
 
+
+db/
 # OS
 .DS_Store
 Thumbs.db

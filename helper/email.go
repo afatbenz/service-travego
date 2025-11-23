@@ -9,19 +9,43 @@ import (
 	"os"
 	"path/filepath"
 	"service-travego/configs"
+	"strconv"
 	"time"
 )
 
 type EmailTemplateData struct {
-	Username      string
-	OTP           string
-	ExpiryMinutes int
-	Year          int
+	Username         string
+	OTP              string
+	ExpiryMinutes    int
+	Year             int
+	ResetLink        string // For reset password email
+	RequesterName    string // For join organization approval email
+	OrganizationName string // For join organization approval email
 }
 
-func GenerateOTP() string {
+// GetOTPLength returns the OTP length from environment variable or default to 8
+func GetOTPLength() int {
+	if envLength := os.Getenv("OTP_LENGTH"); envLength != "" {
+		if length, err := strconv.Atoi(envLength); err == nil && length > 0 {
+			return length
+		}
+	}
+	return 8 // Default to 8 digits
+}
+
+// GenerateOTP generates a random OTP with configurable length
+// If length is 0 or not provided, it uses GetOTPLength() to get from env or default to 8
+func GenerateOTP(length int) string {
+	if length <= 0 {
+		length = GetOTPLength()
+	}
+
 	rand.Seed(time.Now().UnixNano())
-	return fmt.Sprintf("%08d", rand.Intn(100000000))
+	max := 1
+	for i := 0; i < length; i++ {
+		max *= 10
+	}
+	return fmt.Sprintf("%0*d", length, rand.Intn(max))
 }
 
 func getTemplatePath(filename string) (string, error) {
@@ -133,5 +157,41 @@ func SendResetPasswordOTPEmail(cfg *configs.EmailConfig, to, username, otp strin
 	}
 
 	subject := "Reset Your Password - TraveGO"
+	return sendHTMLEmail(cfg, to, subject, htmlBody)
+}
+
+// SendResetPasswordEmail sends a reset password email with link and token
+func SendResetPasswordEmail(cfg *configs.EmailConfig, to, username, resetLink string, expiryMinutes int) error {
+	data := EmailTemplateData{
+		Username:      username,
+		ResetLink:     resetLink,
+		ExpiryMinutes: expiryMinutes,
+		Year:          time.Now().Year(),
+	}
+
+	htmlBody, err := renderEmailTemplate("reset_password.html", data)
+	if err != nil {
+		return err
+	}
+
+	subject := "Reset Your Password - TraveGO"
+	return sendHTMLEmail(cfg, to, subject, htmlBody)
+}
+
+// SendJoinOrganizationApprovalEmail sends an email to organization members for approval
+func SendJoinOrganizationApprovalEmail(cfg *configs.EmailConfig, to, username, requesterUsername, organizationName string) error {
+	data := EmailTemplateData{
+		Username:         username,
+		Year:             time.Now().Year(),
+		RequesterName:    requesterUsername,
+		OrganizationName: organizationName,
+	}
+
+	htmlBody, err := renderEmailTemplate("join_organization_approval.html", data)
+	if err != nil {
+		return err
+	}
+
+	subject := "New Member Request - TraveGO"
 	return sendHTMLEmail(cfg, to, subject, htmlBody)
 }

@@ -45,10 +45,23 @@ func (h *GeneralHandler) GetProvinces(c *fiber.Ctx) error {
 }
 
 func (h *GeneralHandler) GetCities(c *fiber.Ctx) error {
-	cities, err := h.generalService.GetCities()
+	// Get query parameters (optional)
+	provinceID := c.Query("province_id", "")
+	searchText := c.Query("search", "")
+
+	cities, err := h.generalService.GetCities(provinceID, searchText)
 	if err != nil {
 		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to load cities")
 	}
 
-	return helper.SuccessResponse(c, fiber.StatusOK, "Cities loaded successfully", cities)
+	message := "Cities loaded successfully"
+	if provinceID != "" && searchText != "" {
+		message = "Cities filtered by province and search text loaded successfully"
+	} else if provinceID != "" {
+		message = "Cities filtered by province loaded successfully"
+	} else if searchText != "" {
+		message = "Cities filtered by search text loaded successfully"
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, message, cities)
 }
