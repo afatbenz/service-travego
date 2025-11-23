@@ -27,8 +27,13 @@
         .logo {
             font-size: 28px;
             font-weight: bold;
-            color: #4CAF50;
             margin-bottom: 10px;
+        }
+        .logo-trave {
+            color: #00bcd4;
+        }
+        .logo-go {
+            color: #ff9800;
         }
         .content {
             margin-bottom: 30px;
@@ -69,7 +74,7 @@
 <body>
     <div class="container">
         <div class="header">
-            <div class="logo">TraveGO</div>
+            <div class="logo"><span class="logo-trave">Trave</span><span class="logo-go">GO</span></div>
         </div>
         <div class="content">
             <div class="greeting">Hello {{.Username}}!</div>

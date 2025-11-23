@@ -19,23 +19,6 @@ func NewUserHandler(userService *service.UserService) *UserHandler {
 	}
 }
 
-type CreateUserRequest struct {
-	Username string `json:"username" validate:"required,min=3,max=50"`
-	Email    string `json:"email" validate:"required,email"`
-	Password string `json:"password" validate:"required,min=6"`
-	Name     string `json:"name" validate:"required"`
-	Phone    string `json:"phone" validate:"omitempty"`
-	Address  string `json:"address" validate:"omitempty"`
-}
-
-type UpdateUserRequest struct {
-	Name     string `json:"name" validate:"omitempty"`
-	Phone    string `json:"phone" validate:"omitempty"`
-	Address  string `json:"address" validate:"omitempty"`
-	City     string `json:"city" validate:"omitempty"`
-	Province string `json:"province" validate:"omitempty"`
-}
-
 func (h *UserHandler) GetAllUsers(c *fiber.Ctx) error {
 	users, err := h.userService.GetAllUsers()
 	if err != nil {
@@ -66,7 +49,7 @@ func (h *UserHandler) GetUserByID(c *fiber.Ctx) error {
 }
 
 func (h *UserHandler) CreateUser(c *fiber.Ctx) error {
-	var req CreateUserRequest
+	var req model.CreateUserRequest
 
 	if err := c.BodyParser(&req); err != nil {
 		return helper.BadRequestResponse(c, "Invalid request body")
@@ -104,7 +87,7 @@ func (h *UserHandler) UpdateUser(c *fiber.Ctx) error {
 		return helper.BadRequestResponse(c, "Invalid user ID format")
 	}
 
-	var req UpdateUserRequest
+	var req model.UpdateUserRequest
 	if err := c.BodyParser(&req); err != nil {
 		return helper.BadRequestResponse(c, "Invalid request body")
 	}

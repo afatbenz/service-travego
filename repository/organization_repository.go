@@ -30,13 +30,14 @@ func (r *OrganizationRepository) getPlaceholder(pos int) string {
 // FindByID retrieves an organization by ID from database
 func (r *OrganizationRepository) FindByID(id string) (*model.Organization, error) {
 	query := fmt.Sprintf(`
-		SELECT id, organization_code, organization_name, company_name, address, city, province,
-		       phone, email, username, created_at, updated_at
+		SELECT organization_id, organization_code, organization_name, company_name, address, city, province,
+		       phone, email, npwp_number, organization_type, postal_code, created_by, created_at, updated_at
 		FROM organizations
-		WHERE id = %s
+		WHERE organization_id = %s
 	`, r.getPlaceholder(1))
 
 	var org model.Organization
+	var postalCode sql.NullString
 	err := r.db.QueryRow(query, id).Scan(
 		&org.ID,
 		&org.OrganizationCode,
@@ -47,10 +48,18 @@ func (r *OrganizationRepository) FindByID(id string) (*model.Organization, error
 		&org.Province,
 		&org.Phone,
 		&org.Email,
-		&org.Username,
+		&org.NPWPNumber,
+		&org.OrganizationType,
+		&postalCode,
+		&org.CreatedBy,
 		&org.CreatedAt,
 		&org.UpdatedAt,
 	)
+	if err == nil {
+		if postalCode.Valid {
+			org.PostalCode = postalCode.String
+		}
+	}
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, sql.ErrNoRows
@@ -98,10 +107,10 @@ func (r *OrganizationRepository) FindByCode(code string) (*model.Organization, e
 // FindByUsername retrieves all organizations by username from database
 func (r *OrganizationRepository) FindByUsername(username string) ([]model.Organization, error) {
 	query := fmt.Sprintf(`
-		SELECT id, organization_code, organization_name, company_name, address, city, province,
-		       phone, email, username, created_at, updated_at
+		SELECT organization_id, organization_code, organization_name, company_name, address, city, province,
+		       phone, email, npwp_number, organization_type, postal_code, created_by, created_at, updated_at
 		FROM organizations
-		WHERE username = %s
+		WHERE created_by = (SELECT user_id FROM users WHERE username = %s)
 		ORDER BY created_at DESC
 	`, r.getPlaceholder(1))
 
@@ -114,6 +123,7 @@ func (r *OrganizationRepository) FindByUsername(username string) ([]model.Organi
 	var orgs []model.Organization
 	for rows.Next() {
 		var org model.Organization
+		var postalCode sql.NullString
 		err := rows.Scan(
 			&org.ID,
 			&org.OrganizationCode,
@@ -124,12 +134,18 @@ func (r *OrganizationRepository) FindByUsername(username string) ([]model.Organi
 			&org.Province,
 			&org.Phone,
 			&org.Email,
-			&org.Username,
+			&org.NPWPNumber,
+			&org.OrganizationType,
+			&postalCode,
+			&org.CreatedBy,
 			&org.CreatedAt,
 			&org.UpdatedAt,
 		)
 		if err != nil {
 			return nil, err
+		}
+		if postalCode.Valid {
+			org.PostalCode = postalCode.String
 		}
 		orgs = append(orgs, org)
 	}
@@ -149,13 +165,14 @@ func (r *OrganizationRepository) Create(org *model.Organization) (*model.Organiz
 
 	if r.driver == "postgres" {
 		query := fmt.Sprintf(`
-			INSERT INTO organizations (id, organization_code, organization_name, company_name, address, 
-			                          city, province, phone, email, username, created_at, updated_at)
-			VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+			INSERT INTO organizations (organization_id, organization_code, organization_name, company_name, address, 
+			                          city, province, phone, email, npwp_number, organization_type, postal_code, created_by, created_at, updated_at)
+			VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 			RETURNING created_at, updated_at
 		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
 			r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8),
-			r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12))
+			r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12),
+			r.getPlaceholder(13), r.getPlaceholder(14), r.getPlaceholder(15))
 
 		err := r.db.QueryRow(
 			query,
@@ -168,7 +185,10 @@ func (r *OrganizationRepository) Create(org *model.Organization) (*model.Organiz
 			org.Province,
 			org.Phone,
 			org.Email,
-			org.Username,
+			sql.NullString{String: org.NPWPNumber, Valid: org.NPWPNumber != ""},
+			org.OrganizationType,
+			sql.NullString{String: org.PostalCode, Valid: org.PostalCode != ""},
+			org.CreatedBy,
 			org.CreatedAt,
 			org.UpdatedAt,
 		).Scan(&org.CreatedAt, &org.UpdatedAt)
@@ -178,12 +198,13 @@ func (r *OrganizationRepository) Create(org *model.Organization) (*model.Organiz
 		}
 	} else {
 		query := fmt.Sprintf(`
-			INSERT INTO organizations (id, organization_code, organization_name, company_name, address,
-			                          city, province, phone, email, username, created_at, updated_at)
-			VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+			INSERT INTO organizations (organization_id, organization_code, organization_name, company_name, address,
+			                          city, province, phone, email, npwp_number, organization_type, postal_code, created_by, created_at, updated_at)
+			VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
 			r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8),
-			r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12))
+			r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12),
+			r.getPlaceholder(13), r.getPlaceholder(14), r.getPlaceholder(15))
 
 		_, err := r.db.Exec(
 			query,
@@ -196,7 +217,10 @@ func (r *OrganizationRepository) Create(org *model.Organization) (*model.Organiz
 			org.Province,
 			org.Phone,
 			org.Email,
-			org.Username,
+			sql.NullString{String: org.NPWPNumber, Valid: org.NPWPNumber != ""},
+			org.OrganizationType,
+			sql.NullString{String: org.PostalCode, Valid: org.PostalCode != ""},
+			org.CreatedBy,
 			org.CreatedAt,
 			org.UpdatedAt,
 		)

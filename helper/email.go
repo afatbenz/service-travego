@@ -14,10 +14,13 @@ import (
 )
 
 type EmailTemplateData struct {
-	Username      string
-	OTP           string
-	ExpiryMinutes int
-	Year          int
+	Username         string
+	OTP              string
+	ExpiryMinutes    int
+	Year             int
+	ResetLink        string // For reset password email
+	RequesterName    string // For join organization approval email
+	OrganizationName string // For join organization approval email
 }
 
 // GetOTPLength returns the OTP length from environment variable or default to 8
@@ -154,5 +157,41 @@ func SendResetPasswordOTPEmail(cfg *configs.EmailConfig, to, username, otp strin
 	}
 
 	subject := "Reset Your Password - TraveGO"
+	return sendHTMLEmail(cfg, to, subject, htmlBody)
+}
+
+// SendResetPasswordEmail sends a reset password email with link and token
+func SendResetPasswordEmail(cfg *configs.EmailConfig, to, username, resetLink string, expiryMinutes int) error {
+	data := EmailTemplateData{
+		Username:      username,
+		ResetLink:     resetLink,
+		ExpiryMinutes: expiryMinutes,
+		Year:          time.Now().Year(),
+	}
+
+	htmlBody, err := renderEmailTemplate("reset_password.html", data)
+	if err != nil {
+		return err
+	}
+
+	subject := "Reset Your Password - TraveGO"
+	return sendHTMLEmail(cfg, to, subject, htmlBody)
+}
+
+// SendJoinOrganizationApprovalEmail sends an email to organization members for approval
+func SendJoinOrganizationApprovalEmail(cfg *configs.EmailConfig, to, username, requesterUsername, organizationName string) error {
+	data := EmailTemplateData{
+		Username:         username,
+		Year:             time.Now().Year(),
+		RequesterName:    requesterUsername,
+		OrganizationName: organizationName,
+	}
+
+	htmlBody, err := renderEmailTemplate("join_organization_approval.html", data)
+	if err != nil {
+		return err
+	}
+
+	subject := "New Member Request - TraveGO"
 	return sendHTMLEmail(cfg, to, subject, htmlBody)
 }

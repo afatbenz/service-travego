@@ -40,8 +40,9 @@ type DatabaseConfig struct {
 
 // JWTConfig holds JWT configuration
 type JWTConfig struct {
-	Secret     string `json:"secret"`
-	Expiration int    `json:"expiration"` // in hours
+	Secret          string `json:"secret"`
+	Expiration      int    `json:"expiration"`        // in hours
+	AuthTokenExpiry int    `json:"auth_token_expiry"` // in minutes, default: 90
 }
 
 // EmailConfig holds email configuration
@@ -176,6 +177,14 @@ func OverrideWithEnv(cfg *Config) {
 		if exp, err := strconv.Atoi(envExp); err == nil {
 			cfg.JWT.Expiration = exp
 		}
+	}
+	// Auth Token Expiry config - default to 90 minutes if not set
+	if envAuthExpiry := os.Getenv("AUTH_TOKEN_EXPIRY"); envAuthExpiry != "" {
+		if authExpiry, err := strconv.Atoi(envAuthExpiry); err == nil && authExpiry > 0 {
+			cfg.JWT.AuthTokenExpiry = authExpiry
+		}
+	} else if cfg.JWT.AuthTokenExpiry == 0 {
+		cfg.JWT.AuthTokenExpiry = 90 // Default to 90 minutes
 	}
 
 	// Email config - must be set from environment variables

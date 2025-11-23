@@ -15,7 +15,11 @@ type Organization struct {
 	Province         string    `json:"province"`
 	Phone            string    `json:"phone"`
 	Email            string    `json:"email"`
-	Username         string    `json:"username"` // Username who created the organization
+	NPWPNumber       string    `json:"npwp_number"`
+	OrganizationType int       `json:"organization_type"`
+	PostalCode       string    `json:"postal_code"`
+	CreatedBy        string    `json:"created_by"` // User ID who created the organization
+	Username         string    `json:"username"`   // Username who created the organization
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
 }

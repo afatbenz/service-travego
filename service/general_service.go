@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"service-travego/model"
+	"strings"
 )
 
 type GeneralService struct {
@@ -75,7 +76,9 @@ func (s *GeneralService) GetProvinces() ([]model.Province, error) {
 }
 
 // GetCities reads and returns cities from location JSON file
-func (s *GeneralService) GetCities() ([]model.City, error) {
+// If provinceID is provided, it filters cities by that province ID
+// If searchText is provided, it filters cities by name containing the search text (case-insensitive)
+func (s *GeneralService) GetCities(provinceID, searchText string) ([]model.City, error) {
 	file, err := os.Open(s.locationPath)
 	if err != nil {
 		return nil, err
@@ -89,5 +92,39 @@ func (s *GeneralService) GetCities() ([]model.City, error) {
 		return nil, err
 	}
 
-	return location.Cities, nil
+	var filteredCities []model.City
+
+	// If provinceID is provided, find the province name first
+	provinceName := ""
+	if provinceID != "" {
+		for _, province := range location.Provinces {
+			if province.ID == provinceID {
+				provinceName = province.Name
+				break
+			}
+		}
+	}
+
+	// Filter cities
+	for _, city := range location.Cities {
+		// Filter by province ID (if provided)
+		if provinceID != "" {
+			if provinceName == "" || city.Province != provinceName {
+				continue
+			}
+		}
+
+		// Filter by search text (if provided) - case-insensitive partial match
+		if searchText != "" {
+			searchLower := strings.ToLower(strings.TrimSpace(searchText))
+			cityNameLower := strings.ToLower(city.Name)
+			if !strings.Contains(cityNameLower, searchLower) {
+				continue
+			}
+		}
+
+		filteredCities = append(filteredCities, city)
+	}
+
+	return filteredCities, nil
 }

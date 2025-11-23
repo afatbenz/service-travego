@@ -20,6 +20,7 @@ type User struct {
 	NPWP           string     `json:"npwp"`
 	Gender         string     `json:"gender"` // M/F
 	DateOfBirth    *time.Time `json:"date_of_birth"`
+	Avatar         string     `json:"avatar"`
 	IsActive       bool       `json:"is_active"`
 	IsVerified     bool       `json:"is_verified"`
 	CreatedAt      time.Time  `json:"created_at"`

@@ -185,12 +185,12 @@ func (r *UserRepository) UpdateProfile(user *model.User) (*model.User, error) {
 		query := fmt.Sprintf(`
 			UPDATE users
 			SET fullname = %s, phone = %s, npwp = %s, gender = %s, date_of_birth = %s,
-			    address = %s, city = %s, province = %s, postal_code = %s, updated_at = %s
+			    address = %s, city = %s, province = %s, postal_code = %s, avatar = %s, updated_at = %s
 			WHERE user_id = %s AND deleted_at IS NULL
 			RETURNING username, email, is_active, is_verified, created_at
 		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
 			r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8),
-			r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11))
+			r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12))
 
 		var dateOfBirth sql.NullTime
 		err := r.db.QueryRow(
@@ -204,6 +204,7 @@ func (r *UserRepository) UpdateProfile(user *model.User) (*model.User, error) {
 			user.City,
 			user.Province,
 			user.PostalCode,
+			user.Avatar,
 			user.UpdatedAt,
 			user.UserID,
 		).Scan(&user.Username, &user.Email, &user.IsActive, &user.IsVerified, &user.CreatedAt)
@@ -222,11 +223,11 @@ func (r *UserRepository) UpdateProfile(user *model.User) (*model.User, error) {
 		query := fmt.Sprintf(`
 			UPDATE users
 			SET fullname = %s, phone = %s, npwp = %s, gender = %s, date_of_birth = %s,
-			    address = %s, city = %s, province = %s, postal_code = %s, updated_at = %s
+			    address = %s, city = %s, province = %s, postal_code = %s, avatar = %s, updated_at = %s
 			WHERE user_id = %s AND deleted_at IS NULL
 		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
 			r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8),
-			r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11))
+			r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12))
 
 		result, err := r.db.Exec(
 			query,
@@ -239,6 +240,7 @@ func (r *UserRepository) UpdateProfile(user *model.User) (*model.User, error) {
 			user.City,
 			user.Province,
 			user.PostalCode,
+			user.Avatar,
 			user.UpdatedAt,
 			user.UserID,
 		)
@@ -266,4 +268,30 @@ func (r *UserRepository) UpdateProfile(user *model.User) (*model.User, error) {
 	}
 
 	return user, nil
+}
+
+// UpdatePassword updates user password
+func (r *UserRepository) UpdatePassword(userID, hashedPassword string) error {
+	query := fmt.Sprintf(`
+		UPDATE users
+		SET password = %s, updated_at = %s
+		WHERE user_id = %s AND deleted_at IS NULL
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
+
+	now := time.Now()
+	result, err := r.db.Exec(query, hashedPassword, now, userID)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+
+	return nil
 }

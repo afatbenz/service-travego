@@ -1,6 +1,7 @@
 package service
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -12,8 +13,9 @@ import (
 )
 
 type OrganizationService struct {
-	orgRepo  *repository.OrganizationRepository
-	userRepo *repository.UserRepository
+	orgRepo     *repository.OrganizationRepository
+	orgUserRepo *repository.OrganizationUserRepository
+	userRepo    *repository.UserRepository
 }
 
 func NewOrganizationService(orgRepo *repository.OrganizationRepository, userRepo *repository.UserRepository) *OrganizationService {
@@ -23,29 +25,48 @@ func NewOrganizationService(orgRepo *repository.OrganizationRepository, userRepo
 	}
 }
 
+// SetOrganizationUserRepository sets the organization user repository
+func (s *OrganizationService) SetOrganizationUserRepository(orgUserRepo *repository.OrganizationUserRepository) {
+	s.orgUserRepo = orgUserRepo
+}
+
 // generateOrganizationCode generates organization code from organization name
-// Format: 4 vowels from org name + 4 random digits
+// Format: non-vowel letters (consonants) from org name + 4 random digits
+// Example: "AGRA MAS" -> "AGRMS" + 4 digits, "GARUDA MAS" -> "GRDMS" + 4 digits, "citra adi lancar" -> "CAL" + 4 digits
 func (s *OrganizationService) generateOrganizationCode(orgName string) (string, error) {
-	// Extract vowels from organization name
-	vowels := "aeiouAEIOU"
-	var extractedVowels []string
+	// Extract non-vowel letters (consonants) from organization name
+	vowels := "aeiouAEIOU "
+	var extractedConsonants []string
 
 	for _, char := range orgName {
-		if strings.ContainsRune(vowels, char) {
-			extractedVowels = append(extractedVowels, strings.ToUpper(string(char)))
+		charStr := string(char)
+		// Skip vowels and spaces
+		if !strings.ContainsRune(vowels, char) {
+			extractedConsonants = append(extractedConsonants, strings.ToUpper(charStr))
 		}
 	}
 
-	// Take first 4 vowels (or pad with available vowels)
+	// Take all consonants (no limit, use all available)
 	var code string
-	for i := 0; i < 4 && i < len(extractedVowels); i++ {
-		code += extractedVowels[i]
+	for _, consonant := range extractedConsonants {
+		code += consonant
 	}
 
-	// If less than 4 vowels, pad with random vowels
-	for len(code) < 4 {
-		randomVowel := string("AEIOU"[rand.Intn(5)])
-		code += randomVowel
+	// If no consonants found, use first 5 uppercase letters
+	if code == "" {
+		for _, char := range orgName {
+			if char >= 'A' && char <= 'Z' {
+				code += string(char)
+				if len(code) >= 5 {
+					break
+				}
+			} else if char >= 'a' && char <= 'z' {
+				code += strings.ToUpper(string(char))
+				if len(code) >= 5 {
+					break
+				}
+			}
+		}
 	}
 
 	// Generate 4 random digits
@@ -53,14 +74,37 @@ func (s *OrganizationService) generateOrganizationCode(orgName string) (string, 
 	digits := fmt.Sprintf("%04d", rand.Intn(10000))
 	code += digits
 
-	// Check if code already exists
-	existingOrg, err := s.orgRepo.FindByCode(code)
-	if err == nil && existingOrg != nil {
-		// If code exists, regenerate
-		return s.generateOrganizationCode(orgName)
+	// Check if code already exists, if exists regenerate with new random digits
+	maxAttempts := 100
+	attempts := 0
+	consonantPart := code[:len(code)-4] // Store the consonant part before adding digits
+
+	for attempts < maxAttempts {
+		existingOrg, err := s.orgRepo.FindByCode(code)
+		if err != nil {
+			// Check if it's "not found" error
+			if err == sql.ErrNoRows {
+				// Code doesn't exist, we can use it
+				return code, nil
+			}
+			// Other database error
+			return "", fmt.Errorf("failed to check organization code: %w", err)
+		}
+		if existingOrg != nil {
+			// Code exists, regenerate digits
+			rand.Seed(time.Now().UnixNano() + int64(attempts))
+			digits = fmt.Sprintf("%04d", rand.Intn(10000))
+			// Keep the consonant part, only change digits
+			code = consonantPart + digits
+			attempts++
+		} else {
+			// Code doesn't exist
+			return code, nil
+		}
 	}
 
-	return code, nil
+	// If we exhausted attempts, return error
+	return "", fmt.Errorf("failed to generate unique organization code after %d attempts", maxAttempts)
 }
 
 // CreateOrganization creates a new organization
@@ -71,20 +115,47 @@ func (s *OrganizationService) CreateOrganization(userID string, org *model.Organ
 		return nil, errors.New("user not found")
 	}
 
-	// Check if user has completed required fields (phone, name, email)
-	if user.Phone == "" || user.Name == "" || user.Email == "" {
-		return nil, errors.New("user must complete phone, name, and email before creating organization")
+	// Check if user profile is complete: address, city, province, date_of_birth, gender
+	if user.Address == "" {
+		return nil, errors.New("profile must be completed before creating organization")
+	}
+	if user.City == "" {
+		return nil, errors.New("profile city must be completed before creating organization")
+	}
+	if user.Province == "" {
+		return nil, errors.New("profile province must be completed before creating organization")
+	}
+	if user.DateOfBirth == nil {
+		return nil, errors.New("profile date_of_birth must be completed before creating organization")
+	}
+	if user.Gender == "" {
+		return nil, errors.New("profile gender must be completed before creating organization")
 	}
 
 	// Generate organization ID with UUID
 	org.ID = helper.GenerateUUID()
 
-	// Generate organization code
-	orgCode, err := s.generateOrganizationCode(org.OrganizationName)
-	if err != nil {
-		return nil, errors.New("failed to generate organization code")
+	// Generate organization code from organization name (if not provided in payload)
+	if org.OrganizationCode == "" {
+		orgCode, err := s.generateOrganizationCode(org.OrganizationName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate organization code: %w", err)
+		}
+		org.OrganizationCode = orgCode
+	} else {
+		// If organization_code is provided, check if it already exists
+		existingOrg, err := s.orgRepo.FindByCode(org.OrganizationCode)
+		if err == nil && existingOrg != nil {
+			return nil, errors.New("organization code already exists")
+		}
+		// If error is not "not found", return error
+		if err != nil && err != sql.ErrNoRows {
+			return nil, fmt.Errorf("failed to check organization code: %w", err)
+		}
 	}
-	org.OrganizationCode = orgCode
+
+	// Set created_by
+	org.CreatedBy = userID
 
 	// Set username
 	org.Username = user.Username
@@ -93,6 +164,27 @@ func (s *OrganizationService) CreateOrganization(userID string, org *model.Organ
 	createdOrg, err := s.orgRepo.Create(org)
 	if err != nil {
 		return nil, errors.New("failed to create organization")
+	}
+
+	// Insert into organization_users with role 1, is_active true
+	if s.orgUserRepo != nil {
+		orgUser := &model.OrganizationUser{
+			UUID:             helper.GenerateUUID(),
+			UserID:           userID,
+			OrganizationID:   createdOrg.ID,
+			OrganizationRole: 1,
+			IsActive:         true,
+			CreatedAt:        time.Now(),
+			CreatedBy:        userID,
+			UpdatedAt:        time.Now(),
+			UpdatedBy:        userID,
+		}
+
+		if err = s.orgUserRepo.CreateOrganizationUser(orgUser); err != nil {
+			// Log error but don't fail the organization creation
+			// In production, you might want to rollback the organization creation
+			return nil, fmt.Errorf("failed to create organization user: %w", err)
+		}
 	}
 
 	return createdOrg, nil

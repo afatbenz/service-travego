@@ -7,6 +7,7 @@ CREATE TABLE public.users
     password text,
     phone character varying(20),
     address character varying(100),
+    avatar character varying(200),
     city character varying(30),
     province character varying(30),
     postal_code character varying(10),
@@ -25,5 +26,4 @@ CREATE TABLE public.users
 ALTER TABLE IF EXISTS public.users OWNER to postgres;
 
 CREATE INDEX IF NOT EXISTS idx_users_email ON public.users(email);
-CREATE INDEX IF NOT EXISTS idx_users_deleted_at ON public.users(deleted_at);
 

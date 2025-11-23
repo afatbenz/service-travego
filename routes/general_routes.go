@@ -17,6 +17,6 @@ func SetupGeneralRoutes(api fiber.Router) {
 	general := api.Group("/general")
 	general.Get("/config", generalHandler.GetGeneralConfig)
 	general.Get("/web-menu", generalHandler.GetWebMenu)
-	general.Get("/province", generalHandler.GetProvinces)
-	general.Get("/city", generalHandler.GetCities)
+	general.Get("/provinces", generalHandler.GetProvinces)
+	general.Get("/cities", generalHandler.GetCities)
 }
