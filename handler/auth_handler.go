@@ -1,13 +1,14 @@
 package handler
 
 import (
-	"fmt"
-	"log"
-	"os"
-	"service-travego/helper"
-	"service-travego/model"
-	"service-travego/service"
-	"strconv"
+    "fmt"
+    "log"
+    "os"
+    "service-travego/helper"
+    "service-travego/model"
+    "service-travego/service"
+    "strconv"
+    "strings"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -23,16 +24,25 @@ func NewAuthHandler(authService *service.AuthService) *AuthHandler {
 }
 
 func (h *AuthHandler) Register(c *fiber.Ctx) error {
-	var req model.RegisterRequest
+    var req model.RegisterRequest
 
 	if err := c.BodyParser(&req); err != nil {
 		log.Printf("[ERROR] BodyParser failed - Path: %s, Error: %v", c.Path(), err)
 		return helper.BadRequestResponse(c, "Invalid request body")
 	}
 
-	if validationErrors := helper.ValidateStruct(req); len(validationErrors) > 0 {
-		return helper.SendValidationErrorResponse(c, validationErrors)
-	}
+    if validationErrors := helper.ValidateStruct(req); len(validationErrors) > 0 {
+        return helper.SendValidationErrorResponse(c, validationErrors)
+    }
+
+    // Default username from email local-part if not provided
+    if req.Username == "" && req.Email != "" {
+        if at := strings.Index(req.Email, "@"); at > 0 {
+            req.Username = req.Email[:at]
+        } else {
+            req.Username = req.Email
+        }
+    }
 
 	user, token, err := h.authService.Register(req.Username, req.Fullname, req.Email, req.Password, req.Phone)
 	if err != nil {
