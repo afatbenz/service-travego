@@ -19,7 +19,6 @@ database "PostgreSQL" as DB
 
 User -> Handler: POST /api/auth/register\n{username, fullname, email, password, phone}
 activate Handler
-ini tambah
 
 Handler -> Handler: Validate request body
 Handler -> Handler: Validate struct (required, format)
