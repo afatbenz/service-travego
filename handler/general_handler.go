@@ -54,6 +54,22 @@ func (h *GeneralHandler) GetCities(c *fiber.Ctx) error {
 	provinceName := c.Query("province", "")
 	searchText := c.Query("search", "")
 
+	// Support passing province as ID via `province` when `province_id` is empty
+	if provinceID == "" && provinceName != "" {
+		onlyDigits := true
+		for i := 0; i < len(provinceName); i++ {
+			ch := provinceName[i]
+			if ch < '0' || ch > '9' {
+				onlyDigits = false
+				break
+			}
+		}
+		if onlyDigits {
+			provinceID = provinceName
+			provinceName = ""
+		}
+	}
+
 	cities, err := h.generalService.GetCities(provinceID, provinceName, searchText)
 	if err != nil {
 		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to load cities")

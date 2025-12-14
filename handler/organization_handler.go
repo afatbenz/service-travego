@@ -1,9 +1,11 @@
 package handler
 
 import (
+	"fmt"
 	"service-travego/helper"
 	"service-travego/model"
 	"service-travego/service"
+	"strconv"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
@@ -55,8 +57,8 @@ func (h *OrganizationHandler) CreateOrganization(c *fiber.Ctx) error {
 		OrganizationName: req.OrganizationName,
 		CompanyName:      req.CompanyName,
 		Address:          req.Address,
-		City:             req.City,
-		Province:         req.Province,
+		City:             strconv.Itoa(req.City),
+		Province:         strconv.Itoa(req.Province),
 		Phone:            req.Phone,
 		Email:            req.Email,
 		NPWPNumber:       req.NPWPNumber,
@@ -64,20 +66,24 @@ func (h *OrganizationHandler) CreateOrganization(c *fiber.Ctx) error {
 		PostalCode:       req.PostalCode,
 	}
 
-    createdOrg, err := h.orgService.CreateOrganization(userID, org)
-    if err != nil {
-        statusCode := fiber.StatusInternalServerError
-        if strings.Contains(err.Error(), "profile") || strings.Contains(err.Error(), "complete") {
-            statusCode = fiber.StatusBadRequest
-        }
-        return helper.SendErrorResponse(c, statusCode, err.Error())
-    }
-    responseData := map[string]interface{}{
-        "organization_code": createdOrg.OrganizationCode,
-        "organization":      createdOrg,
-    }
+	createdOrg, err := h.orgService.CreateOrganization(userID, org)
+	if err != nil {
+		fmt.Println("Error creating organization:", err.Error())
+		statusCode := fiber.StatusInternalServerError
+		if strings.Contains(err.Error(), "profile") || strings.Contains(err.Error(), "complete") || strings.Contains(err.Error(), "invalid") || strings.Contains(strings.ToLower(err.Error()), "foreign key") {
+			statusCode = fiber.StatusBadRequest
+		}
+		return helper.SendErrorResponse(c, statusCode, err.Error())
+	}
+	responseData := map[string]interface{}{
+		"organization_id":   createdOrg.ID,
+		"organizationID":    createdOrg.ID,
+		"organization_code": createdOrg.OrganizationCode,
+		"OrganizationCode":  createdOrg.OrganizationCode,
+		"organization":      createdOrg,
+	}
 
-    return helper.SuccessResponse(c, fiber.StatusCreated, "Organization created successfully", responseData)
+	return helper.SuccessResponse(c, fiber.StatusCreated, "Organization created successfully", responseData)
 }
 
 func (h *OrganizationHandler) JoinOrganization(c *fiber.Ctx) error {

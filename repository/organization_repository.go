@@ -73,11 +73,11 @@ func (r *OrganizationRepository) FindByID(id string) (*model.Organization, error
 // FindByCode retrieves an organization by code from database
 func (r *OrganizationRepository) FindByCode(code string) (*model.Organization, error) {
 	query := fmt.Sprintf(`
-		SELECT id, organization_code, organization_name, company_name, address, city, province,
-		       phone, email, username, created_at, updated_at
-		FROM organizations
-		WHERE organization_code = %s
-	`, r.getPlaceholder(1))
+        SELECT organization_id, organization_code, organization_name, company_name, address, city, province,
+               phone, email, created_at, updated_at
+        FROM organizations
+        WHERE organization_code = %s
+    `, r.getPlaceholder(1))
 
 	var org model.Organization
 	err := r.db.QueryRow(query, code).Scan(
@@ -90,7 +90,6 @@ func (r *OrganizationRepository) FindByCode(code string) (*model.Organization, e
 		&org.Province,
 		&org.Phone,
 		&org.Email,
-		&org.Username,
 		&org.CreatedAt,
 		&org.UpdatedAt,
 	)
@@ -165,14 +164,23 @@ func (r *OrganizationRepository) Create(org *model.Organization) (*model.Organiz
 
 	if r.driver == "postgres" {
 		query := fmt.Sprintf(`
-			INSERT INTO organizations (organization_id, organization_code, organization_name, company_name, address, 
-			                          city, province, phone, email, npwp_number, organization_type, postal_code, created_by, created_at, updated_at)
-			VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-			RETURNING created_at, updated_at
-		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
-			r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8),
-			r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12),
-			r.getPlaceholder(13), r.getPlaceholder(14), r.getPlaceholder(15))
+            INSERT INTO organizations (
+                organization_id, organization_code, organization_name, company_name, address,
+                city, province, phone, email, npwp_number, organization_type, postal_code,
+                created_by, created_at, updated_at
+            )
+            SELECT %s, %s, %s, %s, %s,
+                   %s, %s, %s, %s, %s, %s, %s,
+                   u.user_id, %s, %s
+            FROM users u
+            WHERE u.user_id = %s
+            RETURNING created_at, updated_at
+        `,
+			r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
+			r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12),
+			r.getPlaceholder(14), r.getPlaceholder(15),
+			r.getPlaceholder(13),
+		)
 
 		err := r.db.QueryRow(
 			query,
@@ -188,7 +196,7 @@ func (r *OrganizationRepository) Create(org *model.Organization) (*model.Organiz
 			sql.NullString{String: org.NPWPNumber, Valid: org.NPWPNumber != ""},
 			org.OrganizationType,
 			sql.NullString{String: org.PostalCode, Valid: org.PostalCode != ""},
-			org.CreatedBy,
+			org.CreatedBy, // used in WHERE u.user_id = $13
 			org.CreatedAt,
 			org.UpdatedAt,
 		).Scan(&org.CreatedAt, &org.UpdatedAt)
@@ -198,13 +206,22 @@ func (r *OrganizationRepository) Create(org *model.Organization) (*model.Organiz
 		}
 	} else {
 		query := fmt.Sprintf(`
-			INSERT INTO organizations (organization_id, organization_code, organization_name, company_name, address,
-			                          city, province, phone, email, npwp_number, organization_type, postal_code, created_by, created_at, updated_at)
-			VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
-			r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8),
-			r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12),
-			r.getPlaceholder(13), r.getPlaceholder(14), r.getPlaceholder(15))
+            INSERT INTO organizations (
+                organization_id, organization_code, organization_name, company_name, address,
+                city, province, phone, email, npwp_number, organization_type, postal_code,
+                created_by, created_at, updated_at
+            )
+            SELECT %s, %s, %s, %s, %s,
+                   %s, %s, %s, %s, %s, %s, %s,
+                   u.user_id, %s, %s
+            FROM users u
+            WHERE u.user_id = %s
+        `,
+			r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
+			r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12),
+			r.getPlaceholder(14), r.getPlaceholder(15),
+			r.getPlaceholder(13),
+		)
 
 		_, err := r.db.Exec(
 			query,
@@ -220,7 +237,7 @@ func (r *OrganizationRepository) Create(org *model.Organization) (*model.Organiz
 			sql.NullString{String: org.NPWPNumber, Valid: org.NPWPNumber != ""},
 			org.OrganizationType,
 			sql.NullString{String: org.PostalCode, Valid: org.PostalCode != ""},
-			org.CreatedBy,
+			org.CreatedBy, // used in WHERE u.user_id = ?
 			org.CreatedAt,
 			org.UpdatedAt,
 		)
@@ -238,12 +255,12 @@ func (r *OrganizationRepository) Update(org *model.Organization) (*model.Organiz
 
 	if r.driver == "postgres" {
 		query := fmt.Sprintf(`
-			UPDATE organizations
-			SET organization_name = %s, company_name = %s, address = %s, city = %s, province = %s,
-			    phone = %s, email = %s, updated_at = %s
-			WHERE id = %s
-			RETURNING organization_code, username, created_at
-		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
+            UPDATE organizations
+            SET organization_name = %s, company_name = %s, address = %s, city = %s, province = %s,
+                phone = %s, email = %s, updated_at = %s
+            WHERE organization_id = %s
+            RETURNING organization_code, created_at
+        `, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
 			r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8),
 			r.getPlaceholder(9))
 
@@ -258,7 +275,7 @@ func (r *OrganizationRepository) Update(org *model.Organization) (*model.Organiz
 			org.Email,
 			org.UpdatedAt,
 			org.ID,
-		).Scan(&org.OrganizationCode, &org.Username, &org.CreatedAt)
+		).Scan(&org.OrganizationCode, &org.CreatedAt)
 
 		if err != nil {
 			if err == sql.ErrNoRows {
@@ -268,11 +285,11 @@ func (r *OrganizationRepository) Update(org *model.Organization) (*model.Organiz
 		}
 	} else {
 		query := fmt.Sprintf(`
-			UPDATE organizations
-			SET organization_name = %s, company_name = %s, address = %s, city = %s, province = %s,
-			    phone = %s, email = %s, updated_at = %s
-			WHERE id = %s
-		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
+            UPDATE organizations
+            SET organization_name = %s, company_name = %s, address = %s, city = %s, province = %s,
+                phone = %s, email = %s, updated_at = %s
+            WHERE organization_id = %s
+        `, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
 			r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8),
 			r.getPlaceholder(9))
 
@@ -303,9 +320,9 @@ func (r *OrganizationRepository) Update(org *model.Organization) (*model.Organiz
 
 		// Fetch updated data
 		err = r.db.QueryRow(fmt.Sprintf(`
-			SELECT organization_code, username, created_at 
-			FROM organizations WHERE id = %s
-		`, r.getPlaceholder(1)), org.ID).Scan(&org.OrganizationCode, &org.Username, &org.CreatedAt)
+            SELECT organization_code, created_at 
+            FROM organizations WHERE organization_id = %s
+        `, r.getPlaceholder(1)), org.ID).Scan(&org.OrganizationCode, &org.CreatedAt)
 		if err != nil {
 			return nil, err
 		}
@@ -316,7 +333,7 @@ func (r *OrganizationRepository) Update(org *model.Organization) (*model.Organiz
 
 // Delete deletes an organization from database
 func (r *OrganizationRepository) Delete(id string) error {
-	query := fmt.Sprintf(`DELETE FROM organizations WHERE id = %s`, r.getPlaceholder(1))
+	query := fmt.Sprintf(`DELETE FROM organizations WHERE organization_id = %s`, r.getPlaceholder(1))
 
 	result, err := r.db.Exec(query, id)
 	if err != nil {

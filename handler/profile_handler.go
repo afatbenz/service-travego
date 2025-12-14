@@ -4,6 +4,9 @@ import (
 	"service-travego/helper"
 	"service-travego/model"
 	"service-travego/service"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -30,16 +33,29 @@ func (h *UserHandler) UpdateProfile(c *fiber.Ctx) error {
 		return helper.SendValidationErrorResponse(c, validationErrors)
 	}
 
+	var dob *time.Time
+	if req.DateOfBirth != nil {
+		dobStr := strings.TrimSpace(*req.DateOfBirth)
+		if dobStr != "" {
+			// Try YYYY-MM-DD first
+			if t, err := time.Parse("2006-01-02", dobStr); err == nil {
+				dob = &t
+			} else if t2, err2 := time.Parse(time.RFC3339, dobStr); err2 == nil {
+				dob = &t2
+			}
+		}
+	}
+
 	user := &model.User{
 		UserID:      userID,
 		Name:        req.Name,
 		Phone:       req.Phone,
 		NPWP:        req.NPWP,
 		Gender:      req.Gender,
-		DateOfBirth: req.DateOfBirth,
+		DateOfBirth: dob,
 		Address:     req.Address,
-		City:        req.City,
-		Province:    req.Province,
+		City:        strconv.Itoa(req.City),
+		Province:    strconv.Itoa(req.Province),
 		PostalCode:  req.PostalCode,
 		Avatar:      req.Avatar,
 	}

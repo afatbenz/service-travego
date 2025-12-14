@@ -1,12 +1,13 @@
 package handler
 
 import (
-	"service-travego/helper"
-	"service-travego/model"
-	"service-travego/service"
+    "service-travego/helper"
+    "service-travego/model"
+    "service-travego/service"
+    "strconv"
 
-	"github.com/gofiber/fiber/v2"
-	"github.com/google/uuid"
+    "github.com/gofiber/fiber/v2"
+    "github.com/google/uuid"
 )
 
 type UserHandler struct {
@@ -96,13 +97,13 @@ func (h *UserHandler) UpdateUser(c *fiber.Ctx) error {
 		return helper.SendValidationErrorResponse(c, validationErrors)
 	}
 
-	user := &model.User{
-		Name:     req.Name,
-		Phone:    req.Phone,
-		Address:  req.Address,
-		City:     req.City,
-		Province: req.Province,
-	}
+    user := &model.User{
+        Name:     req.Name,
+        Phone:    req.Phone,
+        Address:  req.Address,
+        City:     strconv.Itoa(req.City),
+        Province: strconv.Itoa(req.Province),
+    }
 
 	updatedUser, err := h.userService.UpdateUser(id, user)
 	if err != nil {

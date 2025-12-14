@@ -16,6 +16,7 @@ type OrganizationService struct {
 	orgRepo     *repository.OrganizationRepository
 	orgUserRepo *repository.OrganizationUserRepository
 	userRepo    *repository.UserRepository
+	orgTypeRepo *repository.OrganizationTypeRepository
 }
 
 func NewOrganizationService(orgRepo *repository.OrganizationRepository, userRepo *repository.UserRepository) *OrganizationService {
@@ -28,6 +29,11 @@ func NewOrganizationService(orgRepo *repository.OrganizationRepository, userRepo
 // SetOrganizationUserRepository sets the organization user repository
 func (s *OrganizationService) SetOrganizationUserRepository(orgUserRepo *repository.OrganizationUserRepository) {
 	s.orgUserRepo = orgUserRepo
+}
+
+// SetOrganizationTypeRepository sets the organization type repository
+func (s *OrganizationService) SetOrganizationTypeRepository(orgTypeRepo *repository.OrganizationTypeRepository) {
+	s.orgTypeRepo = orgTypeRepo
 }
 
 // generateOrganizationCode generates organization code from organization name
@@ -46,9 +52,12 @@ func (s *OrganizationService) generateOrganizationCode(orgName string) (string, 
 		}
 	}
 
-	// Take all consonants (no limit, use all available)
+	// Take up to 6 consonants to keep code length reasonable (max 10 with 4 digits)
 	var code string
-	for _, consonant := range extractedConsonants {
+	for i, consonant := range extractedConsonants {
+		if i >= 6 {
+			break
+		}
 		code += consonant
 	}
 
@@ -154,16 +163,26 @@ func (s *OrganizationService) CreateOrganization(userID string, org *model.Organ
 		}
 	}
 
-	// Set created_by
-	org.CreatedBy = userID
+	// Set created_by using canonical DB key
+	org.CreatedBy = user.UserID
 
 	// Set username
 	org.Username = user.Username
 
+	// Validate organization type if repository available
+	if s.orgTypeRepo != nil {
+		if _, err := s.orgTypeRepo.FindByID(org.OrganizationType); err != nil {
+			if err == sql.ErrNoRows {
+				return nil, errors.New("organization type invalid")
+			}
+			return nil, fmt.Errorf("failed to validate organization type: %w", err)
+		}
+	}
+
 	// Create organization
 	createdOrg, err := s.orgRepo.Create(org)
 	if err != nil {
-		return nil, errors.New("failed to create organization")
+		return nil, fmt.Errorf("failed to create organization: %w", err)
 	}
 
 	// Insert into organization_users with role 1, is_active true
