@@ -79,11 +79,18 @@ func JWTAuthorizationMiddleware() fiber.Handler {
 
 		// Extract claims
 		if claims, ok := token.Claims.(*AuthTokenClaims); ok && token.Valid {
-			// Store user_id in locals
-			c.Locals("user_id", claims.UserID)
 			c.Locals("username", claims.Username)
-			c.Locals("organization_id", claims.OrganizationID)
-			c.Locals("organization_role", claims.OrganizationRole)
+			c.Locals("organization_name", claims.OrganizationName)
+			// Decrypt sensitive token to populate locals
+			if claims.Token != "" {
+				data, derr := DecryptAuthSensitiveData(claims.Token)
+				if derr == nil {
+					c.Locals("user_id", data.UserID)
+					c.Locals("organization_id", data.OrganizationID)
+					c.Locals("organization_role", data.OrganizationRole)
+					c.Locals("is_admin", data.IsAdmin)
+				}
+			}
 			return c.Next()
 		}
 

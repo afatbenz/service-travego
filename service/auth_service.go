@@ -318,6 +318,7 @@ func (s *AuthService) Login(email, phone, password string) (*LoginResponse, erro
 	// Get organization_id and role from organization_users table
 	organizationID := ""
 	organizationRole := 0
+	organizationName := ""
 	if s.orgUserRepo != nil {
 		orgID, role, err := s.orgUserRepo.GetOrganizationAndRoleByUserID(user.UserID)
 		if err != nil && err != sql.ErrNoRows {
@@ -327,17 +328,35 @@ func (s *AuthService) Login(email, phone, password string) (*LoginResponse, erro
 			organizationID = orgID
 			organizationRole = role
 		}
+
+		orgCode, orgName, _, _, _, err := s.orgUserRepo.GetOrganizationWithJoinDateByUserID(user.UserID)
+		if err == nil {
+			organizationName = orgName
+			// Optionally, organizationID can be set from orgCode by lookup; keeping existing orgID from previous call
+			_ = orgCode
+		}
 	}
 
 	// Generate JWT token
+	// Build encrypted token for sensitive data (decryptable by frontend)
+	sensitive := helper.AuthSensitiveData{
+		OrganizationID:   organizationID,
+		UserID:           user.UserID,
+		OrganizationRole: organizationRole,
+		IsAdmin:          user.IsAdmin,
+	}
+	encToken, errEnc := helper.EncryptAuthSensitiveData(sensitive)
+	if errEnc != nil {
+		log.Printf("[ERROR] Failed to encrypt auth sensitive data - UserID: %s, Error: %v", user.UserID, errEnc)
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to generate token")
+	}
+
 	token, err := helper.GenerateAuthToken(
 		user.Name,
-		organizationID,
+		organizationName,
+		user.Email,
 		user.Username,
-		user.UserID,
-		organizationRole,
-		user.Gender,
-		user.IsAdmin,
+		encToken,
 		s.authTokenExpiryMinutes,
 	)
 	if err != nil {
