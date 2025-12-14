@@ -11,18 +11,19 @@ import (
 
 // AuthTokenClaims represents the JWT claims for authentication token
 type AuthTokenClaims struct {
-	Fullname         string `json:"fullname"`
-	OrganizationID   string `json:"organization_id"`
-	Username         string `json:"username"`
-	UserID           string `json:"user_id"`
-	OrganizationRole int    `json:"organization_role"`
-	Gender           string `json:"gender"`
-	jwt.RegisteredClaims
+    Fullname         string `json:"fullname"`
+    OrganizationID   string `json:"organization_id"`
+    Username         string `json:"username"`
+    UserID           string `json:"user_id"`
+    OrganizationRole int    `json:"organization_role"`
+    Gender           string `json:"gender"`
+    IsAdmin          bool   `json:"is_admin"`
+    jwt.RegisteredClaims
 }
 
 // GenerateAuthToken generates a JWT token for authentication with configurable expiry
 // expiryMinutes: token expiry in minutes (default: 90 if 0 or from AUTH_TOKEN_EXPIRY env)
-func GenerateAuthToken(fullname, organizationID, username, userID string, organizationRole int, gender string, expiryMinutes int) (string, error) {
+func GenerateAuthToken(fullname, organizationID, username, userID string, organizationRole int, gender string, isAdmin bool, expiryMinutes int) (string, error) {
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
 		secret = "your-secret-key-change-in-production" // Default for development
@@ -34,19 +35,20 @@ func GenerateAuthToken(fullname, organizationID, username, userID string, organi
 	}
 
 	// Create claims
-	claims := AuthTokenClaims{
-		Fullname:         fullname,
-		OrganizationID:   organizationID,
-		Username:         username,
-		UserID:           userID,
-		OrganizationRole: organizationRole,
-		Gender:           gender,
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Duration(expiryMinutes) * time.Minute)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			NotBefore: jwt.NewNumericDate(time.Now()),
-		},
-	}
+    claims := AuthTokenClaims{
+        Fullname:         fullname,
+        OrganizationID:   organizationID,
+        Username:         username,
+        UserID:           userID,
+        OrganizationRole: organizationRole,
+        Gender:           gender,
+        IsAdmin:          isAdmin,
+        RegisteredClaims: jwt.RegisteredClaims{
+            ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Duration(expiryMinutes) * time.Minute)),
+            IssuedAt:  jwt.NewNumericDate(time.Now()),
+            NotBefore: jwt.NewNumericDate(time.Now()),
+        },
+    }
 
 	// Create token
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

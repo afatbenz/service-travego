@@ -1,14 +1,14 @@
 package handler
 
 import (
-    "fmt"
-    "log"
-    "os"
-    "service-travego/helper"
-    "service-travego/model"
-    "service-travego/service"
-    "strconv"
-    "strings"
+	"fmt"
+	"log"
+	"os"
+	"service-travego/helper"
+	"service-travego/model"
+	"service-travego/service"
+	"strconv"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -24,25 +24,25 @@ func NewAuthHandler(authService *service.AuthService) *AuthHandler {
 }
 
 func (h *AuthHandler) Register(c *fiber.Ctx) error {
-    var req model.RegisterRequest
+	var req model.RegisterRequest
 
 	if err := c.BodyParser(&req); err != nil {
 		log.Printf("[ERROR] BodyParser failed - Path: %s, Error: %v", c.Path(), err)
 		return helper.BadRequestResponse(c, "Invalid request body")
 	}
 
-    if validationErrors := helper.ValidateStruct(req); len(validationErrors) > 0 {
-        return helper.SendValidationErrorResponse(c, validationErrors)
-    }
+	if validationErrors := helper.ValidateStruct(req); len(validationErrors) > 0 {
+		return helper.SendValidationErrorResponse(c, validationErrors)
+	}
 
-    // Default username from email local-part if not provided
-    if req.Username == "" && req.Email != "" {
-        if at := strings.Index(req.Email, "@"); at > 0 {
-            req.Username = req.Email[:at]
-        } else {
-            req.Username = req.Email
-        }
-    }
+	// Default username from email local-part if not provided
+	if req.Username == "" && req.Email != "" {
+		if at := strings.Index(req.Email, "@"); at > 0 {
+			req.Username = req.Email[:at]
+		} else {
+			req.Username = req.Email
+		}
+	}
 
 	user, token, err := h.authService.Register(req.Username, req.Fullname, req.Email, req.Password, req.Phone)
 	if err != nil {
@@ -110,10 +110,16 @@ func (h *AuthHandler) ResendOTP(c *fiber.Ctx) error {
 		return helper.SendValidationErrorResponse(c, validationErrors)
 	}
 
+	log.Printf("[DEBUG] ResendOTP request - Email: %s, TokenPresent: %t, TokenLen: %d", req.Email, req.Token != "", len(req.Token))
+
 	token, err := h.authService.ResendOTP(req.Email, req.Token)
 	if err != nil {
 		statusCode := service.GetStatusCode(err)
-		log.Printf("[ERROR] ResendOTP failed - Email: %s, Status: %d, Error: %v", req.Email, statusCode, err)
+		tokenPreview := req.Token
+		if len(tokenPreview) > 16 {
+			tokenPreview = tokenPreview[:8] + "..." + tokenPreview[len(tokenPreview)-8:]
+		}
+		log.Printf("[ERROR] ResendOTP failed - Email: %s, TokenPreview: %s, Status: %d, Error: %v", req.Email, tokenPreview, statusCode, err)
 		return helper.SendErrorResponse(c, statusCode, err.Error())
 	}
 

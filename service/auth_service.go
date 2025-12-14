@@ -184,6 +184,7 @@ func (s *AuthService) ResendOTP(email, token string) (string, error) {
 		// Find user by email
 		user, err := s.userRepo.FindByEmail(email)
 		if err != nil {
+			log.Printf("[DEBUG] ResendOTP user not found by email - Email: %s", email)
 			return "", NewServiceError(ErrUserNotFound, http.StatusNotFound, "user not found")
 		}
 		userEmail = user.Email
@@ -195,6 +196,11 @@ func (s *AuthService) ResendOTP(email, token string) (string, error) {
 			log.Printf("[ERROR] Failed to decrypt token - Error: %v", err)
 			return "", NewServiceError(ErrInvalidOTP, http.StatusBadRequest, "invalid token")
 		}
+		tp := token
+		if len(tp) > 16 {
+			tp = tp[:8] + "..." + tp[len(tp)-8:]
+		}
+		log.Printf("[DEBUG] ResendOTP token decrypted - TokenPreview: %s, Email: %s, UserID: %s", tp, userEmail, userID)
 	} else {
 		return "", NewServiceError(ErrInvalidOTP, http.StatusBadRequest, "either email or token is required")
 	}
@@ -202,12 +208,14 @@ func (s *AuthService) ResendOTP(email, token string) (string, error) {
 	// Find user by email and verify user_id matches
 	user, err := s.userRepo.FindByEmail(userEmail)
 	if err != nil {
+		log.Printf("[DEBUG] ResendOTP user not found on confirm - Email: %s", userEmail)
 		return "", NewServiceError(ErrUserNotFound, http.StatusNotFound, "user not found")
 	}
 
 	// If using token, verify user_id from decrypt matches user_id in database
 	if token != "" && email == "" {
 		if user.UserID != userID {
+			log.Printf("[DEBUG] ResendOTP user_id mismatch - Decrypted: %s, DB: %s", userID, user.UserID)
 			return "", NewServiceError(ErrUserNotFound, http.StatusNotFound, "user not found")
 		}
 	}
@@ -329,6 +337,7 @@ func (s *AuthService) Login(email, phone, password string) (*LoginResponse, erro
 		user.UserID,
 		organizationRole,
 		user.Gender,
+		user.IsAdmin,
 		s.authTokenExpiryMinutes,
 	)
 	if err != nil {

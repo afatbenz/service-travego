@@ -58,7 +58,8 @@ func (s *GeneralService) GetWebMenu() (*model.WebMenu, error) {
 }
 
 // GetProvinces reads and returns provinces from location JSON file
-func (s *GeneralService) GetProvinces() ([]model.Province, error) {
+// If searchText is provided, it filters provinces by name containing the search text (case-insensitive)
+func (s *GeneralService) GetProvinces(searchText string) ([]model.Province, error) {
 	file, err := os.Open(s.locationPath)
 	if err != nil {
 		return nil, err
@@ -72,13 +73,26 @@ func (s *GeneralService) GetProvinces() ([]model.Province, error) {
 		return nil, err
 	}
 
-	return location.Provinces, nil
+    if searchText == "" {
+        return location.Provinces, nil
+    }
+
+    searchLower := strings.ToLower(strings.TrimSpace(searchText))
+    var filtered []model.Province
+    for _, p := range location.Provinces {
+        if strings.Contains(strings.ToLower(p.Name), searchLower) {
+            filtered = append(filtered, p)
+        }
+    }
+    return filtered, nil
 }
 
 // GetCities reads and returns cities from location JSON file
-// If provinceID is provided, it filters cities by that province ID
-// If searchText is provided, it filters cities by name containing the search text (case-insensitive)
-func (s *GeneralService) GetCities(provinceID, searchText string) ([]model.City, error) {
+// Filters supported:
+// - provinceID: map to province name and filter by exact name (case-insensitive)
+// - provinceName: filter by exact province name (case-insensitive)
+// - searchText: filter by city name contains (case-insensitive)
+func (s *GeneralService) GetCities(provinceID, provinceName, searchText string) ([]model.City, error) {
 	file, err := os.Open(s.locationPath)
 	if err != nil {
 		return nil, err
@@ -94,25 +108,27 @@ func (s *GeneralService) GetCities(provinceID, searchText string) ([]model.City,
 
 	var filteredCities []model.City
 
-	// If provinceID is provided, find the province name first
-	provinceName := ""
-	if provinceID != "" {
-		for _, province := range location.Provinces {
-			if province.ID == provinceID {
-				provinceName = province.Name
-				break
-			}
-		}
-	}
+    // Determine province filter name (from ID or provided name)
+    filterProvinceLower := ""
+    if strings.TrimSpace(provinceName) != "" {
+        filterProvinceLower = strings.ToLower(strings.TrimSpace(provinceName))
+    } else if provinceID != "" {
+        for _, province := range location.Provinces {
+            if province.ID == provinceID {
+                filterProvinceLower = strings.ToLower(province.Name)
+                break
+            }
+        }
+    }
 
 	// Filter cities
 	for _, city := range location.Cities {
-		// Filter by province ID (if provided)
-		if provinceID != "" {
-			if provinceName == "" || city.Province != provinceName {
-				continue
-			}
-		}
+        // Filter by province (if provided via name or id)
+        if filterProvinceLower != "" {
+            if strings.ToLower(city.Province) != filterProvinceLower {
+                continue
+            }
+        }
 
 		// Filter by search text (if provided) - case-insensitive partial match
 		if searchText != "" {

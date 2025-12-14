@@ -64,16 +64,20 @@ func (h *OrganizationHandler) CreateOrganization(c *fiber.Ctx) error {
 		PostalCode:       req.PostalCode,
 	}
 
-	createdOrg, err := h.orgService.CreateOrganization(userID, org)
-	if err != nil {
-		statusCode := fiber.StatusInternalServerError
-		if strings.Contains(err.Error(), "profile") || strings.Contains(err.Error(), "complete") {
-			statusCode = fiber.StatusBadRequest
-		}
-		return helper.SendErrorResponse(c, statusCode, err.Error())
-	}
+    createdOrg, err := h.orgService.CreateOrganization(userID, org)
+    if err != nil {
+        statusCode := fiber.StatusInternalServerError
+        if strings.Contains(err.Error(), "profile") || strings.Contains(err.Error(), "complete") {
+            statusCode = fiber.StatusBadRequest
+        }
+        return helper.SendErrorResponse(c, statusCode, err.Error())
+    }
+    responseData := map[string]interface{}{
+        "organization_code": createdOrg.OrganizationCode,
+        "organization":      createdOrg,
+    }
 
-	return helper.SuccessResponse(c, fiber.StatusCreated, "Organization created successfully", createdOrg)
+    return helper.SuccessResponse(c, fiber.StatusCreated, "Organization created successfully", responseData)
 }
 
 func (h *OrganizationHandler) JoinOrganization(c *fiber.Ctx) error {
