@@ -32,10 +32,11 @@ func SetupRoutes(app *fiber.App, cfg *configs.Config) {
 	}
 
 	// Setup route groups
-	SetupGeneralRoutes(api)
+	SetupGeneralRoutes(api, db, cfg.Database.Driver)
 	SetupAuthRoutes(api, db, cfg.Database.Driver, cfg)
 	SetupBookingRoutes(api)
 	SetupOrganizationRoutes(api, db, cfg.Database.Driver, cfg)
 	SetupUserRoutes(api, db, cfg.Database.Driver)
 	SetupUploadRoutes(api)
+	SetupFleetRoutes(api, db, cfg.Database.Driver)
 }

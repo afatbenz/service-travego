@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"mime/multipart"
 	"os"
 	"path/filepath"
 	"service-travego/helper"
@@ -75,4 +76,100 @@ func (h *UploadHandler) UploadPhoto(c *fiber.Ctx) error {
 	}
 
 	return helper.SuccessResponse(c, fiber.StatusOK, "Photo uploaded successfully", responseData)
+}
+
+// UploadCommon handles POST /api/common/upload
+func (h *UploadHandler) UploadCommon(c *fiber.Ctx) error {
+	uploadType := c.FormValue("type")
+	if uploadType == "" {
+		return helper.BadRequestResponse(c, "type is required")
+	}
+
+	// Validate type
+	validTypes := []string{"armada", "package", "order", "content"}
+	isValid := false
+	for _, vt := range validTypes {
+		if uploadType == vt {
+			isValid = true
+			break
+		}
+	}
+	if !isValid {
+		return helper.BadRequestResponse(c, "type must be one of: armada, package, order, content")
+	}
+
+	// Support multiple files
+	var files []*multipart.FileHeader
+	if form, err := c.MultipartForm(); err == nil && form != nil {
+		if f := form.File["files"]; len(f) > 0 {
+			files = f
+		}
+	}
+	if len(files) == 0 {
+		if f, err := c.FormFile("files"); err == nil && f != nil {
+			files = []*multipart.FileHeader{f}
+		}
+	}
+	if len(files) == 0 {
+		return helper.BadRequestResponse(c, "files is required")
+	}
+
+	tempDir := os.TempDir()
+	uploaded := make([]string, 0, len(files))
+	for _, file := range files {
+		tempFilePath := filepath.Join(tempDir, file.Filename)
+		if err := c.SaveFile(file, tempFilePath); err != nil {
+			return helper.BadRequestResponse(c, "failed to save uploaded file")
+		}
+		// Upload with compression if needed
+		filePath, err := h.uploadService.UploadCommon(tempFilePath, uploadType)
+		// Cleanup temp
+		os.Remove(tempFilePath)
+		if err != nil {
+			statusCode := service.GetStatusCode(err)
+			return helper.SendErrorResponse(c, statusCode, err.Error())
+		}
+		uploaded = append(uploaded, filePath)
+	}
+
+	responseData := map[string]interface{}{
+		"files":     uploaded,
+		"count":     len(uploaded),
+		"first_url": uploaded[0],
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Files uploaded successfully", responseData)
+}
+
+type deleteFilesPayload struct {
+	Pathfile string   `json:"pathfile"`
+	Files    []string `json:"files"`
+}
+
+func (h *UploadHandler) DeleteFilesCommon(c *fiber.Ctx) error {
+	var payload deleteFilesPayload
+	if err := c.BodyParser(&payload); err != nil {
+		return helper.BadRequestResponse(c, "invalid payload")
+	}
+	var paths []string
+	if len(payload.Files) > 0 {
+		paths = payload.Files
+	}
+	if payload.Pathfile != "" {
+		paths = append(paths, payload.Pathfile)
+	}
+	if len(paths) == 0 {
+		return helper.BadRequestResponse(c, "pathfile or files is required")
+	}
+	deleted, failed, err := h.uploadService.DeleteFiles(paths)
+	if err != nil {
+		statusCode := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, statusCode, err.Error())
+	}
+	resp := map[string]interface{}{
+		"deleted":       deleted,
+		"failed":        failed,
+		"count_deleted": len(deleted),
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Files deleted successfully", resp)
 }

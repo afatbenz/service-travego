@@ -54,9 +54,13 @@ func (g Gender) IsValid() bool {
 type UploadType string
 
 const (
-	UploadTypeProfileUser      UploadType = "profile-user"      // PROFILE_USER
-	UploadTypeIconCompany      UploadType = "icon-company"      // ICON_COMPANY
-	UploadTypeContentThumbnail UploadType = "content-thumbnail" // CONTENT_THUMBNAIL
+    UploadTypeProfileUser      UploadType = "profile-user"      // PROFILE_USER
+    UploadTypeIconCompany      UploadType = "icon-company"      // ICON_COMPANY
+    UploadTypeContentThumbnail UploadType = "content-thumbnail" // CONTENT_THUMBNAIL
+    UploadTypeArmada           UploadType = "armada"
+    UploadTypePackage          UploadType = "package"
+    UploadTypeOrder            UploadType = "order"
+    UploadTypeContent          UploadType = "content"
 )
 
 // String returns the string representation of UploadType
@@ -66,19 +70,28 @@ func (u UploadType) String() string {
 
 // IsValid checks if the upload type is valid
 func (u UploadType) IsValid() bool {
-	return u == UploadTypeProfileUser || u == UploadTypeIconCompany || u == UploadTypeContentThumbnail
+    return u == UploadTypeProfileUser || u == UploadTypeIconCompany || u == UploadTypeContentThumbnail ||
+        u == UploadTypeArmada || u == UploadTypePackage || u == UploadTypeOrder || u == UploadTypeContent
 }
 
 // GetStoragePath returns the storage path for the upload type
 func (u UploadType) GetStoragePath() string {
-	switch u {
-	case UploadTypeProfileUser:
-		return "/assets/avatar"
-	case UploadTypeIconCompany:
-		return "/assets/icon"
-	case UploadTypeContentThumbnail:
-		return "/assets/thumbnail"
-	default:
-		return ""
-	}
+    switch u {
+    case UploadTypeProfileUser:
+        return "/assets/avatar"
+    case UploadTypeIconCompany:
+        return "/assets/icon"
+    case UploadTypeContentThumbnail:
+        return "/assets/thumbnail"
+    case UploadTypeArmada:
+        return "/assets/armada"
+    case UploadTypePackage:
+        return "/assets/package"
+    case UploadTypeOrder:
+        return "/assets/order"
+    case UploadTypeContent:
+        return "/assets/content"
+    default:
+        return ""
+    }
 }

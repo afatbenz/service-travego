@@ -8,13 +8,23 @@ import (
 )
 
 type GeneralHandler struct {
-	generalService *service.GeneralService
+	generalService   *service.GeneralService
+	fleetTypeService *service.FleetTypeService
+	fleetMetaService *service.FleetMetaService
 }
 
 func NewGeneralHandler(generalService *service.GeneralService) *GeneralHandler {
 	return &GeneralHandler{
 		generalService: generalService,
 	}
+}
+
+func (h *GeneralHandler) SetFleetTypeService(s *service.FleetTypeService) {
+	h.fleetTypeService = s
+}
+
+func (h *GeneralHandler) SetFleetMetaService(s *service.FleetMetaService) {
+	h.fleetMetaService = s
 }
 
 func (h *GeneralHandler) GetGeneralConfig(c *fiber.Ctx) error {
@@ -46,6 +56,49 @@ func (h *GeneralHandler) GetProvinces(c *fiber.Ctx) error {
 		message = "Provinces filtered by search text loaded successfully"
 	}
 	return helper.SuccessResponse(c, fiber.StatusOK, message, provinces)
+}
+
+func (h *GeneralHandler) GetFleetTypes(c *fiber.Ctx) error {
+	if h.fleetTypeService == nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Fleet type service not configured")
+	}
+	types, err := h.fleetTypeService.GetAllFleetTypes()
+	if err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to load fleet types")
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet types loaded successfully", types)
+}
+
+func (h *GeneralHandler) GetFleetBodies(c *fiber.Ctx) error {
+	if h.fleetMetaService == nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Fleet meta service not configured")
+	}
+	orgID, _ := c.Locals("organization_id").(string)
+	if orgID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusBadRequest, "missing organization context")
+	}
+	search := c.Query("search", "")
+	list, err := h.fleetMetaService.GetBodies(orgID, search)
+	if err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to load fleet bodies")
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet bodies loaded successfully", list)
+}
+
+func (h *GeneralHandler) GetFleetEngines(c *fiber.Ctx) error {
+	if h.fleetMetaService == nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Fleet meta service not configured")
+	}
+	orgID, _ := c.Locals("organization_id").(string)
+	if orgID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusBadRequest, "missing organization context")
+	}
+	search := c.Query("search", "")
+	list, err := h.fleetMetaService.GetEngines(orgID, search)
+	if err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to load fleet engines")
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet engines loaded successfully", list)
 }
 
 func (h *GeneralHandler) GetCities(c *fiber.Ctx) error {

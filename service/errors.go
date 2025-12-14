@@ -6,14 +6,15 @@ import (
 )
 
 var (
-	ErrUserNotFound       = errors.New("user not found")
-	ErrEmailExists        = errors.New("email already exists")
-	ErrUsernameExists     = errors.New("username already exists")
-	ErrPhoneExists        = errors.New("phone already exists")
-	ErrInvalidOTP         = errors.New("invalid or expired OTP")
-	ErrInvalidCredentials = errors.New("invalid credentials")
-	ErrUnauthorized       = errors.New("unauthorized")
-	ErrInternalServer     = errors.New("internal server error")
+    ErrUserNotFound       = errors.New("user not found")
+    ErrEmailExists        = errors.New("email already exists")
+    ErrUsernameExists     = errors.New("username already exists")
+    ErrPhoneExists        = errors.New("phone already exists")
+    ErrInvalidInput       = errors.New("invalid input")
+    ErrInvalidOTP         = errors.New("invalid or expired OTP")
+    ErrInvalidCredentials = errors.New("invalid credentials")
+    ErrUnauthorized       = errors.New("unauthorized")
+    ErrInternalServer     = errors.New("internal server error")
 )
 
 // ServiceError represents a service error with HTTP status code

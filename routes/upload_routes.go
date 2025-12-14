@@ -18,4 +18,9 @@ func SetupUploadRoutes(api fiber.Router) {
 	upload := api.Group("/upload")
 	upload.Post("/photo", helper.JWTAuthorizationMiddleware(), uploadHandler.UploadPhoto)
 	upload.Post("/avatar", helper.JWTAuthorizationMiddleware(), uploadHandler.UploadPhoto)
+
+	// Common upload route
+	common := api.Group("/common")
+	common.Post("/upload", helper.JWTAuthorizationMiddleware(), uploadHandler.UploadCommon)
+	common.Post("/delete-files", helper.JWTAuthorizationMiddleware(), uploadHandler.DeleteFilesCommon)
 }
