@@ -2,6 +2,7 @@ package repository
 
 import (
 	"database/sql"
+	"fmt"
 	"service-travego/model"
 )
 
@@ -17,13 +18,21 @@ func NewOrganizationTypeRepository(db *sql.DB, driver string) *OrganizationTypeR
 	}
 }
 
+// getPlaceholder returns the appropriate placeholder for the database driver
+func (r *OrganizationTypeRepository) getPlaceholder(pos int) string {
+	if r.driver == "mysql" {
+		return "?"
+	}
+	return fmt.Sprintf("$%d", pos)
+}
+
 // FindAll retrieves all organization types ordered by name ascending
 func (r *OrganizationTypeRepository) FindAll() ([]model.OrganizationType, error) {
 	query := `
-		SELECT id, name
-		FROM organization_types
-		ORDER BY name ASC
-	`
+        SELECT id, name
+        FROM organization_types
+        ORDER BY name ASC
+    `
 
 	rows, err := r.db.Query(query)
 	if err != nil {
@@ -45,4 +54,23 @@ func (r *OrganizationTypeRepository) FindAll() ([]model.OrganizationType, error)
 	}
 
 	return orgTypes, nil
+}
+
+// FindByID retrieves an organization type by id
+func (r *OrganizationTypeRepository) FindByID(id int) (*model.OrganizationType, error) {
+	query := fmt.Sprintf(`
+        SELECT id, name
+        FROM organization_types
+        WHERE id = %s
+    `, r.getPlaceholder(1))
+
+	var orgType model.OrganizationType
+	err := r.db.QueryRow(query, id).Scan(&orgType.ID, &orgType.Name)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, sql.ErrNoRows
+		}
+		return nil, err
+	}
+	return &orgType, nil
 }

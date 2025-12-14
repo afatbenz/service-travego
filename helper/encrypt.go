@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"time"
+    "time"
 )
 
 // EncryptData encrypts data (email, user_id) into a token
@@ -303,4 +303,100 @@ func DecryptResetPasswordToken(token string) (email, userID string, expiryMinute
 	}
 
 	return email, userID, expiryMinutes, nil
+}
+// AuthSensitiveData represents sensitive auth data to be encrypted
+type AuthSensitiveData struct {
+    OrganizationID   string `json:"organization_id"`
+    UserID           string `json:"user_id"`
+    OrganizationRole int    `json:"organization_role"`
+    IsAdmin          bool   `json:"is_admin"`
+}
+
+// EncryptAuthSensitiveData encrypts sensitive auth data into a token (AES-256-GCM, base64url)
+func EncryptAuthSensitiveData(data AuthSensitiveData) (string, error) {
+    secretKey := os.Getenv("JWT_SECRET")
+    if secretKey == "" {
+        secretKey = "your-secret-key-change-in-production"
+    }
+
+    key := make([]byte, 32)
+    copy(key, []byte(secretKey))
+    if len(secretKey) < 32 {
+        for i := len(secretKey); i < 32; i++ {
+            key[i] = 0
+        }
+    }
+
+    jsonData, err := json.Marshal(data)
+    if err != nil {
+        return "", fmt.Errorf("failed to marshal data: %w", err)
+    }
+
+    block, err := aes.NewCipher(key)
+    if err != nil {
+        return "", fmt.Errorf("failed to create cipher: %w", err)
+    }
+
+    gcm, err := cipher.NewGCM(block)
+    if err != nil {
+        return "", fmt.Errorf("failed to create GCM: %w", err)
+    }
+
+    nonce := make([]byte, gcm.NonceSize())
+    if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+        return "", fmt.Errorf("failed to create nonce: %w", err)
+    }
+
+    ciphertext := gcm.Seal(nonce, nonce, jsonData, nil)
+    token := base64.URLEncoding.EncodeToString(ciphertext)
+    return token, nil
+}
+
+// DecryptAuthSensitiveData decrypts token to retrieve sensitive auth data
+func DecryptAuthSensitiveData(token string) (AuthSensitiveData, error) {
+    secretKey := os.Getenv("JWT_SECRET")
+    if secretKey == "" {
+        secretKey = "your-secret-key-change-in-production"
+    }
+
+    key := make([]byte, 32)
+    copy(key, []byte(secretKey))
+    if len(secretKey) < 32 {
+        for i := len(secretKey); i < 32; i++ {
+            key[i] = 0
+        }
+    }
+
+    ciphertext, err := base64.URLEncoding.DecodeString(token)
+    if err != nil {
+        return AuthSensitiveData{}, fmt.Errorf("failed to decode token: %w", err)
+    }
+
+    block, err := aes.NewCipher(key)
+    if err != nil {
+        return AuthSensitiveData{}, fmt.Errorf("failed to create cipher: %w", err)
+    }
+
+    gcm, err := cipher.NewGCM(block)
+    if err != nil {
+        return AuthSensitiveData{}, fmt.Errorf("failed to create GCM: %w", err)
+    }
+
+    nonceSize := gcm.NonceSize()
+    if len(ciphertext) < nonceSize {
+        return AuthSensitiveData{}, fmt.Errorf("ciphertext too short")
+    }
+
+    nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
+    plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+    if err != nil {
+        return AuthSensitiveData{}, fmt.Errorf("failed to decrypt: %w", err)
+    }
+
+    var data AuthSensitiveData
+    if err := json.Unmarshal(plaintext, &data); err != nil {
+        return AuthSensitiveData{}, fmt.Errorf("failed to unmarshal data: %w", err)
+    }
+
+    return data, nil
 }

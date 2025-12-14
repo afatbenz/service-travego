@@ -12,10 +12,10 @@ type CreateUserRequest struct {
 
 // UpdateUserRequest represents update user request payload
 type UpdateUserRequest struct {
-	Name     string `json:"name" validate:"omitempty"`
-	Phone    string `json:"phone" validate:"omitempty"`
-	Address  string `json:"address" validate:"omitempty"`
-	City     string `json:"city" validate:"omitempty"`
-	Province string `json:"province" validate:"omitempty"`
+    Name     string `json:"name" validate:"omitempty"`
+    Phone    string `json:"phone" validate:"omitempty"`
+    Address  string `json:"address" validate:"omitempty"`
+    City     int    `json:"city" validate:"omitempty"`
+    Province int    `json:"province" validate:"omitempty"`
 }
 

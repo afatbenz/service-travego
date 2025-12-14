@@ -12,15 +12,16 @@ import (
 // FindByUsername retrieves a user by username from database
 func (r *UserRepository) FindByUsername(username string) (*model.User, error) {
 	query := fmt.Sprintf(`
-		SELECT user_id, username, fullname, email, password, phone, address, city, province, postal_code, 
-		       npwp, gender, date_of_birth, is_active, is_verified, created_at, updated_at, deleted_at
-		FROM users
-		WHERE username = %s AND deleted_at IS NULL
-	`, r.getPlaceholder(1))
+        SELECT user_id, username, fullname, email, password, phone, address, city, province, postal_code, 
+               npwp, gender, date_of_birth, is_active, is_verified, is_admin, created_at, updated_at, deleted_at
+        FROM users
+        WHERE username = %s AND deleted_at IS NULL
+    `, r.getPlaceholder(1))
 
 	var user model.User
 	var deletedAt, dateOfBirth sql.NullTime
 	var fullname, address, city, province, postalCode, npwp, gender sql.NullString
+	var isAdmin sql.NullBool
 
 	err := r.db.QueryRow(query, username).Scan(
 		&user.UserID,
@@ -38,6 +39,7 @@ func (r *UserRepository) FindByUsername(username string) (*model.User, error) {
 		&dateOfBirth,
 		&user.IsActive,
 		&user.IsVerified,
+		&isAdmin,
 		&user.CreatedAt,
 		&user.UpdatedAt,
 		&deletedAt,
@@ -83,15 +85,16 @@ func (r *UserRepository) FindByUsername(username string) (*model.User, error) {
 // FindByPhone retrieves a user by phone number from database
 func (r *UserRepository) FindByPhone(phone string) (*model.User, error) {
 	query := fmt.Sprintf(`
-		SELECT user_id, username, fullname, email, password, phone, address, city, province, postal_code,
-		       npwp, gender, date_of_birth, is_active, is_verified, created_at, updated_at, deleted_at
-		FROM users
-		WHERE phone = %s AND deleted_at IS NULL
-	`, r.getPlaceholder(1))
+        SELECT user_id, username, fullname, email, password, phone, address, city, province, postal_code,
+               npwp, gender, date_of_birth, is_active, is_verified, is_admin, created_at, updated_at, deleted_at
+        FROM users
+        WHERE phone = %s AND deleted_at IS NULL
+    `, r.getPlaceholder(1))
 
 	var user model.User
 	var deletedAt, dateOfBirth sql.NullTime
 	var fullname, address, city, province, postalCode, npwp, gender sql.NullString
+	var isAdmin sql.NullBool
 
 	err := r.db.QueryRow(query, phone).Scan(
 		&user.UserID,
@@ -109,6 +112,7 @@ func (r *UserRepository) FindByPhone(phone string) (*model.User, error) {
 		&dateOfBirth,
 		&user.IsActive,
 		&user.IsVerified,
+		&isAdmin,
 		&user.CreatedAt,
 		&user.UpdatedAt,
 		&deletedAt,

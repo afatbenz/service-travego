@@ -14,11 +14,13 @@ type GeneralService struct {
 }
 
 func NewGeneralService(configPath, menuPath, locationPath string) *GeneralService {
-	return &GeneralService{
+	s := &GeneralService{
 		configPath:   configPath,
 		menuPath:     menuPath,
 		locationPath: locationPath,
 	}
+	s.ensureLocationProvinceIDs()
+	return s
 }
 
 // GetGeneralConfig reads and returns general configuration from JSON file
@@ -58,7 +60,8 @@ func (s *GeneralService) GetWebMenu() (*model.WebMenu, error) {
 }
 
 // GetProvinces reads and returns provinces from location JSON file
-func (s *GeneralService) GetProvinces() ([]model.Province, error) {
+// If searchText is provided, it filters provinces by name containing the search text (case-insensitive)
+func (s *GeneralService) GetProvinces(searchText string) ([]model.Province, error) {
 	file, err := os.Open(s.locationPath)
 	if err != nil {
 		return nil, err
@@ -72,13 +75,26 @@ func (s *GeneralService) GetProvinces() ([]model.Province, error) {
 		return nil, err
 	}
 
-	return location.Provinces, nil
+	if searchText == "" {
+		return location.Provinces, nil
+	}
+
+	searchLower := strings.ToLower(strings.TrimSpace(searchText))
+	var filtered []model.Province
+	for _, p := range location.Provinces {
+		if strings.Contains(strings.ToLower(p.Name), searchLower) {
+			filtered = append(filtered, p)
+		}
+	}
+	return filtered, nil
 }
 
 // GetCities reads and returns cities from location JSON file
-// If provinceID is provided, it filters cities by that province ID
-// If searchText is provided, it filters cities by name containing the search text (case-insensitive)
-func (s *GeneralService) GetCities(provinceID, searchText string) ([]model.City, error) {
+// Filters supported:
+// - provinceID: map to province name and filter by exact name (case-insensitive)
+// - provinceName: filter by exact province name (case-insensitive)
+// - searchText: filter by city name contains (case-insensitive)
+func (s *GeneralService) GetCities(provinceID, provinceName, searchText string) ([]model.City, error) {
 	file, err := os.Open(s.locationPath)
 	if err != nil {
 		return nil, err
@@ -94,22 +110,37 @@ func (s *GeneralService) GetCities(provinceID, searchText string) ([]model.City,
 
 	var filteredCities []model.City
 
-	// If provinceID is provided, find the province name first
-	provinceName := ""
-	if provinceID != "" {
-		for _, province := range location.Provinces {
-			if province.ID == provinceID {
-				provinceName = province.Name
-				break
-			}
-		}
+	// Build helper maps for enrichment and filtering
+	nameToID := make(map[string]string)
+	for _, p := range location.Provinces {
+		nameToID[strings.ToLower(p.Name)] = p.ID
 	}
 
-	// Filter cities
+	// Determine province filter name (from ID or provided name)
+	filterProvinceLower := ""
+	if strings.TrimSpace(provinceName) != "" {
+		filterProvinceLower = strings.ToLower(strings.TrimSpace(provinceName))
+	} else if provinceID != "" {
+		// If provinceID provided, we will filter directly by city.ProvinceID
+	}
+
+	// Filter and enrich cities
 	for _, city := range location.Cities {
-		// Filter by province ID (if provided)
+		// Enrich ProvinceID from province name if empty
+		if city.ProvinceID == "" {
+			if id, ok := nameToID[strings.ToLower(city.Province)]; ok {
+				city.ProvinceID = id
+			}
+		}
+
+		// Filter by provinceID (if provided)
 		if provinceID != "" {
-			if provinceName == "" || city.Province != provinceName {
+			if city.ProvinceID == "" || city.ProvinceID != provinceID {
+				continue
+			}
+		} else if filterProvinceLower != "" {
+			// Filter by province name (if provided)
+			if strings.ToLower(city.Province) != filterProvinceLower {
 				continue
 			}
 		}
@@ -127,4 +158,43 @@ func (s *GeneralService) GetCities(provinceID, searchText string) ([]model.City,
 	}
 
 	return filteredCities, nil
+}
+
+func (s *GeneralService) ensureLocationProvinceIDs() {
+	f, err := os.Open(s.locationPath)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	var location model.Location
+	d := json.NewDecoder(f)
+	if err = d.Decode(&location); err != nil {
+		return
+	}
+
+	nameToID := make(map[string]string)
+	for _, p := range location.Provinces {
+		nameToID[strings.ToLower(strings.TrimSpace(p.Name))] = p.ID
+	}
+
+	changed := false
+	for i := range location.Cities {
+		if strings.TrimSpace(location.Cities[i].ProvinceID) == "" {
+			if id, ok := nameToID[strings.ToLower(strings.TrimSpace(location.Cities[i].Province))]; ok && id != "" {
+				location.Cities[i].ProvinceID = id
+				changed = true
+			}
+		}
+	}
+
+	if !changed {
+		return
+	}
+
+	b, err := json.MarshalIndent(location, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(s.locationPath, b, 0644)
 }
