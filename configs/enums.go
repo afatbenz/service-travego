@@ -95,3 +95,24 @@ func (u UploadType) GetStoragePath() string {
         return ""
     }
 }
+
+type RentType int
+
+const (
+    RentTypeCityTour       RentType = 1
+    RentTypeOverland       RentType = 2
+    RentTypePickupDropOnly RentType = 3
+)
+
+func (r RentType) String() string {
+    switch r {
+    case RentTypeCityTour:
+        return "City Tour"
+    case RentTypeOverland:
+        return "Overland"
+    case RentTypePickupDropOnly:
+        return "Pickup / Drop Only"
+    default:
+        return "Unknown"
+    }
+}

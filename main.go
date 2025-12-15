@@ -6,6 +6,7 @@ import (
 	"service-travego/configs"
 	"service-travego/helper"
 	"service-travego/routes"
+	"strconv"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -37,10 +38,18 @@ func main() {
 	}
 
 	// Initialize Fiber app
+	// Configure BodyLimit for uploads (default 20 MB, override via BODY_LIMIT_MB env)
+	bodyLimitMB := 20
+	if v := os.Getenv("BODY_LIMIT_MB"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			bodyLimitMB = n
+		}
+	}
 	app := fiber.New(fiber.Config{
 		AppName:      cfg.App.Name,
 		ServerHeader: "Fiber",
 		ErrorHandler: helper.ErrorHandler,
+		BodyLimit:    bodyLimitMB * 1024 * 1024,
 	})
 
 	// Middleware
@@ -59,6 +68,8 @@ func main() {
 		AllowCredentials: true,
 		AllowHeaders:     "Origin, Content-Type, Accept, Authorization",
 	}))
+
+	app.Static("/assets", "./assets")
 
 	// Setup routes
 	routes.SetupRoutes(app, cfg)
