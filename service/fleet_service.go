@@ -62,7 +62,7 @@ func (s *FleetService) GetFleetDetail(orgID, fleetID string) (*model.FleetDetail
 	if err != nil {
 		prices = []model.FleetPriceItem{}
 	}
-	images, err := s.repo.GetFleetImages(orgID, fleetID)
+	images, err := s.repo.GetFleetImages(fleetID)
 	if err != nil {
 		images = []model.FleetImageItem{}
 	}

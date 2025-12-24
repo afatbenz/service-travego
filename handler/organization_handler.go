@@ -124,3 +124,28 @@ func (h *OrganizationHandler) GetOrganizationTypes(c *fiber.Ctx) error {
 
 	return helper.SuccessResponse(c, fiber.StatusOK, "Organization types loaded successfully", orgTypes)
 }
+
+// GetAPIConfig handles GET /organization/api-config
+func (h *OrganizationHandler) GetAPIConfig(c *fiber.Ctx) error {
+	userID, ok := c.Locals("user_id").(string)
+	if !ok || userID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Invalid user context")
+	}
+
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusBadRequest, "Missing organization context")
+	}
+
+	token, err := h.orgService.GetAPIConfig(userID, orgID)
+	if err != nil {
+		if strings.Contains(err.Error(), "access denied") {
+			return helper.SendErrorResponse(c, fiber.StatusForbidden, err.Error())
+		}
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "API config generated successfully", map[string]string{
+		"api_token": token,
+	})
+}

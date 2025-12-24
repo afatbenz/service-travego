@@ -276,8 +276,7 @@ func (r *FleetRepository) GetFleetFacilities(fleetID string) ([]string, error) {
 
 func (r *FleetRepository) GetFleetPickup(orgID, fleetID string) ([]model.FleetPickupItem, error) {
 	query := `
-        SELECT COALESCE(uuid, '') AS uuid, COALESCE(city_id, 0) AS city_id
-        FROM fleet_pickup WHERE organization_id = %s AND fleet_id = %s
+        SELECT uuid, city_id FROM fleet_pickup WHERE organization_id = %s AND fleet_id = %s
     `
 	query = fmt.Sprintf(query, r.getPlaceholder(1), r.getPlaceholder(2))
 	rows, err := r.db.Query(query, orgID, fleetID)
@@ -354,27 +353,20 @@ func (r *FleetRepository) GetFleetPrices(orgID, fleetID string) ([]model.FleetPr
 	return items, nil
 }
 
-func (r *FleetRepository) GetFleetImages(orgID, fleetID string) ([]model.FleetImageItem, error) {
-	query := `
-        SELECT COALESCE(uuid, '') AS uuid, COALESCE(path_file, '') AS path_file
-        FROM fleet_images WHERE organization_id = %s AND fleet_id = %s
+func (r *FleetRepository) GetFleetImages(fleetID string) ([]model.FleetImageItem, error) {
+    query := `
+        SELECT uuid, path_file FROM fleet_images WHERE fleet_id = %s
     `
-	query = fmt.Sprintf(query, r.getPlaceholder(1), r.getPlaceholder(2))
-	rows, err := r.db.Query(query, orgID, fleetID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := make([]model.FleetImageItem, 0)
-	for rows.Next() {
-		var it model.FleetImageItem
-		if err := rows.Scan(&it.UUID, &it.PathFile); err != nil {
-			return nil, err
-		}
-		items = append(items, it)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+    query = fmt.Sprintf(query, r.getPlaceholder(1))
+    rows, err := r.db.Query(query, fleetID)
+    if err != nil { return nil, err }
+    defer rows.Close()
+    items := make([]model.FleetImageItem, 0)
+    for rows.Next() {
+        var it model.FleetImageItem
+        if err := rows.Scan(&it.UUID, &it.PathFile); err != nil { return nil, err }
+        items = append(items, it)
+    }
+    if err := rows.Err(); err != nil { return nil, err }
+    return items, nil
 }

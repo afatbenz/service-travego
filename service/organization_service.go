@@ -208,3 +208,32 @@ func (s *OrganizationService) CreateOrganization(userID string, org *model.Organ
 
 	return createdOrg, nil
 }
+
+// GetAPIConfig generates an encrypted API token for admin users
+func (s *OrganizationService) GetAPIConfig(userID, organizationID string) (string, error) {
+	// Verify user role in organization
+	if s.orgUserRepo == nil {
+		return "", errors.New("organization user repository not initialized")
+	}
+
+	role, err := s.orgUserRepo.GetRoleByUserIDAndOrgID(userID, organizationID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", errors.New("user not found in organization")
+		}
+		return "", fmt.Errorf("failed to check role: %w", err)
+	}
+
+	// Check if admin (role 1)
+	if role != 1 {
+		return "", errors.New("access denied: only admin can generate api config")
+	}
+
+	// Encrypt organization ID
+	token, err := helper.EncryptString(organizationID)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate token: %w", err)
+	}
+
+	return token, nil
+}

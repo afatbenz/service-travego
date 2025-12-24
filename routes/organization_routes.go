@@ -35,5 +35,6 @@ func SetupOrganizationRoutes(api fiber.Router, db *sql.DB, driver string, cfg *c
 	organization := api.Group("/organization")
 	organization.Post("/create", helper.JWTAuthorizationMiddleware(), orgHandler.CreateOrganization)
 	organization.Post("/join", helper.JWTAuthorizationMiddleware(), orgHandler.JoinOrganization)
+	organization.Get("/api-config", helper.JWTAuthorizationMiddleware(), orgHandler.GetAPIConfig)
 	organization.Get("/types", orgHandler.GetOrganizationTypes)
 }
