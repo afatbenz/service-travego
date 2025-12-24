@@ -105,12 +105,13 @@ func DecryptData(token string) (email, userID string, err error) {
 		return "", "", fmt.Errorf("failed to create GCM: %w", err)
 	}
 
-	// Extract nonce
+	// Get nonce size
 	nonceSize := gcm.NonceSize()
 	if len(ciphertext) < nonceSize {
 		return "", "", fmt.Errorf("ciphertext too short")
 	}
 
+	// Extract nonce and ciphertext
 	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
 
 	// Decrypt
@@ -119,20 +120,108 @@ func DecryptData(token string) (email, userID string, err error) {
 		return "", "", fmt.Errorf("failed to decrypt: %w", err)
 	}
 
-	// Unmarshal JSON
+	// Unmarshal
 	var data map[string]string
 	if err := json.Unmarshal(plaintext, &data); err != nil {
 		return "", "", fmt.Errorf("failed to unmarshal data: %w", err)
 	}
 
-	email = data["email"]
-	userID = data["user_id"]
+	return data["email"], data["user_id"], nil
+}
 
-	if email == "" || userID == "" {
-		return "", "", fmt.Errorf("invalid token data")
+// EncryptString encrypts a simple string
+func EncryptString(text string) (string, error) {
+	// Get secret key from JWT_SECRET or use default
+	secretKey := os.Getenv("JWT_SECRET")
+	if secretKey == "" {
+		secretKey = "your-secret-key-change-in-production"
 	}
 
-	return email, userID, nil
+	// Ensure secret key is 32 bytes for AES-256
+	key := make([]byte, 32)
+	copy(key, []byte(secretKey))
+	if len(secretKey) < 32 {
+		for i := len(secretKey); i < 32; i++ {
+			key[i] = 0
+		}
+	}
+
+	// Create AES cipher
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", fmt.Errorf("failed to create cipher: %w", err)
+	}
+
+	// Create GCM
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", fmt.Errorf("failed to create GCM: %w", err)
+	}
+
+	// Create nonce
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", fmt.Errorf("failed to create nonce: %w", err)
+	}
+
+	// Encrypt
+	ciphertext := gcm.Seal(nonce, nonce, []byte(text), nil)
+
+	// Encode to base64
+	return base64.URLEncoding.EncodeToString(ciphertext), nil
+}
+
+// DecryptString decrypts a simple string
+func DecryptString(cryptoText string) (string, error) {
+	// Get secret key from JWT_SECRET or use default
+	secretKey := os.Getenv("JWT_SECRET")
+	if secretKey == "" {
+		secretKey = "your-secret-key-change-in-production"
+	}
+
+	// Ensure secret key is 32 bytes for AES-256
+	key := make([]byte, 32)
+	copy(key, []byte(secretKey))
+	if len(secretKey) < 32 {
+		for i := len(secretKey); i < 32; i++ {
+			key[i] = 0
+		}
+	}
+
+	// Decode from base64
+	ciphertext, err := base64.URLEncoding.DecodeString(cryptoText)
+	if err != nil {
+		return "", fmt.Errorf("failed to decode token: %w", err)
+	}
+
+	// Create AES cipher
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", fmt.Errorf("failed to create cipher: %w", err)
+	}
+
+	// Create GCM
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", fmt.Errorf("failed to create GCM: %w", err)
+	}
+
+	// Get nonce size
+	nonceSize := gcm.NonceSize()
+	if len(ciphertext) < nonceSize {
+		return "", fmt.Errorf("ciphertext too short")
+	}
+
+	// Extract nonce and ciphertext
+	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
+
+	// Decrypt
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to decrypt: %w", err)
+	}
+
+	return string(plaintext), nil
 }
 
 // ResetPasswordTokenData represents the data in a reset password token

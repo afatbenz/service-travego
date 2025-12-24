@@ -177,3 +177,23 @@ func (r *OrganizationUserRepository) GetOrganizationWithJoinDateByUserID(userID 
 
 	return organizationCode, organizationName, companyName, joinDate, organizationRole, nil
 }
+
+// GetRoleByUserIDAndOrgID retrieves organization role for a user in a specific organization
+func (r *OrganizationUserRepository) GetRoleByUserIDAndOrgID(userID, organizationID string) (int, error) {
+	query := fmt.Sprintf(`
+		SELECT organization_role
+		FROM organization_users
+		WHERE user_id = %s AND organization_id = %s
+	`, r.getPlaceholder(1), r.getPlaceholder(2))
+
+	var role int
+	err := r.db.QueryRow(query, userID, organizationID).Scan(&role)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return 0, sql.ErrNoRows
+		}
+		return 0, err
+	}
+
+	return role, nil
+}
