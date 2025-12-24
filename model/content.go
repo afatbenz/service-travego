@@ -5,7 +5,7 @@ import "time"
 type Content struct {
 	UUID           string    `json:"uuid"`
 	SectionTag     string    `json:"section_tag"`
-	Text           string    `json:"text"`
+	Content        string    `json:"content"`
 	OrganizationID string    `json:"organization_id"`
 	CreatedAt      time.Time `json:"created_at"`
 	CreatedBy      string    `json:"created_by"`
@@ -15,10 +15,10 @@ type Content struct {
 
 type ContentRequest struct {
 	SectionTag string `json:"section_tag"`
-	Text       string `json:"text"`
+	Content    string `json:"content"`
 }
 
 type ContentResponse struct {
 	SectionTag string `json:"section_tag"`
-	Text       string `json:"text"`
+	Content    string `json:"content"`
 }

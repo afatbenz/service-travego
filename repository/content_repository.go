@@ -29,7 +29,7 @@ func (r *ContentRepository) getPlaceholder(pos int) string {
 // FindByTagAndOrgID checks if content exists
 func (r *ContentRepository) FindByTagAndOrgID(sectionTag, orgID string) (*model.Content, error) {
 	query := fmt.Sprintf(`
-		SELECT uuid, section_tag, text, organization_id, created_at, created_by, updated_at, updated_by
+		SELECT uuid, section_tag, content, organization_id, created_at, created_by, updated_at, updated_by
 		FROM content
 		WHERE section_tag = %s AND organization_id = %s
 	`, r.getPlaceholder(1), r.getPlaceholder(2))
@@ -38,7 +38,7 @@ func (r *ContentRepository) FindByTagAndOrgID(sectionTag, orgID string) (*model.
 	err := r.db.QueryRow(query, sectionTag, orgID).Scan(
 		&content.UUID,
 		&content.SectionTag,
-		&content.Text,
+		&content.Content,
 		&content.OrganizationID,
 		&content.CreatedAt,
 		&content.CreatedBy,
@@ -59,7 +59,7 @@ func (r *ContentRepository) FindByTagAndOrgID(sectionTag, orgID string) (*model.
 // Create inserts new content
 func (r *ContentRepository) Create(content *model.Content) error {
 	query := fmt.Sprintf(`
-		INSERT INTO content (uuid, section_tag, text, organization_id, created_at, created_by, updated_at, updated_by)
+		INSERT INTO content (uuid, section_tag, content, organization_id, created_at, created_by, updated_at, updated_by)
 		VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
 	`,
 		r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
@@ -69,7 +69,7 @@ func (r *ContentRepository) Create(content *model.Content) error {
 	_, err := r.db.Exec(query,
 		content.UUID,
 		content.SectionTag,
-		content.Text,
+		content.Content,
 		content.OrganizationID,
 		content.CreatedAt,
 		content.CreatedBy,
@@ -84,7 +84,7 @@ func (r *ContentRepository) Create(content *model.Content) error {
 func (r *ContentRepository) Update(content *model.Content) error {
 	query := fmt.Sprintf(`
 		UPDATE content
-		SET text = %s, updated_at = %s, updated_by = %s
+		SET content = %s, updated_at = %s, updated_by = %s
 		WHERE section_tag = %s AND organization_id = %s
 	`,
 		r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3),
@@ -92,7 +92,7 @@ func (r *ContentRepository) Update(content *model.Content) error {
 	)
 
 	_, err := r.db.Exec(query,
-		content.Text,
+		content.Content,
 		content.UpdatedAt,
 		content.UpdatedBy,
 		content.SectionTag,
@@ -105,7 +105,7 @@ func (r *ContentRepository) Update(content *model.Content) error {
 // FindByUUIDAndTagAndOrgID checks if content exists by uuid, section_tag and organization_id
 func (r *ContentRepository) FindByUUIDAndTagAndOrgID(uuid, sectionTag, orgID string) (*model.Content, error) {
 	query := fmt.Sprintf(`
-		SELECT uuid, section_tag, text, organization_id, created_at, created_by, updated_at, updated_by
+		SELECT uuid, section_tag, content, organization_id, created_at, created_by, updated_at, updated_by
 		FROM content
 		WHERE uuid = %s AND section_tag = %s AND organization_id = %s
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
@@ -114,7 +114,7 @@ func (r *ContentRepository) FindByUUIDAndTagAndOrgID(uuid, sectionTag, orgID str
 	err := r.db.QueryRow(query, uuid, sectionTag, orgID).Scan(
 		&content.UUID,
 		&content.SectionTag,
-		&content.Text,
+		&content.Content,
 		&content.OrganizationID,
 		&content.CreatedAt,
 		&content.CreatedBy,

@@ -35,7 +35,7 @@ func (s *ContentService) UpsertGeneralContent(req model.ContentRequest, orgID, u
 
 	if existingContent != nil {
 		// Update
-		existingContent.Text = req.Text
+		existingContent.Content = req.Content
 		existingContent.UpdatedAt = now
 		existingContent.UpdatedBy = userID
 		return s.repo.Update(existingContent)
@@ -45,7 +45,7 @@ func (s *ContentService) UpsertGeneralContent(req model.ContentRequest, orgID, u
 	newContent := &model.Content{
 		UUID:           uuid.New().String(),
 		SectionTag:     req.SectionTag,
-		Text:           req.Text,
+		Content:        req.Content,
 		OrganizationID: orgID,
 		CreatedAt:      now,
 		CreatedBy:      userID,
@@ -69,6 +69,6 @@ func (s *ContentService) GetGeneralContent(sectionTag, orgID string) (*model.Con
 
 	return &model.ContentResponse{
 		SectionTag: content.SectionTag,
-		Text:       content.Text,
+		Content:    content.Content,
 	}, nil
 }
