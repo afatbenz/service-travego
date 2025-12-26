@@ -94,14 +94,14 @@ func (r *FleetRepository) CreateFleetWithDetails(uuid, createdBy, organizationID
 
 	if len(req.Prices) > 0 {
 		priceQuery := fmt.Sprintf(`
-            INSERT INTO fleet_prices (uuid, fleet_id, duration, rent_type, price, created_by, organization_id, created_at, updated_by, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO fleet_prices (uuid, fleet_id, duration, rent_type, price, uom, created_by, organization_id, created_at, updated_by, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         `,
-			r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10),
+			r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11),
 		)
 		for _, p := range req.Prices {
 			pru := uuid2()
-			args := []interface{}{pru, uuid, p.Duration, p.RentCategory, p.Price, createdBy, organizationID, now, createdBy, now}
+			args := []interface{}{pru, uuid, p.Duration, p.RentCategory, p.Price, p.Uom, createdBy, organizationID, now, createdBy, now}
 			_, err = tx.Exec(priceQuery, args...)
 			if err != nil {
 				log.Printf("[ERROR] Insert fleet_prices failed - driver=%s, err=%v\nSQL: %s\nArgs: %#v", r.driver, err, priceQuery, args)
@@ -207,6 +207,102 @@ func (r *FleetRepository) ListFleets(req *model.ListFleetRequest) ([]model.Fleet
 			return nil, err
 		}
 		items = append(items, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func (r *FleetRepository) GetServiceFleets() ([]model.ServiceFleetItem, error) {
+	query := `
+		SELECT DISTINCT 
+			f.uuid as fleet_id, 
+			f.fleet_name, 
+			ft.label as fleet_type, 
+			f.capacity, 
+			f.production_year, 
+			f.engine, 
+			f.body, 
+			f.description, 
+			f.thumbnail, 
+			( 
+				SELECT MIN(fp.price) 
+				FROM fleet_prices fp 
+				WHERE fp.fleet_id = f.uuid 
+			) AS original_price, 
+			fp.uom, 
+			f.created_at, 
+			ho.discount_type, 
+			ho.discount_value 
+		FROM fleets f 
+		INNER JOIN fleet_types ft ON f.fleet_type = ft.id 
+		INNER JOIN fleet_prices fp ON fp.fleet_id = f.uuid 
+		LEFT JOIN hot_offers ho ON ho.product_id = f.uuid
+	`
+	rows, err := r.db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []model.ServiceFleetItem
+	for rows.Next() {
+		var item model.ServiceFleetItem
+		var originalPrice sql.NullFloat64
+		var discountType sql.NullString
+		var discountValue sql.NullFloat64
+		var description sql.NullString
+		var thumbnail sql.NullString
+		var uom sql.NullString
+		var createdAt sql.NullTime // Use sql.NullTime for date
+
+		// Scan matching the order
+		err := rows.Scan(
+			&item.FleetID,
+			&item.FleetName,
+			&item.FleetType,
+			&item.Capacity,
+			&item.ProductionYear,
+			&item.Engine,
+			&item.Body,
+			&description,
+			&thumbnail,
+			&originalPrice,
+			&uom,
+			&createdAt,
+			&discountType,
+			&discountValue,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if description.Valid {
+			item.Description = description.String
+		}
+		if thumbnail.Valid {
+			item.Thumbnail = thumbnail.String
+		}
+		if originalPrice.Valid {
+			item.OriginalPrice = originalPrice.Float64
+		}
+		if uom.Valid {
+			item.Uom = uom.String
+		}
+		if createdAt.Valid {
+			item.CreatedAt = createdAt.Time
+		}
+		if discountType.Valid {
+			val := discountType.String
+			item.DiscountType = &val
+		}
+		if discountValue.Valid {
+			val := discountValue.Float64
+			item.DiscountValue = &val
+		}
+
+		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -330,7 +426,8 @@ func (r *FleetRepository) GetFleetPrices(orgID, fleetID string) ([]model.FleetPr
 	query := `
         SELECT uuid, duration, rent_type, price,
                COALESCE(disc_amount, 0) AS disc_amount,
-               COALESCE(disc_price, 0)  AS disc_price
+               COALESCE(disc_price, 0)  AS disc_price,
+               COALESCE(uom, '') AS uom
         FROM fleet_prices WHERE organization_id = %s AND fleet_id = %s
     `
 	query = fmt.Sprintf(query, r.getPlaceholder(1), r.getPlaceholder(2))
@@ -342,7 +439,7 @@ func (r *FleetRepository) GetFleetPrices(orgID, fleetID string) ([]model.FleetPr
 	items := make([]model.FleetPriceItem, 0)
 	for rows.Next() {
 		var it model.FleetPriceItem
-		if err := rows.Scan(&it.UUID, &it.Duration, &it.RentType, &it.Price, &it.DiscAmount, &it.DiscPrice); err != nil {
+		if err := rows.Scan(&it.UUID, &it.Duration, &it.RentType, &it.Price, &it.DiscAmount, &it.DiscPrice, &it.Uom); err != nil {
 			return nil, err
 		}
 		items = append(items, it)
@@ -354,19 +451,25 @@ func (r *FleetRepository) GetFleetPrices(orgID, fleetID string) ([]model.FleetPr
 }
 
 func (r *FleetRepository) GetFleetImages(fleetID string) ([]model.FleetImageItem, error) {
-    query := `
+	query := `
         SELECT uuid, path_file FROM fleet_images WHERE fleet_id = %s
     `
-    query = fmt.Sprintf(query, r.getPlaceholder(1))
-    rows, err := r.db.Query(query, fleetID)
-    if err != nil { return nil, err }
-    defer rows.Close()
-    items := make([]model.FleetImageItem, 0)
-    for rows.Next() {
-        var it model.FleetImageItem
-        if err := rows.Scan(&it.UUID, &it.PathFile); err != nil { return nil, err }
-        items = append(items, it)
-    }
-    if err := rows.Err(); err != nil { return nil, err }
-    return items, nil
+	query = fmt.Sprintf(query, r.getPlaceholder(1))
+	rows, err := r.db.Query(query, fleetID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]model.FleetImageItem, 0)
+	for rows.Next() {
+		var it model.FleetImageItem
+		if err := rows.Scan(&it.UUID, &it.PathFile); err != nil {
+			return nil, err
+		}
+		items = append(items, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

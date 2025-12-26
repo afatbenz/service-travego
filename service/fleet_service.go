@@ -33,6 +33,31 @@ func (s *FleetService) CreateFleet(createdBy, organizationID string, req *model.
 	return id, nil
 }
 
+func (s *FleetService) GetServiceFleets() ([]model.ServiceFleetItem, error) {
+	items, err := s.repo.GetServiceFleets()
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range items {
+		item := &items[i]
+		item.Price = item.OriginalPrice // Default
+
+		if item.DiscountType != nil && item.DiscountValue != nil {
+			switch *item.DiscountType {
+			case "PERCENT":
+				// assuming discount_value is percentage e.g. 10 for 10%
+				item.Price = item.OriginalPrice - (item.OriginalPrice * *item.DiscountValue / 100)
+			case "AMOUNT":
+				item.Price = item.OriginalPrice - *item.DiscountValue
+			case "FLAT":
+				item.Price = *item.DiscountValue
+			}
+		}
+	}
+	return items, nil
+}
+
 func (s *FleetService) ListFleets(req *model.ListFleetRequest) ([]model.FleetListItem, error) {
 	items, err := s.repo.ListFleets(req)
 	if err != nil {
