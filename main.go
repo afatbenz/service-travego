@@ -66,7 +66,7 @@ func main() {
 	app.Use(cors.New(cors.Config{
 		AllowOrigins:     cfg.App.AllowOrigins,
 		AllowCredentials: true,
-		AllowHeaders:     "Origin, Content-Type, Accept, Authorization",
+		AllowHeaders:     "Origin, Content-Type, Accept, Authorization, api-key",
 	}))
 
 	app.Static("/assets", "./assets")

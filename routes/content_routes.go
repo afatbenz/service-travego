@@ -23,6 +23,10 @@ func SetupContentRoutes(api fiber.Router, db *sql.DB, driver string) {
 
 	// Content routes
 	content := api.Group("/content")
-	content.Post("/general/create", helper.JWTAuthorizationMiddleware(), contentHandler.UpsertGeneralContent)
-	content.Get("/general/detail/:section_tag", helper.JWTAuthorizationMiddleware(), contentHandler.GetGeneralContent)
+	content.Delete("/delete-list/:uuid", helper.JWTAuthorizationMiddleware(), contentHandler.DeleteListByUUID)
+	content.Post("/upload", helper.JWTAuthorizationMiddleware(), contentHandler.UploadContent)
+	content.Post("/update", helper.JWTAuthorizationMiddleware(), contentHandler.UpsertGeneralContent)
+	content.Get("/:parent/:section_tag", helper.JWTAuthorizationMiddleware(), contentHandler.GetContentDetailByParentAndTag)
+	content.Get("/:parent", helper.JWTAuthorizationMiddleware(), contentHandler.GetContentByParent)
+	content.Get("", helper.DualAuthMiddleware(), contentHandler.GetAllGeneralContent)
 }
