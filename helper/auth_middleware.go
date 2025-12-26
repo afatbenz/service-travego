@@ -102,3 +102,40 @@ func JWTAuthorizationMiddleware() fiber.Handler {
 		})
 	}
 }
+
+// DualAuthMiddleware checks for api-key header or Authorization header
+func DualAuthMiddleware() fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		// Check for api-key header
+		apiKey := c.Get("api-key")
+		if apiKey != "" {
+			// Decrypt api-key to get organization_id
+			orgID, err := DecryptString(apiKey)
+			if err != nil {
+				return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+					"status":  "error",
+					"message": "Invalid API Key",
+				})
+			}
+
+			// Set locals
+			c.Locals("organization_id", orgID)
+			c.Locals("role", "visitor")
+			return c.Next()
+		}
+
+		// Check for Authorization header
+		authHeader := c.Get("Authorization")
+		if authHeader != "" {
+			return JWTAuthorizationMiddleware()(c)
+		}
+
+		// If neither api-key nor Authorization header is present
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"status":         "error",
+			"message":        "Missing Authorization Header or API Key",
+			"data":           nil,
+			"transaction_id": GetTransactionID(c),
+		})
+	}
+}
