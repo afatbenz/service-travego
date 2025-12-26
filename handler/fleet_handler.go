@@ -86,6 +86,9 @@ func (h *FleetHandler) CreateFleet(c *fiber.Ctx) error {
 					if pv, ok := mp["price"]; ok {
 						pr.Price = toInt(pv)
 					}
+					if uom, ok := mp["uom"].(string); ok {
+						pr.Uom = uom
+					}
 					req.Prices = append(req.Prices, pr)
 				}
 			}

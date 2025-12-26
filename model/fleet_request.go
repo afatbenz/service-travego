@@ -1,9 +1,10 @@
 package model
 
 type FleetPriceRequest struct {
-	Duration     int `json:"duration"`
-	RentCategory int `json:"rent_category"`
-	Price        int `json:"price"`
+	Duration     int    `json:"duration"`
+	RentCategory int    `json:"rent_category"`
+	Price        int    `json:"price"`
+	Uom          string `json:"uom"`
 }
 
 type FleetAddonRequest struct {
@@ -90,6 +91,7 @@ type FleetPriceItem struct {
 	Price         int    `json:"price"`
 	DiscAmount    int    `json:"disc_amount"`
 	DiscPrice     int    `json:"disc_price"`
+	Uom           string `json:"uom"`
 }
 
 type FleetImageItem struct {
