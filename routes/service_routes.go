@@ -19,7 +19,8 @@ func SetupServiceRoutes(api fiber.Router, db *sql.DB, driver string) {
 	// Looking at fleet_routes.go: partner := api.Group("/partner") -> services -> fleet
 	// User asked for /api/service/fleet.
 	// If 'api' is the root router, we can do:
-	
+
 	svcGroup := api.Group("/service")
 	svcGroup.Get("/fleet", h.GetServiceFleets)
+	svcGroup.Post("/fleet/detail", h.GetServiceFleetDetail)
 }

@@ -231,7 +231,6 @@ func (r *FleetRepository) GetServiceFleets() ([]model.ServiceFleetItem, error) {
 				FROM fleet_prices fp 
 				WHERE fp.fleet_id = f.uuid 
 			) AS original_price, 
-			fp.uom, 
 			f.created_at, 
 			ho.discount_type, 
 			ho.discount_value 
@@ -254,7 +253,6 @@ func (r *FleetRepository) GetServiceFleets() ([]model.ServiceFleetItem, error) {
 		var discountValue sql.NullFloat64
 		var description sql.NullString
 		var thumbnail sql.NullString
-		var uom sql.NullString
 		var createdAt sql.NullTime // Use sql.NullTime for date
 
 		// Scan matching the order
@@ -269,7 +267,6 @@ func (r *FleetRepository) GetServiceFleets() ([]model.ServiceFleetItem, error) {
 			&description,
 			&thumbnail,
 			&originalPrice,
-			&uom,
 			&createdAt,
 			&discountType,
 			&discountValue,
@@ -286,9 +283,6 @@ func (r *FleetRepository) GetServiceFleets() ([]model.ServiceFleetItem, error) {
 		}
 		if originalPrice.Valid {
 			item.OriginalPrice = originalPrice.Float64
-		}
-		if uom.Valid {
-			item.Uom = uom.String
 		}
 		if createdAt.Valid {
 			item.CreatedAt = createdAt.Time
@@ -308,6 +302,17 @@ func (r *FleetRepository) GetServiceFleets() ([]model.ServiceFleetItem, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+func (r *FleetRepository) GetFleetOrgID(fleetID string) (string, error) {
+	query := `SELECT organization_id FROM fleets WHERE uuid = %s`
+	query = fmt.Sprintf(query, r.getPlaceholder(1))
+	var orgID string
+	err := r.db.QueryRow(query, fleetID).Scan(&orgID)
+	if err != nil {
+		return "", err
+	}
+	return orgID, nil
 }
 
 func (r *FleetRepository) GetFleetDetailMeta(orgID, fleetID string) (*model.FleetDetailMeta, error) {
