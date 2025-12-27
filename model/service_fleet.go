@@ -30,6 +30,7 @@ type ServiceFleetPickupItem struct {
 }
 
 type ServiceFleetPriceItem struct {
+	UUID          string `json:"uuid"`
 	Duration      int    `json:"duration"`
 	RentType      int    `json:"rent_type"`
 	RentTypeLabel string `json:"rent_type_label"`

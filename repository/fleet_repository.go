@@ -317,7 +317,9 @@ func (r *FleetRepository) GetFleetOrgID(fleetID string) (string, error) {
 
 func (r *FleetRepository) GetFleetDetailMeta(orgID, fleetID string) (*model.FleetDetailMeta, error) {
 	query := `
-        SELECT f.uuid AS fleet_id, ft.label AS fleet_type, f.fleet_name, f.capacity, f.engine, f.body,
+        SELECT f.uuid AS fleet_id, ft.label AS fleet_type, f.fleet_name, f.capacity,
+               COALESCE(f.production_year, 0) AS production_year, f.engine, f.body,
+               COALESCE(f.fuel_type, '') AS fuel_type, COALESCE(f.transmission, '') AS transmission,
                COALESCE(f.description, '') AS description, f.thumbnail,
                f.created_at, u.fullname AS created_by, f.updated_at, COALESCE(u2.fullname, '') AS updated_by
         FROM fleets f
@@ -333,7 +335,10 @@ func (r *FleetRepository) GetFleetDetailMeta(orgID, fleetID string) (*model.Flee
 	var updatedAt sql.NullTime
 	var createdBy string
 	var updatedBy string
-	err := row.Scan(&meta.FleetID, &meta.FleetType, &meta.FleetName, &meta.Capacity, &meta.Engine, &meta.Body, &meta.Description, &meta.Thumbnail,
+	err := row.Scan(&meta.FleetID, &meta.FleetType, &meta.FleetName, &meta.Capacity,
+		&meta.ProductionYear, &meta.Engine, &meta.Body,
+		&meta.FuelType, &meta.Transmission,
+		&meta.Description, &meta.Thumbnail,
 		&createdAt, &createdBy, &updatedAt, &updatedBy)
 	if err != nil {
 		return nil, err

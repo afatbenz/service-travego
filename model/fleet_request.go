@@ -56,18 +56,21 @@ type FleetDetailRequest struct {
 }
 
 type FleetDetailMeta struct {
-	FleetID     string `json:"fleet_id"`
-	FleetType   string `json:"fleet_type"`
-	FleetName   string `json:"fleet_name"`
-	Capacity    int    `json:"capacity"`
-	Engine      string `json:"engine"`
-	Body        string `json:"body"`
-	Description string `json:"description"`
-	Thumbnail   string `json:"thumbnail"`
-	CreatedAt   string `json:"created_at"`
-	CreatedBy   string `json:"created_by"`
-	UpdatedAt   string `json:"updated_at"`
-	UpdatedBy   string `json:"updated_by"`
+	FleetID        string `json:"fleet_id"`
+	FleetType      string `json:"fleet_type"`
+	FleetName      string `json:"fleet_name"`
+	Capacity       int    `json:"capacity"`
+	ProductionYear int    `json:"production_year"`
+	Engine         string `json:"engine"`
+	Body           string `json:"body"`
+	FuelType       string `json:"fuel_type"`
+	Transmission   string `json:"transmission"`
+	Description    string `json:"description"`
+	Thumbnail      string `json:"thumbnail"`
+	CreatedAt      string `json:"created_at"`
+	CreatedBy      string `json:"created_by"`
+	UpdatedAt      string `json:"updated_at"`
+	UpdatedBy      string `json:"updated_by"`
 }
 
 type FleetPickupItem struct {

@@ -112,6 +112,7 @@ func (s *FleetService) GetServiceFleetDetail(fleetID string) (*model.ServiceFlee
 	svcPrices := make([]model.ServiceFleetPriceItem, len(prices))
 	for i, p := range prices {
 		svcPrices[i] = model.ServiceFleetPriceItem{
+			UUID:          p.UUID,
 			Duration:      p.Duration,
 			RentType:      p.RentType,
 			RentTypeLabel: configs.RentType(p.RentType).String(),
