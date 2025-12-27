@@ -16,6 +16,6 @@ func SetupCheckoutRoutes(api fiber.Router, db *sql.DB, driver string) {
 	checkoutHandler := handler.NewCheckoutHandler(checkoutService)
 
 	checkoutGroup := api.Group("/checkout")
-	checkoutGroup.Use(helper.ApiKeyMiddleware())
+	checkoutGroup.Use(helper.DualAuthMiddleware())
 	checkoutGroup.Post("/fleet/summary", checkoutHandler.GetFleetCheckoutSummary)
 }

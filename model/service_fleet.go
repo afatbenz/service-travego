@@ -18,6 +18,8 @@ type ServiceFleetItem struct {
 	DiscountType   *string   `json:"discount_type"`  // Nullable
 	DiscountValue  *float64  `json:"discount_value"` // Nullable
 	Price          float64   `json:"price"`          // Calculated
+	Duration       int       `json:"duration"`
+	Cities         []string  `json:"cities"`
 }
 
 type ServiceFleetDetailRequest struct {

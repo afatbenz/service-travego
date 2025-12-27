@@ -22,7 +22,7 @@ func SetupServiceRoutes(api fiber.Router, db *sql.DB, driver string) {
 	// If 'api' is the root router, we can do:
 
 	svcGroup := api.Group("/service")
-	svcGroup.Use(helper.ApiKeyMiddleware())
+	svcGroup.Use(helper.DualAuthMiddleware())
 	svcGroup.Get("/fleet", h.GetServiceFleets)
 	svcGroup.Post("/fleet/detail", h.GetServiceFleetDetail)
 	svcGroup.Get("/fleet/addon/:fleetid", h.GetServiceFleetAddons)

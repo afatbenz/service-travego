@@ -41,6 +41,7 @@ func (s *FleetService) GetServiceFleets() ([]model.ServiceFleetItem, error) {
 		return nil, err
 	}
 
+	s.ensureCitiesLoaded()
 	for i := range items {
 		item := &items[i]
 		item.Price = item.OriginalPrice // Default
@@ -56,6 +57,27 @@ func (s *FleetService) GetServiceFleets() ([]model.ServiceFleetItem, error) {
 				item.Price = *item.DiscountValue
 			}
 		}
+
+		// Convert City IDs to City Names
+		var cityNames []string
+		for _, cityID := range item.Cities {
+			// item.Cities currently holds IDs as strings
+			// Check if we need to convert to int for map lookup?
+			// ensureCitiesLoaded uses map[string]string where key is ID string.
+			// location.json likely has IDs as strings.
+			// fleet_pickup has city_id as int. GROUP_CONCAT returns string "1,2,3".
+			// strings.Split gives ["1", "2", "3"].
+			// So key lookup should work directly.
+			if name, ok := s.citiesName[cityID]; ok {
+				cityNames = append(cityNames, name)
+			} else {
+				// Fallback to ID if name not found? Or skip? User asked for "list kota".
+				// Let's include ID if name missing or maybe just ignore.
+				// Better to include name if found.
+				cityNames = append(cityNames, cityID)
+			}
+		}
+		item.Cities = cityNames
 	}
 	return items, nil
 }

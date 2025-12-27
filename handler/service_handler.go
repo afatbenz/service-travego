@@ -51,9 +51,9 @@ func (h *ServiceHandler) GetServiceFleetAddons(c *fiber.Ctx) error {
 	if fleetID == "" {
 		return helper.BadRequestResponse(c, "fleet_id is required")
 	}
-	orgID := c.Get("api-key")
-	if orgID == "" {
-		return helper.BadRequestResponse(c, "api-key header is required")
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.BadRequestResponse(c, "Invalid or missing organization_id")
 	}
 
 	items, err := h.service.GetServiceFleetAddons(orgID, fleetID)

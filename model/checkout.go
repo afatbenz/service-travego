@@ -20,4 +20,6 @@ type CheckoutFleetSummaryResponse struct {
 	RentType int     `json:"rent_type"`
 	Price    float64 `json:"price"`
 	Uom      string  `json:"uom"`
+
+	Facilities []string `json:"facilities"`
 }
