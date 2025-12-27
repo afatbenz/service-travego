@@ -45,3 +45,20 @@ func (h *ServiceHandler) GetServiceFleetDetail(c *fiber.Ctx) error {
 	}
 	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet detail retrieved", res)
 }
+
+func (h *ServiceHandler) GetServiceFleetAddons(c *fiber.Ctx) error {
+	fleetID := c.Params("fleetid")
+	if fleetID == "" {
+		return helper.BadRequestResponse(c, "fleet_id is required")
+	}
+	orgID := c.Get("api-key")
+	if orgID == "" {
+		return helper.BadRequestResponse(c, "api-key header is required")
+	}
+
+	items, err := h.service.GetServiceFleetAddons(orgID, fleetID)
+	if err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet addons retrieved", items)
+}

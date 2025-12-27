@@ -194,6 +194,24 @@ func (s *FleetService) GetFleetDetail(orgID, fleetID string) (*model.FleetDetail
 	return resp, nil
 }
 
+func (s *FleetService) GetServiceFleetAddons(orgID, fleetID string) ([]model.ServiceFleetAddonItem, error) {
+	addons, err := s.repo.GetFleetAddon(orgID, fleetID)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]model.ServiceFleetAddonItem, len(addons))
+	for i, a := range addons {
+		items[i] = model.ServiceFleetAddonItem{
+			AddonID:    a.UUID,
+			AddonName:  a.AddonName,
+			AddonDesc:  a.AddonDesc,
+			AddonPrice: a.AddonPrice,
+		}
+	}
+	return items, nil
+}
+
 func (s *FleetService) ensureCitiesLoaded() {
 	if s.citiesName != nil {
 		return

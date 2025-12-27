@@ -214,6 +214,27 @@ func (r *FleetRepository) ListFleets(req *model.ListFleetRequest) ([]model.Fleet
 	return items, nil
 }
 
+func (r *FleetRepository) GetFleetCheckoutSummary(fleetID, priceID string) (*model.CheckoutFleetSummaryResponse, error) {
+	query := `
+        SELECT f.fleet_name, f.capacity, f.engine, f.body, COALESCE(f.description, ''), f.active, COALESCE(f.thumbnail, ''),
+               fp.duration, fp.rent_type, fp.price, COALESCE(fp.uom, '')
+        FROM fleets f
+        JOIN fleet_prices fp ON f.uuid = fp.fleet_id
+        WHERE f.uuid = %s AND fp.uuid = %s
+    `
+	query = fmt.Sprintf(query, r.getPlaceholder(1), r.getPlaceholder(2))
+
+	var res model.CheckoutFleetSummaryResponse
+	err := r.db.QueryRow(query, fleetID, priceID).Scan(
+		&res.FleetName, &res.Capacity, &res.Engine, &res.Body, &res.Description, &res.Active, &res.Thumbnail,
+		&res.Duration, &res.RentType, &res.Price, &res.Uom,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
 func (r *FleetRepository) GetServiceFleets() ([]model.ServiceFleetItem, error) {
 	query := `
 		SELECT DISTINCT 
@@ -440,6 +461,7 @@ func (r *FleetRepository) GetFleetPrices(orgID, fleetID string) ([]model.FleetPr
                COALESCE(uom, '') AS uom
         FROM fleet_prices WHERE organization_id = %s AND fleet_id = %s
     `
+	fmt.Println(query, orgID, fleetID)
 	query = fmt.Sprintf(query, r.getPlaceholder(1), r.getPlaceholder(2))
 	rows, err := r.db.Query(query, orgID, fleetID)
 	if err != nil {

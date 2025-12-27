@@ -40,6 +40,13 @@ type ServiceFleetPriceItem struct {
 	Uom           string `json:"uom"`
 }
 
+type ServiceFleetAddonItem struct {
+	AddonID    string `json:"addon_id"`
+	AddonName  string `json:"addon_name"`
+	AddonDesc  string `json:"addon_desc"`
+	AddonPrice int    `json:"addon_price"`
+}
+
 type ServiceFleetDetailResponse struct {
 	Meta       FleetDetailMeta          `json:"meta"`
 	Facilities []string                 `json:"facilities"`
