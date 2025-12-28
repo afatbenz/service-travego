@@ -34,13 +34,14 @@ func (s *FleetService) CreateFleet(createdBy, organizationID string, req *model.
 	return id, nil
 }
 
-func (s *FleetService) GetServiceFleets() ([]model.ServiceFleetItem, error) {
-	items, err := s.repo.GetServiceFleets()
+func (s *FleetService) GetServiceFleets(page, perPage int) ([]model.ServiceFleetItem, error) {
+	items, err := s.repo.GetServiceFleets(page, perPage)
 	if err != nil {
 		fmt.Println("Error fetching service fleets:", err)
 		return nil, err
 	}
 
+	s.ensureCitiesLoaded()
 	for i := range items {
 		item := &items[i]
 		item.Price = item.OriginalPrice // Default
@@ -56,6 +57,27 @@ func (s *FleetService) GetServiceFleets() ([]model.ServiceFleetItem, error) {
 				item.Price = *item.DiscountValue
 			}
 		}
+
+		// Convert City IDs to City Names
+		var cityNames []string
+		for _, cityID := range item.Cities {
+			// item.Cities currently holds IDs as strings
+			// Check if we need to convert to int for map lookup?
+			// ensureCitiesLoaded uses map[string]string where key is ID string.
+			// location.json likely has IDs as strings.
+			// fleet_pickup has city_id as int. GROUP_CONCAT returns string "1,2,3".
+			// strings.Split gives ["1", "2", "3"].
+			// So key lookup should work directly.
+			if name, ok := s.citiesName[cityID]; ok {
+				cityNames = append(cityNames, name)
+			} else {
+				// Fallback to ID if name not found? Or skip? User asked for "list kota".
+				// Let's include ID if name missing or maybe just ignore.
+				// Better to include name if found.
+				cityNames = append(cityNames, cityID)
+			}
+		}
+		item.Cities = cityNames
 	}
 	return items, nil
 }
@@ -112,6 +134,7 @@ func (s *FleetService) GetServiceFleetDetail(fleetID string) (*model.ServiceFlee
 	svcPrices := make([]model.ServiceFleetPriceItem, len(prices))
 	for i, p := range prices {
 		svcPrices[i] = model.ServiceFleetPriceItem{
+			UUID:          p.UUID,
 			Duration:      p.Duration,
 			RentType:      p.RentType,
 			RentTypeLabel: configs.RentType(p.RentType).String(),
@@ -191,6 +214,24 @@ func (s *FleetService) GetFleetDetail(orgID, fleetID string) (*model.FleetDetail
 		Images:     images,
 	}
 	return resp, nil
+}
+
+func (s *FleetService) GetServiceFleetAddons(orgID, fleetID string) ([]model.ServiceFleetAddonItem, error) {
+	addons, err := s.repo.GetFleetAddon(orgID, fleetID)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]model.ServiceFleetAddonItem, len(addons))
+	for i, a := range addons {
+		items[i] = model.ServiceFleetAddonItem{
+			AddonID:    a.UUID,
+			AddonName:  a.AddonName,
+			AddonDesc:  a.AddonDesc,
+			AddonPrice: a.AddonPrice,
+		}
+	}
+	return items, nil
 }
 
 func (s *FleetService) ensureCitiesLoaded() {

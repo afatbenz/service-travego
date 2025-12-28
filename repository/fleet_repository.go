@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"service-travego/model"
+	"strconv"
 	"strings"
 	"time"
 
@@ -214,7 +215,55 @@ func (r *FleetRepository) ListFleets(req *model.ListFleetRequest) ([]model.Fleet
 	return items, nil
 }
 
-func (r *FleetRepository) GetServiceFleets() ([]model.ServiceFleetItem, error) {
+func (r *FleetRepository) GetFleetCheckoutSummary(fleetID, priceID string) (*model.CheckoutFleetSummaryResponse, error) {
+	query := `
+        SELECT f.fleet_name, f.capacity, f.engine, f.body, COALESCE(f.description, ''), f.active, COALESCE(f.thumbnail, ''),
+               fp.duration, fp.rent_type, fp.price, COALESCE(fp.uom, '')
+        FROM fleets f
+        JOIN fleet_prices fp ON f.uuid = fp.fleet_id
+        WHERE f.uuid = %s AND fp.uuid = %s
+    `
+	query = fmt.Sprintf(query, r.getPlaceholder(1), r.getPlaceholder(2))
+
+	var res model.CheckoutFleetSummaryResponse
+	err := r.db.QueryRow(query, fleetID, priceID).Scan(
+		&res.FleetName, &res.Capacity, &res.Engine, &res.Body, &res.Description, &res.Active, &res.Thumbnail,
+		&res.Duration, &res.RentType, &res.Price, &res.Uom,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Fetch facilities
+	facilities, err := r.GetFleetFacilities(fleetID)
+	if err != nil {
+		// Log error or ignore? Usually safe to ignore if just empty
+		res.Facilities = []string{}
+	} else {
+		res.Facilities = facilities
+	}
+
+	// Fetch pickup points
+	pickupQuery := fmt.Sprintf("SELECT city_id FROM fleet_pickup WHERE fleet_id = %s", r.getPlaceholder(1))
+	pRows, err := r.db.Query(pickupQuery, fleetID)
+	if err != nil {
+		res.PickupPoints = []model.PickupPoint{}
+	} else {
+		defer pRows.Close()
+		var pickups []model.PickupPoint
+		for pRows.Next() {
+			var p model.PickupPoint
+			if err := pRows.Scan(&p.CityID); err == nil {
+				pickups = append(pickups, p)
+			}
+		}
+		res.PickupPoints = pickups
+	}
+
+	return &res, nil
+}
+
+func (r *FleetRepository) GetServiceFleets(page, perPage int) ([]model.ServiceFleetItem, error) {
 	query := `
 		SELECT DISTINCT 
 			f.uuid as fleet_id, 
@@ -226,20 +275,32 @@ func (r *FleetRepository) GetServiceFleets() ([]model.ServiceFleetItem, error) {
 			f.body, 
 			f.description, 
 			f.thumbnail, 
-			( 
-				SELECT MIN(fp.price) 
-				FROM fleet_prices fp 
-				WHERE fp.fleet_id = f.uuid 
-			) AS original_price, 
+			mp.price AS original_price, 
+			mp.duration, 
+			mp.uom, 
 			f.created_at, 
 			ho.discount_type, 
 			ho.discount_value 
 		FROM fleets f 
 		INNER JOIN fleet_types ft ON f.fleet_type = ft.id 
-		INNER JOIN fleet_prices fp ON fp.fleet_id = f.uuid 
-		LEFT JOIN hot_offers ho ON ho.product_id = f.uuid
+		INNER JOIN ( 
+			SELECT fleet_id, price, duration, uom 
+			FROM fleet_prices fp1 
+			WHERE price = (SELECT MIN(price) FROM fleet_prices WHERE fleet_id = fp1.fleet_id) 
+			GROUP BY fleet_id, price, duration, uom 
+		) mp ON mp.fleet_id = f.uuid 
+		LEFT JOIN hot_offers ho ON ho.product_id = f.uuid 
 	`
-	rows, err := r.db.Query(query)
+
+	limit := perPage
+	offset := 0
+	if page > 0 {
+		offset = (page - 1) * limit
+	}
+
+	query += fmt.Sprintf(" LIMIT %s OFFSET %s", r.getPlaceholder(1), r.getPlaceholder(2))
+
+	rows, err := r.db.Query(query, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -253,7 +314,7 @@ func (r *FleetRepository) GetServiceFleets() ([]model.ServiceFleetItem, error) {
 		var discountValue sql.NullFloat64
 		var description sql.NullString
 		var thumbnail sql.NullString
-		var createdAt sql.NullTime // Use sql.NullTime for date
+		var createdAt sql.NullTime
 
 		// Scan matching the order
 		err := rows.Scan(
@@ -267,6 +328,8 @@ func (r *FleetRepository) GetServiceFleets() ([]model.ServiceFleetItem, error) {
 			&description,
 			&thumbnail,
 			&originalPrice,
+			&item.Duration,
+			&item.Uom,
 			&createdAt,
 			&discountType,
 			&discountValue,
@@ -295,12 +358,53 @@ func (r *FleetRepository) GetServiceFleets() ([]model.ServiceFleetItem, error) {
 			val := discountValue.Float64
 			item.DiscountValue = &val
 		}
-
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+
+	// Fetch pickup cities separately
+	if len(items) > 0 {
+		fleetIDs := make([]string, len(items))
+		for i, it := range items {
+			fleetIDs[i] = fmt.Sprintf("'%s'", it.FleetID)
+		}
+
+		pickupQuery := fmt.Sprintf(`
+			SELECT fleet_id, city_id 
+			FROM fleet_pickup 
+			WHERE fleet_id IN (%s)
+		`, strings.Join(fleetIDs, ","))
+
+		pRows, err := r.db.Query(pickupQuery)
+		if err != nil {
+			// Log error but return items (partial success) or return error?
+			// Usually partial success if critical data is there. But let's return error to be safe or ignore.
+			// Let's just return items without cities if this fails, or log.
+			// For now, let's return error.
+			return nil, err
+		}
+		defer pRows.Close()
+
+		pickupMap := make(map[string][]string)
+		for pRows.Next() {
+			var fID string
+			var cID int
+			if err := pRows.Scan(&fID, &cID); err == nil {
+				pickupMap[fID] = append(pickupMap[fID], strconv.Itoa(cID))
+			}
+		}
+
+		for i := range items {
+			if cities, ok := pickupMap[items[i].FleetID]; ok {
+				items[i].Cities = cities
+			} else {
+				items[i].Cities = []string{}
+			}
+		}
+	}
+
 	return items, nil
 }
 
@@ -317,7 +421,9 @@ func (r *FleetRepository) GetFleetOrgID(fleetID string) (string, error) {
 
 func (r *FleetRepository) GetFleetDetailMeta(orgID, fleetID string) (*model.FleetDetailMeta, error) {
 	query := `
-        SELECT f.uuid AS fleet_id, ft.label AS fleet_type, f.fleet_name, f.capacity, f.engine, f.body,
+        SELECT f.uuid AS fleet_id, ft.label AS fleet_type, f.fleet_name, f.capacity,
+               COALESCE(f.production_year, 0) AS production_year, f.engine, f.body,
+               COALESCE(f.fuel_type, '') AS fuel_type, COALESCE(f.transmission, '') AS transmission,
                COALESCE(f.description, '') AS description, f.thumbnail,
                f.created_at, u.fullname AS created_by, f.updated_at, COALESCE(u2.fullname, '') AS updated_by
         FROM fleets f
@@ -333,7 +439,10 @@ func (r *FleetRepository) GetFleetDetailMeta(orgID, fleetID string) (*model.Flee
 	var updatedAt sql.NullTime
 	var createdBy string
 	var updatedBy string
-	err := row.Scan(&meta.FleetID, &meta.FleetType, &meta.FleetName, &meta.Capacity, &meta.Engine, &meta.Body, &meta.Description, &meta.Thumbnail,
+	err := row.Scan(&meta.FleetID, &meta.FleetType, &meta.FleetName, &meta.Capacity,
+		&meta.ProductionYear, &meta.Engine, &meta.Body,
+		&meta.FuelType, &meta.Transmission,
+		&meta.Description, &meta.Thumbnail,
 		&createdAt, &createdBy, &updatedAt, &updatedBy)
 	if err != nil {
 		return nil, err
@@ -434,7 +543,9 @@ func (r *FleetRepository) GetFleetPrices(orgID, fleetID string) ([]model.FleetPr
                COALESCE(disc_price, 0)  AS disc_price,
                COALESCE(uom, '') AS uom
         FROM fleet_prices WHERE organization_id = %s AND fleet_id = %s
+        ORDER BY price ASC
     `
+
 	query = fmt.Sprintf(query, r.getPlaceholder(1), r.getPlaceholder(2))
 	rows, err := r.db.Query(query, orgID, fleetID)
 	if err != nil {

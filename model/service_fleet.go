@@ -18,6 +18,8 @@ type ServiceFleetItem struct {
 	DiscountType   *string   `json:"discount_type"`  // Nullable
 	DiscountValue  *float64  `json:"discount_value"` // Nullable
 	Price          float64   `json:"price"`          // Calculated
+	Duration       int       `json:"duration"`
+	Cities         []string  `json:"cities"`
 }
 
 type ServiceFleetDetailRequest struct {
@@ -30,6 +32,7 @@ type ServiceFleetPickupItem struct {
 }
 
 type ServiceFleetPriceItem struct {
+	UUID          string `json:"uuid"`
 	Duration      int    `json:"duration"`
 	RentType      int    `json:"rent_type"`
 	RentTypeLabel string `json:"rent_type_label"`
@@ -37,6 +40,13 @@ type ServiceFleetPriceItem struct {
 	DiscAmount    int    `json:"disc_amount"`
 	DiscPrice     int    `json:"disc_price"`
 	Uom           string `json:"uom"`
+}
+
+type ServiceFleetAddonItem struct {
+	AddonID    string `json:"addon_id"`
+	AddonName  string `json:"addon_name"`
+	AddonDesc  string `json:"addon_desc"`
+	AddonPrice int    `json:"addon_price"`
 }
 
 type ServiceFleetDetailResponse struct {
