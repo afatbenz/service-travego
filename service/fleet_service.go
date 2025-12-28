@@ -34,8 +34,8 @@ func (s *FleetService) CreateFleet(createdBy, organizationID string, req *model.
 	return id, nil
 }
 
-func (s *FleetService) GetServiceFleets() ([]model.ServiceFleetItem, error) {
-	items, err := s.repo.GetServiceFleets()
+func (s *FleetService) GetServiceFleets(page, perPage int) ([]model.ServiceFleetItem, error) {
+	items, err := s.repo.GetServiceFleets(page, perPage)
 	if err != nil {
 		fmt.Println("Error fetching service fleets:", err)
 		return nil, err

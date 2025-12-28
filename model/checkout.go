@@ -21,5 +21,11 @@ type CheckoutFleetSummaryResponse struct {
 	Price    float64 `json:"price"`
 	Uom      string  `json:"uom"`
 
-	Facilities []string `json:"facilities"`
+	Facilities   []string      `json:"facilities"`
+	PickupPoints []PickupPoint `json:"pickup_points"`
+}
+
+type PickupPoint struct {
+	CityID   int    `json:"city_id"`
+	CityName string `json:"city_name"`
 }

@@ -243,10 +243,27 @@ func (r *FleetRepository) GetFleetCheckoutSummary(fleetID, priceID string) (*mod
 		res.Facilities = facilities
 	}
 
+	// Fetch pickup points
+	pickupQuery := fmt.Sprintf("SELECT city_id FROM fleet_pickup WHERE fleet_id = %s", r.getPlaceholder(1))
+	pRows, err := r.db.Query(pickupQuery, fleetID)
+	if err != nil {
+		res.PickupPoints = []model.PickupPoint{}
+	} else {
+		defer pRows.Close()
+		var pickups []model.PickupPoint
+		for pRows.Next() {
+			var p model.PickupPoint
+			if err := pRows.Scan(&p.CityID); err == nil {
+				pickups = append(pickups, p)
+			}
+		}
+		res.PickupPoints = pickups
+	}
+
 	return &res, nil
 }
 
-func (r *FleetRepository) GetServiceFleets() ([]model.ServiceFleetItem, error) {
+func (r *FleetRepository) GetServiceFleets(page, perPage int) ([]model.ServiceFleetItem, error) {
 	query := `
 		SELECT DISTINCT 
 			f.uuid as fleet_id, 
@@ -274,7 +291,16 @@ func (r *FleetRepository) GetServiceFleets() ([]model.ServiceFleetItem, error) {
 		) mp ON mp.fleet_id = f.uuid 
 		LEFT JOIN hot_offers ho ON ho.product_id = f.uuid 
 	`
-	rows, err := r.db.Query(query)
+
+	limit := perPage
+	offset := 0
+	if page > 0 {
+		offset = (page - 1) * limit
+	}
+
+	query += fmt.Sprintf(" LIMIT %s OFFSET %s", r.getPlaceholder(1), r.getPlaceholder(2))
+
+	rows, err := r.db.Query(query, limit, offset)
 	if err != nil {
 		return nil, err
 	}

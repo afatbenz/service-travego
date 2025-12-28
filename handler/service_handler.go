@@ -18,7 +18,10 @@ func NewServiceHandler(s *service.FleetService) *ServiceHandler {
 }
 
 func (h *ServiceHandler) GetServiceFleets(c *fiber.Ctx) error {
-	items, err := h.service.GetServiceFleets()
+	page := c.QueryInt("page", 0)
+	perPage := c.QueryInt("per_page", 10)
+
+	items, err := h.service.GetServiceFleets(page, perPage)
 	if err != nil {
 		fmt.Println("Error fetching service fleets:", err)
 		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, err.Error())
