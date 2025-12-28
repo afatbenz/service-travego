@@ -543,6 +543,7 @@ func (r *FleetRepository) GetFleetPrices(orgID, fleetID string) ([]model.FleetPr
                COALESCE(disc_price, 0)  AS disc_price,
                COALESCE(uom, '') AS uom
         FROM fleet_prices WHERE organization_id = %s AND fleet_id = %s
+        ORDER BY price ASC
     `
 
 	query = fmt.Sprintf(query, r.getPlaceholder(1), r.getPlaceholder(2))
