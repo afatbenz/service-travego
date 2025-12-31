@@ -8,18 +8,18 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-type CheckoutHandler struct {
-	service *service.CheckoutService
+type OrderHandler struct {
+	service *service.OrderService
 }
 
-func NewCheckoutHandler(service *service.CheckoutService) *CheckoutHandler {
-	return &CheckoutHandler{
+func NewOrderHandler(service *service.OrderService) *OrderHandler {
+	return &OrderHandler{
 		service: service,
 	}
 }
 
-func (h *CheckoutHandler) GetFleetCheckoutSummary(c *fiber.Ctx) error {
-	var req model.CheckoutFleetSummaryRequest
+func (h *OrderHandler) GetFleetOrderSummary(c *fiber.Ctx) error {
+	var req model.OrderFleetSummaryRequest
 	if err := c.BodyParser(&req); err != nil {
 		return helper.BadRequestResponse(c, "Invalid payload")
 	}
@@ -28,10 +28,10 @@ func (h *CheckoutHandler) GetFleetCheckoutSummary(c *fiber.Ctx) error {
 		return helper.BadRequestResponse(c, "fleet_id and price_id are required")
 	}
 
-	res, err := h.service.GetFleetCheckoutSummary(&req)
+	res, err := h.service.GetFleetOrderSummary(&req)
 	if err != nil {
 		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	return helper.SuccessResponse(c, fiber.StatusOK, "Checkout summary retrieved", res)
+	return helper.SuccessResponse(c, fiber.StatusOK, "Order summary retrieved", res)
 }
