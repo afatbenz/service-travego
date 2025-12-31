@@ -215,7 +215,7 @@ func (r *FleetRepository) ListFleets(req *model.ListFleetRequest) ([]model.Fleet
 	return items, nil
 }
 
-func (r *FleetRepository) GetFleetCheckoutSummary(fleetID, priceID string) (*model.CheckoutFleetSummaryResponse, error) {
+func (r *FleetRepository) GetFleetOrderSummary(fleetID, priceID string) (*model.OrderFleetSummaryResponse, error) {
 	query := `
         SELECT f.fleet_name, f.capacity, f.engine, f.body, COALESCE(f.description, ''), f.active, COALESCE(f.thumbnail, ''),
                fp.duration, fp.rent_type, fp.price, COALESCE(fp.uom, '')
@@ -225,7 +225,7 @@ func (r *FleetRepository) GetFleetCheckoutSummary(fleetID, priceID string) (*mod
     `
 	query = fmt.Sprintf(query, r.getPlaceholder(1), r.getPlaceholder(2))
 
-	var res model.CheckoutFleetSummaryResponse
+	var res model.OrderFleetSummaryResponse
 	err := r.db.QueryRow(query, fleetID, priceID).Scan(
 		&res.FleetName, &res.Capacity, &res.Engine, &res.Body, &res.Description, &res.Active, &res.Thumbnail,
 		&res.Duration, &res.RentType, &res.Price, &res.Uom,

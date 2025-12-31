@@ -9,19 +9,19 @@ import (
 	"strconv"
 )
 
-type CheckoutService struct {
+type OrderService struct {
 	fleetRepo  *repository.FleetRepository
 	citiesName map[string]string
 }
 
-func NewCheckoutService(fleetRepo *repository.FleetRepository) *CheckoutService {
-	return &CheckoutService{
+func NewOrderService(fleetRepo *repository.FleetRepository) *OrderService {
+	return &OrderService{
 		fleetRepo: fleetRepo,
 	}
 }
 
-func (s *CheckoutService) GetFleetCheckoutSummary(req *model.CheckoutFleetSummaryRequest) (*model.CheckoutFleetSummaryResponse, error) {
-	res, err := s.fleetRepo.GetFleetCheckoutSummary(req.FleetID, req.PriceID)
+func (s *OrderService) GetFleetOrderSummary(req *model.OrderFleetSummaryRequest) (*model.OrderFleetSummaryResponse, error) {
+	res, err := s.fleetRepo.GetFleetOrderSummary(req.FleetID, req.PriceID)
 	if err != nil {
 		return nil, NewServiceError(ErrNotFound, http.StatusNotFound, "fleet or price not found")
 	}
@@ -37,7 +37,7 @@ func (s *CheckoutService) GetFleetCheckoutSummary(req *model.CheckoutFleetSummar
 	return res, nil
 }
 
-func (s *CheckoutService) ensureCitiesLoaded() {
+func (s *OrderService) ensureCitiesLoaded() {
 	if s.citiesName != nil {
 		return
 	}

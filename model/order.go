@@ -1,11 +1,11 @@
 package model
 
-type CheckoutFleetSummaryRequest struct {
+type OrderFleetSummaryRequest struct {
 	FleetID string `json:"fleet_id" validate:"required"`
 	PriceID string `json:"price_id" validate:"required"`
 }
 
-type CheckoutFleetSummaryResponse struct {
+type OrderFleetSummaryResponse struct {
 	// Fleet info
 	FleetName   string `json:"fleet_name"`
 	Capacity    int    `json:"capacity"`
