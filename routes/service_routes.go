@@ -12,6 +12,7 @@ import (
 
 func SetupServiceRoutes(api fiber.Router, db *sql.DB, driver string) {
 	repo := repository.NewFleetRepository(db, driver)
+	orgRepo := repository.NewOrganizationRepository(db, driver)
 	srv := service.NewFleetService(repo)
 	h := handler.NewServiceHandler(srv)
 
@@ -22,7 +23,7 @@ func SetupServiceRoutes(api fiber.Router, db *sql.DB, driver string) {
 	// If 'api' is the root router, we can do:
 
 	svcGroup := api.Group("/service")
-	svcGroup.Use(helper.DualAuthMiddleware())
+	svcGroup.Use(helper.DualAuthMiddleware(orgRepo))
 	svcGroup.Get("/fleet", h.GetServiceFleets)
 	svcGroup.Post("/fleet/detail", h.GetServiceFleetDetail)
 	svcGroup.Get("/fleet/addon/:fleetid", h.GetServiceFleetAddons)

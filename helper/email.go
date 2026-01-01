@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"service-travego/configs"
+	"service-travego/model"
 	"strconv"
 	"time"
 )
@@ -21,6 +22,22 @@ type EmailTemplateData struct {
 	ResetLink        string // For reset password email
 	RequesterName    string // For join organization approval email
 	OrganizationName string // For join organization approval email
+}
+
+type OrderSuccessEmailData struct {
+	CustomerName     string
+	OrderID          string
+	FleetName        string
+	Duration         string
+	Facilities       string
+	PickupLocation   string
+	Destination      string
+	TotalPrice       string
+	Year             int
+	OrganizationLogo string
+	BrandName        string
+	CompanyName      string
+	ContactList      []model.ContentListItem
 }
 
 // GetOTPLength returns the OTP length from environment variable or default to 8
@@ -64,7 +81,7 @@ func getTemplatePath(filename string) (string, error) {
 	return "", fmt.Errorf("template file not found: %s", filename)
 }
 
-func renderEmailTemplate(templatePath string, data EmailTemplateData) (string, error) {
+func renderEmailTemplate(templatePath string, data interface{}) (string, error) {
 	path, err := getTemplatePath(templatePath)
 	if err != nil {
 		return "", err
@@ -193,5 +210,16 @@ func SendJoinOrganizationApprovalEmail(cfg *configs.EmailConfig, to, username, r
 	}
 
 	subject := "New Member Request - TraveGO"
+	return sendHTMLEmail(cfg, to, subject, htmlBody)
+}
+
+func SendOrderSuccessEmail(cfg *configs.EmailConfig, to string, data OrderSuccessEmailData) error {
+	data.Year = time.Now().Year()
+	htmlBody, err := renderEmailTemplate("order_success.html", data)
+	if err != nil {
+		return err
+	}
+
+	subject := fmt.Sprintf("Order Confirmation - %s", data.OrderID)
 	return sendHTMLEmail(cfg, to, subject, htmlBody)
 }

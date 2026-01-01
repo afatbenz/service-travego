@@ -215,6 +215,109 @@ func (r *FleetRepository) ListFleets(req *model.ListFleetRequest) ([]model.Fleet
 	return items, nil
 }
 
+func (r *FleetRepository) GetPriceByID(priceID string) (float64, int, error) {
+	query := `SELECT price, rent_type FROM fleet_prices WHERE uuid = %s`
+	query = fmt.Sprintf(query, r.getPlaceholder(1))
+	var price float64
+	var rentType int
+	err := r.db.QueryRow(query, priceID).Scan(&price, &rentType)
+	return price, rentType, err
+}
+
+func (r *FleetRepository) GetAddonPriceSum(addonIDs []string) (float64, error) {
+	if len(addonIDs) == 0 {
+		return 0, nil
+	}
+	placeholders := make([]string, len(addonIDs))
+	args := make([]interface{}, len(addonIDs))
+	for i, id := range addonIDs {
+		placeholders[i] = r.getPlaceholder(i + 1)
+		args[i] = id
+	}
+	query := fmt.Sprintf(`SELECT COALESCE(SUM(addon_price), 0) FROM fleet_addon WHERE uuid IN (%s)`, strings.Join(placeholders, ","))
+	var total float64
+	err := r.db.QueryRow(query, args...).Scan(&total)
+	return total, err
+}
+
+func (r *FleetRepository) CreateFleetOrder(orderID string, totalAmount float64, req *model.CreateOrderRequest) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+
+	now := time.Now()
+
+	// 1. Insert fleet_order
+	orderQuery := fmt.Sprintf(`
+		INSERT INTO fleet_orders (order_id, fleet_id, start_date, end_date, pickup_city_id, pickup_location, unit_qty, price_id, created_at, total_amount, status, payment_status, organization_id)
+		VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 2, 3, %s)
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
+		r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11))
+
+	_, err = tx.Exec(orderQuery, orderID, req.FleetID, req.StartDate, req.EndDate, req.PickupCityID, req.PickupLocation, req.Qty, req.PriceID, now, totalAmount, req.OrganizationID)
+	if err != nil {
+		fmt.Println("error create orders", err)
+		return err
+	}
+
+	// 2. Insert fleet_orders_customers
+	custID := uuid2()
+	custQuery := fmt.Sprintf(`
+		INSERT INTO fleet_order_customers (customer_id, order_id, customer_name, customer_phone, customer_email, customer_address, created_at, organization_id)
+		VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8))
+
+	_, err = tx.Exec(custQuery, custID, orderID, req.Fullname, req.Phone, req.Email, req.Address, now, req.OrganizationID)
+	if err != nil {
+		fmt.Println("error create customer orders", err)
+		return err
+	}
+
+	// 3. Insert fleet_orders_addon
+	if len(req.Addons) > 0 {
+		addonQuery := fmt.Sprintf(`
+			INSERT INTO fleet_order_addons (order_addon_id, order_id, addon_id, addon_price, created_at)
+			SELECT %s, %s, uuid, addon_price, %s FROM fleet_addon WHERE uuid = %s
+		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))
+		for _, addonID := range req.Addons {
+			id := uuid2()
+			res, err := tx.Exec(addonQuery, id, orderID, now, addonID)
+			if err != nil {
+				fmt.Println("error create addon orders", err)
+				return err
+			}
+			rows, _ := res.RowsAffected()
+			if rows == 0 {
+				return fmt.Errorf("addon not found: %s", addonID)
+			}
+		}
+	}
+
+	// 4. Insert fleet_orders_destination
+	if len(req.Destinations) > 0 {
+		destQuery := fmt.Sprintf(`
+			INSERT INTO fleet_order_destinations (order_destination_id, order_id, city_id, location, created_at)
+			VALUES (%s, %s, %s, %s, %s)
+		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5))
+		for _, dest := range req.Destinations {
+			id := uuid2()
+			_, err = tx.Exec(destQuery, id, orderID, dest.CityID, dest.Location, now)
+			if err != nil {
+				fmt.Println(err)
+				return err
+			}
+		}
+	}
+
+	return tx.Commit()
+}
+
 func (r *FleetRepository) GetFleetOrderSummary(fleetID, priceID string) (*model.OrderFleetSummaryResponse, error) {
 	query := `
         SELECT f.fleet_name, f.capacity, f.engine, f.body, COALESCE(f.description, ''), f.active, COALESCE(f.thumbnail, ''),
@@ -588,4 +691,169 @@ func (r *FleetRepository) GetFleetImages(fleetID string) ([]model.FleetImageItem
 		return nil, err
 	}
 	return items, nil
+}
+
+func (r *FleetRepository) GetOrderCountByOrgID(orgID string) (int, error) {
+	query := fmt.Sprintf(`
+		SELECT COUNT(*) FROM fleet_orders WHERE organization_id = %s
+	`, r.getPlaceholder(1))
+
+	var count int
+	err := r.db.QueryRow(query, orgID).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (r *FleetRepository) GetOrderList(req *model.GetOrderListRequest) ([]model.OrderListItem, int, error) {
+	where := []string{fmt.Sprintf("fo.organization_id = %s", r.getPlaceholder(1))}
+	args := []interface{}{req.OrganizationID}
+	paramIdx := 2
+
+	if req.Status > 0 {
+		where = append(where, fmt.Sprintf("fo.status = %s", r.getPlaceholder(paramIdx)))
+		args = append(args, req.Status)
+		paramIdx++
+	}
+
+	whereClause := strings.Join(where, " AND ")
+
+	// Count total
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM fleet_orders fo WHERE %s", whereClause)
+	var total int
+	if err := r.db.QueryRow(countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	// Fetch data
+	query := fmt.Sprintf(`
+		SELECT 
+			fo.order_id, 
+			fo.created_at, 
+			fo.total_amount, 
+			fo.status, 
+			fo.payment_status,
+			COALESCE(foc.customer_name, ''), 
+			COALESCE(foc.customer_email, ''), 
+			COALESCE(foc.customer_phone, '')
+		FROM fleet_orders fo
+		LEFT JOIN fleet_order_customers foc ON fo.order_id = foc.order_id
+		WHERE %s
+		ORDER BY fo.created_at DESC
+	`, whereClause)
+
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 10
+	}
+	offset := (req.Page - 1) * limit
+	if offset < 0 {
+		offset = 0
+	}
+
+	query += fmt.Sprintf(" LIMIT %s OFFSET %s", r.getPlaceholder(paramIdx), r.getPlaceholder(paramIdx+1))
+	args = append(args, limit, offset)
+
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	items := make([]model.OrderListItem, 0)
+	for rows.Next() {
+		var it model.OrderListItem
+		var createdAt time.Time
+		if err := rows.Scan(
+			&it.OrderID,
+			&createdAt,
+			&it.TotalAmount,
+			&it.Status,
+			&it.PaymentStatus,
+			&it.CustomerName,
+			&it.CustomerEmail,
+			&it.CustomerPhone,
+		); err != nil {
+			return nil, 0, err
+		}
+		it.CreatedAt = createdAt.Format("2006-01-02 15:04:05")
+		items = append(items, it)
+	}
+
+	return items, total, nil
+}
+
+func (r *FleetRepository) GetOrderDetail(orderID string) (*model.OrderDetailResponse, error) {
+	query := fmt.Sprintf(`
+        SELECT 
+            fo.order_id, fo.created_at, 
+            f.fleet_name, 
+            fp.rent_type, fp.duration, COALESCE(fp.uom, '') as duration_uom, fp.price, 
+            fo.unit_qty, fo.total_amount,
+            fo.pickup_location, fo.pickup_city_id,
+            COALESCE(foc.customer_name, '') as customer_name, COALESCE(foc.customer_phone, '') as customer_phone, COALESCE(foc.customer_email, '') as customer_email, COALESCE(foc.customer_address, '') as customer_address
+        FROM fleet_orders fo
+        JOIN fleets f ON fo.fleet_id = f.uuid
+        JOIN fleet_prices fp ON fo.price_id = fp.uuid
+        LEFT JOIN fleet_order_customers foc ON fo.order_id = foc.order_id
+        WHERE fo.order_id = %s
+    `, r.getPlaceholder(1))
+
+	var res model.OrderDetailResponse
+	var createdAt time.Time
+	var pickupCityID string
+
+	err := r.db.QueryRow(query, orderID).Scan(
+		&res.OrderID, &createdAt,
+		&res.FleetName,
+		&res.RentType, &res.Duration, &res.DurationUom, &res.Price,
+		&res.Quantity, &res.TotalAmount,
+		&res.Pickup.PickupLocation, &pickupCityID,
+		&res.Customer.CustomerName, &res.Customer.CustomerPhone, &res.Customer.CustomerEmail, &res.Customer.CustomerAddress,
+	)
+	if err != nil {
+		fmt.Println("Error querying order detail:", err)
+		return nil, err
+	}
+	res.OrderDate = createdAt.Format("2006-01-02 15:04:05")
+	res.Pickup.PickupCity = pickupCityID // Store ID temporarily
+
+	// Destinations
+	destQuery := fmt.Sprintf(`SELECT city_id, location FROM fleet_order_destinations WHERE order_id = %s`, r.getPlaceholder(1))
+	dRows, err := r.db.Query(destQuery, orderID)
+	if err != nil {
+		fmt.Println("Error querying order destinations:", err)
+		return nil, err
+	}
+	defer dRows.Close()
+	for dRows.Next() {
+		var d model.OrderDetailDest
+		var cID string
+		if err := dRows.Scan(&cID, &d.Location); err == nil {
+			d.City = cID // Store ID temporarily
+			res.Destination = append(res.Destination, d)
+		}
+	}
+
+	// Addons
+	addonQuery := fmt.Sprintf(`
+        SELECT fa.addon_name 
+        FROM fleet_order_addons foa 
+        JOIN fleet_addon fa ON foa.addon_id = fa.uuid 
+        WHERE foa.order_id = %s
+    `, r.getPlaceholder(1))
+	aRows, err := r.db.Query(addonQuery, orderID)
+	if err != nil {
+		return nil, err
+	}
+	defer aRows.Close()
+	for aRows.Next() {
+		var a model.OrderDetailAddon
+		if err := aRows.Scan(&a.AddonName); err == nil {
+			res.Addon = append(res.Addon, a)
+		}
+	}
+
+	return &res, nil
 }
