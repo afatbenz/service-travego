@@ -293,6 +293,17 @@ func (r *ContentRepository) FindContentListByContentID(contentID string) ([]mode
 	return items, nil
 }
 
+func (r *ContentRepository) GetContentListByTag(sectionTag, orgID string) ([]model.ContentListItem, error) {
+	content, err := r.FindByTagAndOrgID(sectionTag, orgID)
+	if err != nil {
+		return nil, err
+	}
+	if content == nil {
+		return nil, nil
+	}
+	return r.FindContentListByContentID(content.UUID)
+}
+
 func (r *ContentRepository) DeleteContentByUUID(uuid, orgID string) error {
 	query := fmt.Sprintf(`
         DELETE FROM content

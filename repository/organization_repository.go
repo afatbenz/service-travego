@@ -37,6 +37,7 @@ func (r *OrganizationRepository) FindByID(id string) (*model.Organization, error
 	`, r.getPlaceholder(1))
 
 	var org model.Organization
+	var npwpNumber sql.NullString
 	var postalCode sql.NullString
 	err := r.db.QueryRow(query, id).Scan(
 		&org.ID,
@@ -48,7 +49,7 @@ func (r *OrganizationRepository) FindByID(id string) (*model.Organization, error
 		&org.Province,
 		&org.Phone,
 		&org.Email,
-		&org.NPWPNumber,
+		&npwpNumber,
 		&org.OrganizationType,
 		&postalCode,
 		&org.CreatedBy,
@@ -56,12 +57,16 @@ func (r *OrganizationRepository) FindByID(id string) (*model.Organization, error
 		&org.UpdatedAt,
 	)
 	if err == nil {
+		if npwpNumber.Valid {
+			org.NPWPNumber = npwpNumber.String
+		}
 		if postalCode.Valid {
 			org.PostalCode = postalCode.String
 		}
 	}
 	if err != nil {
 		if err == sql.ErrNoRows {
+			fmt.Println("No organization found with ID:", id)
 			return nil, sql.ErrNoRows
 		}
 		return nil, err
@@ -122,6 +127,7 @@ func (r *OrganizationRepository) FindByUsername(username string) ([]model.Organi
 	var orgs []model.Organization
 	for rows.Next() {
 		var org model.Organization
+		var npwpNumber sql.NullString
 		var postalCode sql.NullString
 		err := rows.Scan(
 			&org.ID,
@@ -133,7 +139,7 @@ func (r *OrganizationRepository) FindByUsername(username string) ([]model.Organi
 			&org.Province,
 			&org.Phone,
 			&org.Email,
-			&org.NPWPNumber,
+			&npwpNumber,
 			&org.OrganizationType,
 			&postalCode,
 			&org.CreatedBy,
@@ -142,6 +148,9 @@ func (r *OrganizationRepository) FindByUsername(username string) ([]model.Organi
 		)
 		if err != nil {
 			return nil, err
+		}
+		if npwpNumber.Valid {
+			org.NPWPNumber = npwpNumber.String
 		}
 		if postalCode.Valid {
 			org.PostalCode = postalCode.String

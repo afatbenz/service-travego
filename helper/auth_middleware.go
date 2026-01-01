@@ -3,6 +3,7 @@ package helper
 import (
 	"fmt"
 	"os"
+	"service-travego/repository"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
@@ -137,7 +138,7 @@ func ApiKeyMiddleware() fiber.Handler {
 }
 
 // DualAuthMiddleware checks for api-key header or Authorization header
-func DualAuthMiddleware() fiber.Handler {
+func DualAuthMiddleware(orgRepo *repository.OrganizationRepository) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		// Check for api-key header
 		apiKey := c.Get("api-key")
@@ -151,8 +152,19 @@ func DualAuthMiddleware() fiber.Handler {
 				})
 			}
 
+			// Validate organization_id against database
+			org, err := orgRepo.FindByID(orgID)
+			if err != nil {
+				fmt.Println("Error fetching organization:", err)
+				return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+					"status":  "error",
+					"message": "Organization not found or invalid",
+				})
+			}
+
 			// Set locals
 			c.Locals("organization_id", orgID)
+			c.Locals("organization_code", org.OrganizationCode)
 			c.Locals("role", "visitor")
 			return c.Next()
 		}

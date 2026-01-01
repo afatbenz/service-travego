@@ -54,13 +54,13 @@ func (g Gender) IsValid() bool {
 type UploadType string
 
 const (
-    UploadTypeProfileUser      UploadType = "profile-user"      // PROFILE_USER
-    UploadTypeIconCompany      UploadType = "icon-company"      // ICON_COMPANY
-    UploadTypeContentThumbnail UploadType = "content-thumbnail" // CONTENT_THUMBNAIL
-    UploadTypeArmada           UploadType = "armada"
-    UploadTypePackage          UploadType = "package"
-    UploadTypeOrder            UploadType = "order"
-    UploadTypeContent          UploadType = "content"
+	UploadTypeProfileUser      UploadType = "profile-user"      // PROFILE_USER
+	UploadTypeIconCompany      UploadType = "icon-company"      // ICON_COMPANY
+	UploadTypeContentThumbnail UploadType = "content-thumbnail" // CONTENT_THUMBNAIL
+	UploadTypeArmada           UploadType = "armada"
+	UploadTypePackage          UploadType = "package"
+	UploadTypeOrder            UploadType = "order"
+	UploadTypeContent          UploadType = "content"
 )
 
 // String returns the string representation of UploadType
@@ -70,49 +70,78 @@ func (u UploadType) String() string {
 
 // IsValid checks if the upload type is valid
 func (u UploadType) IsValid() bool {
-    return u == UploadTypeProfileUser || u == UploadTypeIconCompany || u == UploadTypeContentThumbnail ||
-        u == UploadTypeArmada || u == UploadTypePackage || u == UploadTypeOrder || u == UploadTypeContent
+	return u == UploadTypeProfileUser || u == UploadTypeIconCompany || u == UploadTypeContentThumbnail ||
+		u == UploadTypeArmada || u == UploadTypePackage || u == UploadTypeOrder || u == UploadTypeContent
 }
 
 // GetStoragePath returns the storage path for the upload type
 func (u UploadType) GetStoragePath() string {
-    switch u {
-    case UploadTypeProfileUser:
-        return "/assets/avatar"
-    case UploadTypeIconCompany:
-        return "/assets/icon"
-    case UploadTypeContentThumbnail:
-        return "/assets/thumbnail"
-    case UploadTypeArmada:
-        return "/assets/armada"
-    case UploadTypePackage:
-        return "/assets/package"
-    case UploadTypeOrder:
-        return "/assets/order"
-    case UploadTypeContent:
-        return "/assets/content"
-    default:
-        return ""
-    }
+	switch u {
+	case UploadTypeProfileUser:
+		return "/assets/avatar"
+	case UploadTypeIconCompany:
+		return "/assets/icon"
+	case UploadTypeContentThumbnail:
+		return "/assets/thumbnail"
+	case UploadTypeArmada:
+		return "/assets/armada"
+	case UploadTypePackage:
+		return "/assets/package"
+	case UploadTypeOrder:
+		return "/assets/order"
+	case UploadTypeContent:
+		return "/assets/content"
+	default:
+		return ""
+	}
 }
 
 type RentType int
 
+// PaymentStatus represents the status of a payment
+type PaymentStatus int
+
 const (
-    RentTypeCityTour       RentType = 1
-    RentTypeOverland       RentType = 2
-    RentTypePickupDropOnly RentType = 3
+	PaymentStatusCancelled   PaymentStatus = 0 // CANCELLED
+	PaymentStatusPaid        PaymentStatus = 1 // PAID
+	PaymentStatusPartialPaid PaymentStatus = 2 // PARTIAL_PAID
+	PaymentStatusPending     PaymentStatus = 3 // PENDING
+	PaymentStatusReject      PaymentStatus = 4 // REJECT
+)
+
+// String returns the string representation of PaymentStatus
+func (s PaymentStatus) String() string {
+	switch s {
+	case PaymentStatusCancelled:
+		return "CANCELLED"
+	case PaymentStatusPaid:
+		return "PAID"
+	case PaymentStatusPartialPaid:
+		return "PARTIAL_PAID"
+	case PaymentStatusPending:
+		return "PENDING"
+	case PaymentStatusReject:
+		return "REJECT"
+	default:
+		return "UNKNOWN"
+	}
+}
+
+const (
+	RentTypeCityTour       RentType = 1
+	RentTypeOverland       RentType = 2
+	RentTypePickupDropOnly RentType = 3
 )
 
 func (r RentType) String() string {
-    switch r {
-    case RentTypeCityTour:
-        return "City Tour"
-    case RentTypeOverland:
-        return "Overland"
-    case RentTypePickupDropOnly:
-        return "Pickup / Drop Only"
-    default:
-        return "Unknown"
-    }
+	switch r {
+	case RentTypeCityTour:
+		return "City Tour"
+	case RentTypeOverland:
+		return "Overland"
+	case RentTypePickupDropOnly:
+		return "Pickup / Drop Only"
+	default:
+		return "Unknown"
+	}
 }

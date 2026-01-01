@@ -21,6 +21,9 @@ func SetupContentRoutes(api fiber.Router, db *sql.DB, driver string) {
 	// Initialize handler
 	contentHandler := handler.NewContentHandler(contentService)
 
+	// Initialize org repo for auth
+	orgRepo := repository.NewOrganizationRepository(db, driver)
+
 	// Content routes
 	content := api.Group("/content")
 	content.Delete("/delete-list/:uuid", helper.JWTAuthorizationMiddleware(), contentHandler.DeleteListByUUID)
@@ -28,5 +31,5 @@ func SetupContentRoutes(api fiber.Router, db *sql.DB, driver string) {
 	content.Post("/update", helper.JWTAuthorizationMiddleware(), contentHandler.UpsertGeneralContent)
 	content.Get("/:parent/:section_tag", helper.JWTAuthorizationMiddleware(), contentHandler.GetContentDetailByParentAndTag)
 	content.Get("/:parent", helper.JWTAuthorizationMiddleware(), contentHandler.GetContentByParent)
-	content.Get("", helper.DualAuthMiddleware(), contentHandler.GetAllGeneralContent)
+	content.Get("", helper.DualAuthMiddleware(orgRepo), contentHandler.GetAllGeneralContent)
 }

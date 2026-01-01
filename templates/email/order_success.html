@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Order Confirmation - TraveGO</title>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 5px; }
+        .header { background-color: #f8f9fa; padding: 10px 20px; border-bottom: 1px solid #ddd; margin-bottom: 20px; }
+        .details { background-color: #f9f9f9; padding: 15px; border-radius: 5px; }
+        .details ul { list-style-type: none; padding: 0; }
+        .details li { margin-bottom: 10px; border-bottom: 1px solid #eee; padding-bottom: 5px; }
+        .details li:last-child { border-bottom: none; }
+        .label { font-weight: bold; width: 150px; display: inline-block; }
+        .footer { margin-top: 20px; font-size: 12px; color: #777; text-align: center; border-top: 1px solid #ddd; padding-top: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>Order Confirmation</h2>
+        </div>
+        <p>Dear {{.CustomerName}},</p>
+        <p>Your order has been successfully created. Below are the details of your booking:</p>
+        
+        <div class="details">
+            <ul>
+                <li><span class="label">Order ID:</span> {{.OrderID}}</li>
+                <li><span class="label">Fleet Name:</span> {{.FleetName}}</li>
+                <li><span class="label">Duration:</span> {{.Duration}}</li>
+                <li><span class="label">Facilities:</span> {{.Facilities}}</li>
+                <li><span class="label">Pickup Location:</span> {{.PickupLocation}}</li>
+                <li><span class="label">Destination:</span> {{.Destination}}</li>
+                <li><span class="label">Total Price:</span> {{.TotalPrice}}</li>
+            </ul>
+        </div>
+        
+        <p>If you have any questions, please contact our support team.</p>
+        <p>Thank you for choosing TraveGO!</p>
+        
+        <div class="footer">
+            &copy; {{.Year}} TraveGO. All rights reserved.
+        </div>
+    </div>
+</body>
+</html>
