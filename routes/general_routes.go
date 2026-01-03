@@ -13,7 +13,8 @@ import (
 // SetupGeneralRoutes configures general routes
 func SetupGeneralRoutes(api fiber.Router, db *sql.DB, driver string) {
 	// Initialize general service and handler
-	generalService := service.NewGeneralService("config/general-config.json", "config/web-menu.json", "config/location.json")
+	generalRepo := repository.NewGeneralRepository(db, driver)
+	generalService := service.NewGeneralService("config/general-config.json", "config/web-menu.json", "config/location.json", generalRepo)
 	generalHandler := handler.NewGeneralHandler(generalService)
 
 	// Fleet types service (DB-backed)
@@ -28,6 +29,7 @@ func SetupGeneralRoutes(api fiber.Router, db *sql.DB, driver string) {
 	// General routes
 	general := api.Group("/general")
 	general.Get("/config", generalHandler.GetGeneralConfig)
+	general.Get("/bank-list", generalHandler.GetBankList)
 	general.Get("/web-menu", generalHandler.GetWebMenu)
 	general.Get("/provinces", generalHandler.GetProvinces)
 	general.Get("/cities", generalHandler.GetCities)

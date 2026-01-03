@@ -15,6 +15,12 @@ type MenuItem struct {
 	SubMenus []MenuItem `json:"subMenus,omitempty"`
 }
 
+// Bank represents bank information
+type Bank struct {
+	Name string `json:"name"`
+	Code string `json:"code"`
+}
+
 // WebMenu represents web menu structure
 type WebMenu struct {
 	Dashboard   []MenuItem `json:"dashboard"`

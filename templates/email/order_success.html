@@ -18,6 +18,11 @@
 <body>
     <div class="container">
         <div class="header">
+            {{if .OrganizationLogo}}
+            <div style="text-align: center; margin-bottom: 15px;">
+                <img src="{{.OrganizationLogo}}" alt="Logo" style="max-height: 80px; width: auto;">
+            </div>
+            {{end}}
             <h2>Order Confirmation</h2>
         </div>
         <p>Dear {{.CustomerName}},</p>
@@ -35,11 +40,17 @@
             </ul>
         </div>
         
+        <div style="text-align: center; margin-top: 20px;">
+            <a href="{{.OrderDetailUrl}}" style="background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold;">View Order Details</a>
+        </div>
+        
         <p>If you have any questions, please contact our support team.</p>
         <p>Thank you for choosing TraveGO!</p>
         
         <div class="footer">
-            &copy; {{.Year}} TraveGO. All rights reserved.
+            {{if .CompanyName}}<p style="margin: 5px 0; font-weight: bold;">{{.CompanyName}}</p>{{end}}
+            {{if .BrandName}}<p style="margin: 5px 0;">{{.BrandName}}</p>{{end}}
+            <p style="margin: 5px 0;">&copy; {{.Year}} TraveGO. All rights reserved.</p>
         </div>
     </div>
 </body>

@@ -1,5 +1,7 @@
 package model
 
+import "time"
+
 type OrderFleetSummaryRequest struct {
 	FleetID string `json:"fleet_id" validate:"required"`
 	PriceID string `json:"price_id" validate:"required"`
@@ -54,9 +56,13 @@ type OrderDestination struct {
 	CityID   string `json:"city_id"`
 }
 
+type OrderTokenPayload struct {
+	OrderID string `json:"order_id"`
+	PriceID string `json:"price_id"`
+}
+
 type CreateOrderResponse struct {
-	OrderID     string  `json:"order_id"`
-	TotalAmount float64 `json:"total_amount"`
+	Token string `json:"token"`
 }
 
 type GetOrderListRequest struct {
@@ -101,9 +107,18 @@ type OrderDetailResponse struct {
 	Customer      OrderDetailCustomer `json:"customer"`
 }
 
+type OrderDetailCustomer struct {
+	CustomerName    string `json:"customer_name"`
+	CustomerPhone   string `json:"customer_phone"`
+	CustomerEmail   string `json:"customer_email"`
+	CustomerAddress string `json:"customer_address"`
+}
+
 type OrderDetailPickup struct {
 	PickupLocation string `json:"pickup_location"`
 	PickupCity     string `json:"pickup_city"`
+	StartDate      string `json:"start_date"`
+	EndDate        string `json:"end_date"`
 }
 
 type OrderDetailDest struct {
@@ -112,12 +127,56 @@ type OrderDetailDest struct {
 }
 
 type OrderDetailAddon struct {
-	AddonName string `json:"addon_name"`
+	AddonName  string  `json:"addon_name"`
+	AddonPrice float64 `json:"addon_price"`
 }
 
-type OrderDetailCustomer struct {
-	CustomerName    string `json:"customer_name"`
-	CustomerPhone   string `json:"customer_phone"`
-	CustomerEmail   string `json:"customer_email"`
-	CustomerAddress string `json:"customer_address"`
+type CreatePaymentRequest struct {
+	Token             string  `json:"token"`
+	PaymentMethod     string  `json:"payment_method"`
+	PaymentType       int     `json:"payment_type"`
+	PaymentPercentage float64 `json:"payment_percentage"`
+	OrganizationID    string  `json:"-"`
+}
+
+type PaymentStatus int
+
+const (
+	PaymentStatusCancelled           PaymentStatus = 0
+	PaymentStatusPaid                PaymentStatus = 1
+	PaymentStatusPendingVerification PaymentStatus = 2
+	PaymentStatusPartialPaid         PaymentStatus = 3
+)
+
+type PaymentMethod int
+
+const (
+	PaymentMethodBank PaymentMethod = 1
+	PaymentMethodQris PaymentMethod = 2
+)
+
+type FleetOrderPayment struct {
+	OrderPaymentID    string        `json:"order_payment_id"`
+	OrderID           string        `json:"order_id"`
+	OrganizationID    string        `json:"organization_id"`
+	PaymentMethod     PaymentMethod `json:"payment_method"`
+	PaymentType       int           `json:"payment_type"`
+	PaymentPercentage float64       `json:"payment_percentage"`
+	PaymentAmount     float64       `json:"payment_amount"`
+	TotalAmount       float64       `json:"total_amount"`
+	PaymentRemaining  float64       `json:"payment_remaining"`
+	Status            PaymentStatus `json:"status"`
+	CreatedAt         time.Time     `json:"created_at"`
+}
+
+type PaymentMethodResponse struct {
+	BankAccountID string `json:"bank_account_id"`
+	Icon          string `json:"icon"`
+	BankCode      string `json:"bank_code"`
+	BankName      string `json:"bank_name"`
+}
+
+type PaymentMethodGroupedResponse struct {
+	Transfer []PaymentMethodResponse `json:"transfer"`
+	Qris     []PaymentMethodResponse `json:"qris"`
 }

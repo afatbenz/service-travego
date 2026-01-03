@@ -38,6 +38,7 @@ type OrderSuccessEmailData struct {
 	BrandName        string
 	CompanyName      string
 	ContactList      []model.ContentListItem
+	OrderDetailUrl   string
 }
 
 // GetOTPLength returns the OTP length from environment variable or default to 8

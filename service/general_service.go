@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"service-travego/model"
+	"service-travego/repository"
 	"strings"
 )
 
@@ -11,13 +12,15 @@ type GeneralService struct {
 	configPath   string
 	menuPath     string
 	locationPath string
+	generalRepo  *repository.GeneralRepository
 }
 
-func NewGeneralService(configPath, menuPath, locationPath string) *GeneralService {
+func NewGeneralService(configPath, menuPath, locationPath string, generalRepo *repository.GeneralRepository) *GeneralService {
 	s := &GeneralService{
 		configPath:   configPath,
 		menuPath:     menuPath,
 		locationPath: locationPath,
+		generalRepo:  generalRepo,
 	}
 	s.ensureLocationProvinceIDs()
 	return s
@@ -57,6 +60,11 @@ func (s *GeneralService) GetWebMenu() (*model.WebMenu, error) {
 	}
 
 	return &menu, nil
+}
+
+// GetBankList reads and returns bank list from database sorted by name
+func (s *GeneralService) GetBankList() ([]model.Bank, error) {
+	return s.generalRepo.GetBankList()
 }
 
 // GetProvinces reads and returns provinces from location JSON file
