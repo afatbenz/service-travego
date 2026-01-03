@@ -36,6 +36,14 @@ func (h *GeneralHandler) GetGeneralConfig(c *fiber.Ctx) error {
 	return helper.SuccessResponse(c, fiber.StatusOK, "General configuration loaded successfully", config)
 }
 
+func (h *GeneralHandler) GetBankList(c *fiber.Ctx) error {
+	list, err := h.generalService.GetBankList()
+	if err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to load bank list")
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Bank list loaded successfully", list)
+}
+
 func (h *GeneralHandler) GetWebMenu(c *fiber.Ctx) error {
 	menu, err := h.generalService.GetWebMenu()
 	if err != nil {

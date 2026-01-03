@@ -85,16 +85,61 @@ func (h *OrderHandler) GetOrderList(c *fiber.Ctx) error {
 }
 
 func (h *OrderHandler) GetOrderDetail(c *fiber.Ctx) error {
-	orderID := c.Params("orderid")
-	if orderID == "" {
-		return helper.BadRequestResponse(c, "order_id is required")
+	encryptedOrderID := c.Params("encryptOrderId")
+	if encryptedOrderID == "" {
+		return helper.BadRequestResponse(c, "encryptOrderId is required")
 	}
 
-	res, err := h.service.GetOrderDetail(orderID)
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Organization not found")
+	}
+
+	res, err := h.service.GetOrderDetail(encryptedOrderID, orgID)
 	if err != nil {
 		code := service.GetStatusCode(err)
 		return helper.SendErrorResponse(c, code, err.Error())
 	}
 
 	return helper.SuccessResponse(c, fiber.StatusOK, "Order detail retrieved", res)
+}
+
+func (h *OrderHandler) CreateOrderPayment(c *fiber.Ctx) error {
+	var req model.CreatePaymentRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.BadRequestResponse(c, "Invalid payload")
+	}
+
+	if req.Token == "" || req.PaymentMethod == "" || req.PaymentType == 0 {
+		return helper.BadRequestResponse(c, "Required fields missing")
+	}
+
+	if orgID, ok := c.Locals("organization_id").(string); ok {
+		req.OrganizationID = orgID
+	} else {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Organization not found")
+	}
+
+	res, err := h.service.CreateOrderPayment(&req)
+	if err != nil {
+		fmt.Println("Error creating payment:", err)
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Payment created", res)
+}
+
+func (h *OrderHandler) GetPaymentMethods(c *fiber.Ctx) error {
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Organization not found")
+	}
+
+	res, err := h.service.GetPaymentMethods(orgID)
+	if err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Payment methods retrieved", res)
 }

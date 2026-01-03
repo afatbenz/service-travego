@@ -36,5 +36,10 @@ func SetupOrganizationRoutes(api fiber.Router, db *sql.DB, driver string, cfg *c
 	organization.Post("/create", helper.JWTAuthorizationMiddleware(), orgHandler.CreateOrganization)
 	organization.Post("/join", helper.JWTAuthorizationMiddleware(), orgHandler.JoinOrganization)
 	organization.Get("/api-config", helper.JWTAuthorizationMiddleware(), orgHandler.GetAPIConfig)
+	organization.Post("/update/domain-url", helper.JWTAuthorizationMiddleware(), orgHandler.UpdateDomainURL)
+	organization.Get("/bank-accounts", helper.JWTAuthorizationMiddleware(), orgHandler.GetBankAccounts)
+	organization.Post("/bank-account/create", helper.JWTAuthorizationMiddleware(), orgHandler.CreateBankAccount)
+	organization.Post("/bank-account/update", helper.JWTAuthorizationMiddleware(), orgHandler.UpdateBankAccount)
+	organization.Post("/bank-account/delete", helper.JWTAuthorizationMiddleware(), orgHandler.DeleteBankAccount)
 	organization.Get("/types", orgHandler.GetOrganizationTypes)
 }

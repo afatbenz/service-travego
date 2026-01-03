@@ -366,6 +366,34 @@ func (r *FleetRepository) GetFleetOrderSummary(fleetID, priceID string) (*model.
 	return &res, nil
 }
 
+func (r *FleetRepository) GetFleetOrderTotalAmount(orderID, priceID, organizationID string) (float64, error) {
+	query := fmt.Sprintf("SELECT total_amount FROM fleet_orders WHERE order_id = %s AND price_id = %s AND organization_id = %s", r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
+	var amount float64
+	err := r.db.QueryRow(query, orderID, priceID, organizationID).Scan(&amount)
+	return amount, err
+}
+
+func (r *FleetRepository) CreateOrderPayment(p *model.FleetOrderPayment) error {
+	query := fmt.Sprintf(`
+		INSERT INTO fleet_order_payment (
+			order_payment_id, order_id, organization_id, payment_method, 
+			payment_type, payment_percentage, payment_amount, total_amount, 
+			payment_remaining, status, created_at
+		) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+	`,
+		r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
+		r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8),
+		r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11),
+	)
+
+	_, err := r.db.Exec(query,
+		p.OrderPaymentID, p.OrderID, p.OrganizationID, p.PaymentMethod,
+		p.PaymentType, p.PaymentPercentage, p.PaymentAmount, p.TotalAmount,
+		p.PaymentRemaining, p.Status, p.CreatedAt,
+	)
+	return err
+}
+
 func (r *FleetRepository) GetServiceFleets(page, perPage int) ([]model.ServiceFleetItem, error) {
 	query := `
 		SELECT DISTINCT 
@@ -784,32 +812,33 @@ func (r *FleetRepository) GetOrderList(req *model.GetOrderListRequest) ([]model.
 	return items, total, nil
 }
 
-func (r *FleetRepository) GetOrderDetail(orderID string) (*model.OrderDetailResponse, error) {
+func (r *FleetRepository) GetOrderDetail(orderID, priceID, organizationID string) (*model.OrderDetailResponse, error) {
 	query := fmt.Sprintf(`
         SELECT 
             fo.order_id, fo.created_at, 
             f.fleet_name, 
             fp.rent_type, fp.duration, COALESCE(fp.uom, '') as duration_uom, fp.price, 
             fo.unit_qty, fo.total_amount,
-            fo.pickup_location, fo.pickup_city_id,
+            fo.pickup_location, fo.pickup_city_id, fo.start_date, fo.end_date,
             COALESCE(foc.customer_name, '') as customer_name, COALESCE(foc.customer_phone, '') as customer_phone, COALESCE(foc.customer_email, '') as customer_email, COALESCE(foc.customer_address, '') as customer_address
         FROM fleet_orders fo
         JOIN fleets f ON fo.fleet_id = f.uuid
         JOIN fleet_prices fp ON fo.price_id = fp.uuid
         LEFT JOIN fleet_order_customers foc ON fo.order_id = foc.order_id
-        WHERE fo.order_id = %s
-    `, r.getPlaceholder(1))
+        WHERE fo.order_id = %s AND fo.price_id = %s AND fo.organization_id = %s
+    `, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
 
 	var res model.OrderDetailResponse
 	var createdAt time.Time
 	var pickupCityID string
+	var startDate, endDate time.Time
 
-	err := r.db.QueryRow(query, orderID).Scan(
+	err := r.db.QueryRow(query, orderID, priceID, organizationID).Scan(
 		&res.OrderID, &createdAt,
 		&res.FleetName,
 		&res.RentType, &res.Duration, &res.DurationUom, &res.Price,
 		&res.Quantity, &res.TotalAmount,
-		&res.Pickup.PickupLocation, &pickupCityID,
+		&res.Pickup.PickupLocation, &pickupCityID, &startDate, &endDate,
 		&res.Customer.CustomerName, &res.Customer.CustomerPhone, &res.Customer.CustomerEmail, &res.Customer.CustomerAddress,
 	)
 	if err != nil {
@@ -818,6 +847,8 @@ func (r *FleetRepository) GetOrderDetail(orderID string) (*model.OrderDetailResp
 	}
 	res.OrderDate = createdAt.Format("2006-01-02 15:04:05")
 	res.Pickup.PickupCity = pickupCityID // Store ID temporarily
+	res.Pickup.StartDate = startDate.Format("2006-01-02")
+	res.Pickup.EndDate = endDate.Format("2006-01-02")
 
 	// Destinations
 	destQuery := fmt.Sprintf(`SELECT city_id, location FROM fleet_order_destinations WHERE order_id = %s`, r.getPlaceholder(1))
@@ -838,7 +869,7 @@ func (r *FleetRepository) GetOrderDetail(orderID string) (*model.OrderDetailResp
 
 	// Addons
 	addonQuery := fmt.Sprintf(`
-        SELECT fa.addon_name 
+        SELECT fa.addon_name, fa.addon_price
         FROM fleet_order_addons foa 
         JOIN fleet_addon fa ON foa.addon_id = fa.uuid 
         WHERE foa.order_id = %s
@@ -850,7 +881,7 @@ func (r *FleetRepository) GetOrderDetail(orderID string) (*model.OrderDetailResp
 	defer aRows.Close()
 	for aRows.Next() {
 		var a model.OrderDetailAddon
-		if err := aRows.Scan(&a.AddonName); err == nil {
+		if err := aRows.Scan(&a.AddonName, &a.AddonPrice); err == nil {
 			res.Addon = append(res.Addon, a)
 		}
 	}

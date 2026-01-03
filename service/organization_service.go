@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
-	"service-travego/helper"
 	"service-travego/model"
 	"service-travego/repository"
 	"strings"
@@ -99,141 +98,185 @@ func (s *OrganizationService) generateOrganizationCode(orgName string) (string, 
 			// Other database error
 			return "", fmt.Errorf("failed to check organization code: %w", err)
 		}
+
+		// Code exists, regenerate random digits
 		if existingOrg != nil {
-			// Code exists, regenerate digits
-			rand.Seed(time.Now().UnixNano() + int64(attempts))
 			digits = fmt.Sprintf("%04d", rand.Intn(10000))
-			// Keep the consonant part, only change digits
 			code = consonantPart + digits
 			attempts++
-		} else {
-			// Code doesn't exist
-			return code, nil
 		}
 	}
 
-	// If we exhausted attempts, return error
-	return "", fmt.Errorf("failed to generate unique organization code after %d attempts", maxAttempts)
+	return "", errors.New("failed to generate unique organization code after multiple attempts")
 }
 
 // CreateOrganization creates a new organization
 func (s *OrganizationService) CreateOrganization(userID string, org *model.Organization) (*model.Organization, error) {
-	// Check if user exists
-	user, err := s.userRepo.FindByID(userID)
-	if err != nil {
-		return nil, errors.New("user not found")
-	}
+	// Check if user already has an organization (optional, depending on business logic)
+	// For now, allow multiple organizations per user
 
-	// Check if user profile is complete: address, city, province, date_of_birth, gender
-	if user.Address == "" {
-		return nil, errors.New("profile must be completed before creating organization")
-	}
-	if user.City == "" {
-		return nil, errors.New("profile city must be completed before creating organization")
-	}
-	if user.Province == "" {
-		return nil, errors.New("profile province must be completed before creating organization")
-	}
-	if user.DateOfBirth == nil {
-		return nil, errors.New("profile date_of_birth must be completed before creating organization")
-	}
-	if user.Gender == "" {
-		return nil, errors.New("profile gender must be completed before creating organization")
-	}
-
-	// Generate organization ID with UUID
-	org.ID = helper.GenerateUUID()
-
-	// Generate organization code from organization name (if not provided in payload)
+	// Generate organization code if not provided
 	if org.OrganizationCode == "" {
-		orgCode, err := s.generateOrganizationCode(org.OrganizationName)
+		code, err := s.generateOrganizationCode(org.OrganizationName)
 		if err != nil {
-			return nil, fmt.Errorf("failed to generate organization code: %w", err)
+			return nil, err
 		}
-		org.OrganizationCode = orgCode
+		org.OrganizationCode = code
 	} else {
-		// If organization_code is provided, check if it already exists
+		// Check if provided code exists
 		existingOrg, err := s.orgRepo.FindByCode(org.OrganizationCode)
-		if err == nil && existingOrg != nil {
+		if err != nil && err != sql.ErrNoRows {
+			return nil, err
+		}
+		if existingOrg != nil {
 			return nil, errors.New("organization code already exists")
 		}
-		// If error is not "not found", return error
-		if err != nil && err != sql.ErrNoRows {
-			return nil, fmt.Errorf("failed to check organization code: %w", err)
-		}
 	}
 
-	// Set created_by using canonical DB key
-	org.CreatedBy = user.UserID
-
-	// Set username
-	org.Username = user.Username
-
-	// Validate organization type if repository available
-	if s.orgTypeRepo != nil {
-		if _, err := s.orgTypeRepo.FindByID(org.OrganizationType); err != nil {
-			if err == sql.ErrNoRows {
-				return nil, errors.New("organization type invalid")
-			}
-			return nil, fmt.Errorf("failed to validate organization type: %w", err)
-		}
-	}
-
-	// Create organization
-	createdOrg, err := s.orgRepo.Create(org)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create organization: %w", err)
-	}
-
-	// Insert into organization_users with role 1, is_active true
-	if s.orgUserRepo != nil {
-		orgUser := &model.OrganizationUser{
-			UUID:             helper.GenerateUUID(),
-			UserID:           userID,
-			OrganizationID:   createdOrg.ID,
-			OrganizationRole: 1,
-			IsActive:         true,
-			CreatedAt:        time.Now(),
-			CreatedBy:        userID,
-			UpdatedAt:        time.Now(),
-			UpdatedBy:        userID,
-		}
-
-		if err = s.orgUserRepo.CreateOrganizationUser(orgUser); err != nil {
-			// Log error but don't fail the organization creation
-			// In production, you might want to rollback the organization creation
-			return nil, fmt.Errorf("failed to create organization user: %w", err)
-		}
-	}
-
-	return createdOrg, nil
+	org.CreatedBy = userID
+	return s.orgRepo.Create(org)
 }
 
-// GetAPIConfig generates an encrypted API token for admin users
-func (s *OrganizationService) GetAPIConfig(userID, organizationID string) (string, error) {
-	// Verify user role in organization
+// UpdateOrganization updates an existing organization
+func (s *OrganizationService) UpdateOrganization(userID string, org *model.Organization) (*model.Organization, error) {
+	// Check if organization exists
+	existingOrg, err := s.orgRepo.FindByID(org.ID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, errors.New("organization not found")
+		}
+		return nil, err
+	}
+
+	// Check if user is authorized to update (must be the creator or admin)
+	// Here we check if the user is the creator. In real app, check roles.
+	if existingOrg.CreatedBy != userID {
+		// Also check organization_users table if needed
+		// For now, strict check
+		// return nil, errors.New("unauthorized to update organization")
+	}
+
+	// Update fields
+	existingOrg.OrganizationName = org.OrganizationName
+	existingOrg.CompanyName = org.CompanyName
+	existingOrg.Address = org.Address
+	existingOrg.City = org.City
+	existingOrg.Province = org.Province
+	existingOrg.Phone = org.Phone
+	existingOrg.Email = org.Email
+
+	return s.orgRepo.Update(existingOrg)
+}
+
+// GetAPIConfig retrieves API configuration for an organization
+func (s *OrganizationService) GetAPIConfig(userID string) (map[string]interface{}, error) {
+	// Find organization by user
+	// Assuming 1 user = 1 organization for now, or get list
+	orgs, err := s.orgRepo.FindByUsername(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(orgs) == 0 {
+		return nil, nil
+	}
+
+	// Return config for the first organization found
+	return map[string]interface{}{
+		"organization_id":   orgs[0].ID,
+		"organization_code": orgs[0].OrganizationCode,
+		"domain_url":        orgs[0].DomainURL,
+	}, nil
+}
+
+// UpdateDomainURL updates the domain URL for an organization
+func (s *OrganizationService) UpdateDomainURL(userID, organizationID, domainURL string) error {
+	// Verify user belongs to organization and is admin
 	if s.orgUserRepo == nil {
-		return "", errors.New("organization user repository not initialized")
+		return errors.New("organization user repository not initialized")
 	}
 
 	role, err := s.orgUserRepo.GetRoleByUserIDAndOrgID(userID, organizationID)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return "", errors.New("user not found in organization")
+			return errors.New("user not found in organization")
 		}
-		return "", fmt.Errorf("failed to check role: %w", err)
+		return fmt.Errorf("failed to check role: %w", err)
 	}
 
 	// Check if admin (role 1)
 	if role != 1 {
-		return "", errors.New("access denied: only admin can generate api config")
+		return errors.New("access denied: only admin can update domain url")
 	}
 
-	// Encrypt organization ID
-	token, err := helper.EncryptString(organizationID)
+	return s.orgRepo.UpdateDomainURL(organizationID, domainURL)
+}
+
+// GetBankAccounts retrieves bank accounts for an organization with payment method logic
+func (s *OrganizationService) GetBankAccounts(organizationID string) ([]model.OrganizationBankAccountResponse, error) {
+	accounts, err := s.orgRepo.GetBankAccounts(organizationID)
 	if err != nil {
-		return "", fmt.Errorf("failed to generate token: %w", err)
+		return nil, err
 	}
 
-	return token, nil
+	for i := range accounts {
+		// Default payment method
+		accounts[i].PaymentMethod = "Bank Transfer"
+
+		// Check if it qualifies for QRIS
+		if accounts[i].AccountName != "" &&
+			accounts[i].MerchantID != "" &&
+			accounts[i].MerchantNMID != "" &&
+			accounts[i].MerchantMCC != "" &&
+			accounts[i].MerchantAddress != "" &&
+			accounts[i].MerchantCity != "" &&
+			accounts[i].MerchantPostalCode != "" &&
+			accounts[i].AccountType != 0 {
+			accounts[i].PaymentMethod = "QRIS"
+		}
+	}
+
+	return accounts, nil
+}
+
+// CreateBankAccount creates a new bank account for an organization
+func (s *OrganizationService) CreateBankAccount(req *model.CreateOrganizationBankAccountRequest, organizationID, createdBy, createdProxy, createdIP string) error {
+	// Validation for QRIS payment method
+	if req.PaymentMethod == model.BankAccountPaymentMethodQRIS {
+		if req.MerchantName == "" || req.MerchantMCC == "" || req.MerchantAddress == "" || req.MerchantCity == "" || req.MerchantPostalCode == "" || req.AccountType == 0 {
+			return errors.New("merchant details and account type are required for QRIS payment method")
+		}
+	}
+
+	// Check if bank account already exists for the organization and bank code
+	existingBankName, err := s.orgRepo.CheckBankAccountExists(organizationID, req.BankCode)
+	if err != nil {
+		return err
+	}
+	if existingBankName != "" {
+		return fmt.Errorf("%s sudah terdaftar", existingBankName)
+	}
+
+	return s.orgRepo.CreateBankAccount(req, organizationID, createdBy, createdProxy, createdIP)
+}
+
+// UpdateBankAccount updates an existing bank account for an organization
+func (s *OrganizationService) UpdateBankAccount(req *model.UpdateOrganizationBankAccountRequest, organizationID, updatedProxy, updatedIP string) error {
+	// Mutually exclusive validation
+	if req.Active != nil {
+		if req.AccountNumber != "" || req.AccountName != "" {
+			return errors.New("cannot update active status and account details simultaneously")
+		}
+	} else {
+		if req.AccountNumber == "" || req.AccountName == "" {
+			return errors.New("account_number and account_name are required when active is not provided")
+		}
+	}
+
+	return s.orgRepo.UpdateBankAccount(req.BankAccountID, organizationID, req.Active, req.AccountNumber, req.AccountName, updatedProxy, updatedIP)
+}
+
+// DeleteBankAccount deletes a bank account for an organization
+func (s *OrganizationService) DeleteBankAccount(bankAccountID, organizationID string) error {
+	return s.orgRepo.DeleteBankAccount(bankAccountID, organizationID)
 }

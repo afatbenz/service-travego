@@ -1,6 +1,7 @@
 package helper
 
 import (
+	"fmt"
 	"strings"
 	"unicode"
 )
@@ -57,4 +58,25 @@ func NormalizePhoneNumber(phone string) string {
 
 	// Otherwise return as is
 	return phone
+}
+
+// FormatRupiah formats a float64 amount to Rupiah format (e.g. Rp2.750.000,00)
+func FormatRupiah(amount float64) string {
+	// Format with 2 decimal places
+	s := fmt.Sprintf("%.2f", amount)
+	parts := strings.Split(s, ".")
+	integerPart := parts[0]
+	decimalPart := parts[1]
+
+	// Add thousand separators
+	var result []byte
+	n := len(integerPart)
+	for i, r := range integerPart {
+		if i > 0 && (n-i)%3 == 0 {
+			result = append(result, '.')
+		}
+		result = append(result, byte(r))
+	}
+
+	return "Rp" + string(result) + "," + decimalPart
 }

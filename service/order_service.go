@@ -1,6 +1,7 @@
 package service
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -13,19 +14,23 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type OrderService struct {
 	fleetRepo   *repository.FleetRepository
 	contentRepo *repository.ContentRepository
+	orgRepo     *repository.OrganizationRepository
 	emailCfg    *configs.EmailConfig
 	citiesName  map[string]string
 }
 
-func NewOrderService(fleetRepo *repository.FleetRepository, contentRepo *repository.ContentRepository, emailCfg *configs.EmailConfig) *OrderService {
+func NewOrderService(fleetRepo *repository.FleetRepository, contentRepo *repository.ContentRepository, orgRepo *repository.OrganizationRepository, emailCfg *configs.EmailConfig) *OrderService {
 	return &OrderService{
 		fleetRepo:   fleetRepo,
 		contentRepo: contentRepo,
+		orgRepo:     orgRepo,
 		emailCfg:    emailCfg,
 	}
 }
@@ -89,6 +94,17 @@ func (s *OrderService) CreateOrder(req *model.CreateOrderRequest) (*model.Create
 		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create order")
 	}
 
+	// Generate Token
+	tokenPayload := model.OrderTokenPayload{
+		OrderID: orderID,
+		PriceID: req.PriceID,
+	}
+	tokenBytes, _ := json.Marshal(tokenPayload)
+	token, err := helper.EncryptString(string(tokenBytes))
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to encrypt token")
+	}
+
 	// 4. Send Email Notification
 	// Fetch fleet details for email
 	fleetSummary, err := s.fleetRepo.GetFleetOrderSummary(req.FleetID, req.PriceID)
@@ -126,6 +142,21 @@ func (s *OrderService) CreateOrder(req *model.CreateOrderRequest) (*model.Create
 		// Contact List
 		contactList, _ := s.contentRepo.GetContentListByTag("contact", req.OrganizationID)
 
+		// Fetch Domain URL
+		domainURL, err := s.orgRepo.GetDomainURL(req.OrganizationID)
+		if err != nil {
+			log.Printf("[WARN] Failed to get domain url for org %s: %v", req.OrganizationID, err)
+		}
+
+		baseURL := "http://localhost:5174" // Default fallback
+		if domainURL != "" {
+			baseURL = domainURL
+		}
+		baseURL = strings.TrimSuffix(baseURL, "/")
+
+		// Generate Order Detail URL
+		orderDetailUrl := fmt.Sprintf("%s/order/detail/armada/%s", baseURL, token)
+
 		emailData := helper.OrderSuccessEmailData{
 			CustomerName:     req.Fullname,
 			OrderID:          orderID,
@@ -134,11 +165,12 @@ func (s *OrderService) CreateOrder(req *model.CreateOrderRequest) (*model.Create
 			Facilities:       facilities,
 			PickupLocation:   req.PickupLocation,
 			Destination:      destStr,
-			TotalPrice:       fmt.Sprintf("%.2f", totalAmount),
+			TotalPrice:       helper.FormatRupiah(totalAmount),
 			OrganizationLogo: orgLogo,
 			BrandName:        brandName,
 			CompanyName:      companyName,
 			ContactList:      contactList,
+			OrderDetailUrl:   orderDetailUrl,
 		}
 
 		// Send email asynchronously
@@ -150,9 +182,12 @@ func (s *OrderService) CreateOrder(req *model.CreateOrderRequest) (*model.Create
 	}
 
 	return &model.CreateOrderResponse{
-		OrderID:     orderID,
-		TotalAmount: totalAmount,
+		Token: token,
 	}, nil
+}
+
+func (s *OrderService) GetPaymentMethods(organizationID string) (*model.PaymentMethodGroupedResponse, error) {
+	return s.orgRepo.GetPaymentMethods(organizationID)
 }
 
 func (s *OrderService) GetFleetOrderSummary(req *model.OrderFleetSummaryRequest) (*model.OrderFleetSummaryResponse, error) {
@@ -228,8 +263,26 @@ func (s *OrderService) GetOrderList(req *model.GetOrderListRequest) (*model.GetO
 	}, nil
 }
 
-func (s *OrderService) GetOrderDetail(orderID string) (*model.OrderDetailResponse, error) {
-	res, err := s.fleetRepo.GetOrderDetail(orderID)
+func (s *OrderService) GetOrderDetail(encryptedOrderID, organizationID string) (*model.OrderDetailResponse, error) {
+	// Decrypt Order ID
+	decrypted, err := helper.DecryptString(encryptedOrderID)
+	if err != nil {
+		return nil, NewServiceError(ErrNotFound, http.StatusBadRequest, "invalid order id")
+	}
+
+	var orderID, priceID string
+	var payload model.OrderTokenPayload
+
+	// Try to parse as JSON object {order_id, price_id}
+	if err := json.Unmarshal([]byte(decrypted), &payload); err == nil && payload.OrderID != "" {
+		orderID = payload.OrderID
+		priceID = payload.PriceID
+	} else {
+		// Fallback: assume the decrypted string is the orderID itself
+		orderID = decrypted
+	}
+
+	res, err := s.fleetRepo.GetOrderDetail(orderID, priceID, organizationID)
 	if err != nil {
 		return nil, NewServiceError(ErrNotFound, http.StatusBadRequest, "order not found")
 	}
@@ -260,4 +313,85 @@ func (s *OrderService) GetOrderDetail(orderID string) (*model.OrderDetailRespons
 	}
 
 	return res, nil
+}
+
+func (s *OrderService) CreateOrderPayment(req *model.CreatePaymentRequest) (*model.FleetOrderPayment, error) {
+	// 1. Decrypt Token
+	decrypted, err := helper.DecryptString(req.Token)
+	if err != nil {
+		return nil, NewServiceError(ErrNotFound, http.StatusBadRequest, "invalid payment token")
+	}
+
+	// Try to unmarshal as token payload
+	var orderID, priceID string
+	var payload model.OrderTokenPayload
+	if err := json.Unmarshal([]byte(decrypted), &payload); err == nil && payload.OrderID != "" {
+		orderID = payload.OrderID
+		priceID = payload.PriceID
+	} else {
+		// Fallback: assume it's just the orderID string
+		orderID = decrypted
+	}
+
+	// 2. Get Order Total Amount
+	totalAmount, err := s.fleetRepo.GetFleetOrderTotalAmount(orderID, priceID, req.OrganizationID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			fmt.Println("Error: order not found or invalid organization:", err)
+			return nil, NewServiceError(ErrNotFound, http.StatusBadRequest, "order not found or invalid organization")
+		}
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to get order amount")
+	}
+
+	// 3. Calculate Amounts
+	var paymentAmount, remaining float64
+
+	if req.PaymentType == 1 { // Full Payment
+		paymentAmount = totalAmount
+		remaining = 0
+	} else if req.PaymentType == 2 { // Partial/Down Payment
+		paymentAmount = (req.PaymentPercentage / 100) * totalAmount
+		remaining = totalAmount - paymentAmount
+	} else {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "invalid payment type")
+	}
+
+	// Map Payment Method
+	var paymentMethod model.PaymentMethod
+	switch strings.ToLower(req.PaymentMethod) {
+	case "bank":
+		paymentMethod = model.PaymentMethodBank
+	case "qris":
+		paymentMethod = model.PaymentMethodQris
+	default:
+		// Try parsing as int string "1", "2"
+		if val, err := strconv.Atoi(req.PaymentMethod); err == nil {
+			paymentMethod = model.PaymentMethod(val)
+		} else {
+			return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "invalid payment method")
+		}
+	}
+
+	// 4. Create Payment Object
+	payment := &model.FleetOrderPayment{
+		OrderPaymentID:    uuid.New().String(),
+		OrderID:           orderID,
+		OrganizationID:    req.OrganizationID,
+		PaymentMethod:     paymentMethod,
+		PaymentType:       req.PaymentType,
+		PaymentPercentage: req.PaymentPercentage,
+		PaymentAmount:     paymentAmount,
+		TotalAmount:       totalAmount,
+		PaymentRemaining:  remaining,
+		Status:            model.PaymentStatusPendingVerification, // Default 2
+		CreatedAt:         time.Now(),
+	}
+
+	// 5. Save
+	if err := s.fleetRepo.CreateOrderPayment(payment); err != nil {
+		fmt.Println("Error: failed to create payment record:", err)
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create payment record")
+	}
+
+	return payment, nil
 }
