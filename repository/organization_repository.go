@@ -296,6 +296,85 @@ func (r *OrganizationRepository) Create(org *model.Organization) (*model.Organiz
 	return org, nil
 }
 
+// GetBankAccountByID retrieves a bank account by ID and organization ID
+func (r *OrganizationRepository) GetBankAccountByID(bankAccountID, organizationID string) (*model.OrganizationBankAccountResponse, error) {
+	query := fmt.Sprintf(`
+		SELECT 
+			oba.bank_account_id, oba.bank_code, oba.account_number, oba.account_name,
+			oba.merchant_id, oba.merchant_nmid, oba.merchant_mcc,
+			oba.merchant_address, oba.merchant_city, oba.merchant_postal_code,
+			oba.account_type, oba.created_at, oba.created_by,
+			COALESCE(u.fullname, '') as created_by_fullname,
+			COALESCE(bl.name, '') as bank_name,
+			COALESCE(bl.icon, '') as bank_icon,
+			oba.active
+		FROM organization_bank_accounts oba
+		LEFT JOIN users u ON oba.created_by = u.user_id
+		LEFT JOIN bank_list bl ON oba.bank_code = bl.code
+		WHERE oba.bank_account_id = %s AND oba.organization_id = %s
+	`, r.getPlaceholder(1), r.getPlaceholder(2))
+
+	var acc model.OrganizationBankAccountResponse
+	var merchantID, merchantNMID, merchantMCC, merchantAddress, merchantCity, merchantPostalCode sql.NullString
+	var accountType sql.NullInt32
+
+	err := r.db.QueryRow(query, bankAccountID, organizationID).Scan(
+		&acc.BankAccountID,
+		&acc.BankCode,
+		&acc.AccountNumber,
+		&acc.AccountName,
+		&merchantID,
+		&merchantNMID,
+		&merchantMCC,
+		&merchantAddress,
+		&merchantCity,
+		&merchantPostalCode,
+		&accountType,
+		&acc.CreatedAt,
+		&acc.CreatedBy,
+		&acc.CreatedByFullName,
+		&acc.BankName,
+		&acc.BankIcon,
+		&acc.Active,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, sql.ErrNoRows
+		}
+		return nil, err
+	}
+
+	if merchantID.Valid && merchantID.String != "" {
+		acc.BankIcon = "/assets/bank-icon/qris.png"
+	}
+
+	acc.BankIcon = r.getAssetURL(acc.BankIcon)
+
+	if merchantID.Valid {
+		acc.MerchantID = merchantID.String
+	}
+	if merchantNMID.Valid {
+		acc.MerchantNMID = merchantNMID.String
+	}
+	if merchantMCC.Valid {
+		acc.MerchantMCC = merchantMCC.String
+	}
+	if merchantAddress.Valid {
+		acc.MerchantAddress = merchantAddress.String
+	}
+	if merchantCity.Valid {
+		acc.MerchantCity = merchantCity.String
+	}
+	if merchantPostalCode.Valid {
+		acc.MerchantPostalCode = merchantPostalCode.String
+	}
+	if accountType.Valid {
+		acc.AccountType = model.AccountType(accountType.Int32)
+	}
+
+	return &acc, nil
+}
+
 // GetBankAccounts retrieves bank accounts for an organization
 func (r *OrganizationRepository) GetBankAccounts(organizationID string) ([]model.OrganizationBankAccountResponse, error) {
 	query := fmt.Sprintf(`

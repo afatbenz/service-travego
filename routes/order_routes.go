@@ -25,5 +25,8 @@ func SetupOrderRoutes(api fiber.Router, db *sql.DB, driver string, cfg *configs.
 	orderGroup.Post("/fleet/payment", orderHandler.CreateOrderPayment)
 	orderGroup.Get("/fleet/list", orderHandler.GetOrderList)
 	orderGroup.Get("/fleet/detail/:encryptOrderId", orderHandler.GetOrderDetail)
+	orderGroup.Get("/fleet/find/:order_id", orderHandler.FindOrder)
+	orderGroup.Post("/payment-confirmation", orderHandler.ConfirmPayment)
+	orderGroup.Post("/payment/confirmation/upload", orderHandler.UploadPaymentEvidence)
 	orderGroup.Get("/payment-method", orderHandler.GetPaymentMethods)
 }

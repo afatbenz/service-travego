@@ -1,10 +1,14 @@
 package handler
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"service-travego/helper"
 	"service-travego/model"
 	"service-travego/service"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -104,6 +108,26 @@ func (h *OrderHandler) GetOrderDetail(c *fiber.Ctx) error {
 	return helper.SuccessResponse(c, fiber.StatusOK, "Order detail retrieved", res)
 }
 
+func (h *OrderHandler) FindOrder(c *fiber.Ctx) error {
+	orderID := c.Params("order_id")
+	if orderID == "" {
+		return helper.BadRequestResponse(c, "order_id is required")
+	}
+
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Organization not found")
+	}
+
+	res, err := h.service.FindOrderDetail(orderID, orgID)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Order detail retrieved", res)
+}
+
 func (h *OrderHandler) CreateOrderPayment(c *fiber.Ctx) error {
 	var req model.CreatePaymentRequest
 	if err := c.BodyParser(&req); err != nil {
@@ -142,4 +166,85 @@ func (h *OrderHandler) GetPaymentMethods(c *fiber.Ctx) error {
 	}
 
 	return helper.SuccessResponse(c, fiber.StatusOK, "Payment methods retrieved", res)
+}
+
+func (h *OrderHandler) ConfirmPayment(c *fiber.Ctx) error {
+	var req model.PaymentConfirmationRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.BadRequestResponse(c, "Invalid payload")
+	}
+
+	if req.Token == "" || req.OrderType == "" {
+		return helper.BadRequestResponse(c, "Required fields missing")
+	}
+
+	if orgID, ok := c.Locals("organization_id").(string); ok {
+		req.OrganizationID = orgID
+	} else {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Organization not found")
+	}
+
+	err := h.service.ConfirmPayment(&req)
+	if err != nil {
+		fmt.Println("Error confirming payment:", err)
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Payment confirmed", nil)
+}
+
+func (h *OrderHandler) UploadPaymentEvidence(c *fiber.Ctx) error {
+	token := c.FormValue("token")
+	if token == "" {
+		return helper.BadRequestResponse(c, "Token is required")
+	}
+
+	file, err := c.FormFile("image")
+	if err != nil {
+		return helper.BadRequestResponse(c, "Image file is required")
+	}
+
+	// Decrypt Token
+	decrypted, err := helper.DecryptString(token)
+	if err != nil {
+		return helper.BadRequestResponse(c, "Invalid token")
+	}
+
+	var orderID string
+	var payload model.OrderTokenPayload
+	if err := json.Unmarshal([]byte(decrypted), &payload); err == nil && payload.OrderID != "" {
+		orderID = payload.OrderID
+	} else {
+		orderID = decrypted
+	}
+
+	organizationID, ok := c.Locals("organization_id").(string)
+	if !ok || organizationID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Organization not found")
+	}
+
+	// Ensure directory exists
+	uploadDir := "config/payment-attachment"
+	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to create upload directory")
+	}
+
+	// Generate Filename: {order_id}-{YYMMDDHHmm}.ext
+	timestamp := time.Now().Format("0601021504")
+	ext := filepath.Ext(file.Filename)
+	filename := fmt.Sprintf("%s-%s%s", orderID, timestamp, ext)
+	filePath := filepath.Join(uploadDir, filename)
+
+	// Save File
+	if err := c.SaveFile(file, filePath); err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to save file")
+	}
+
+	// Update DB
+	if err := h.service.UploadPaymentEvidence(orderID, organizationID, filePath); err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Payment evidence uploaded successfully", nil)
 }
