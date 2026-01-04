@@ -2,9 +2,13 @@ package service
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand"
+	"os"
+	"path/filepath"
+	"service-travego/helper"
 	"service-travego/model"
 	"service-travego/repository"
 	"strings"
@@ -12,10 +16,12 @@ import (
 )
 
 type OrganizationService struct {
-	orgRepo     *repository.OrganizationRepository
-	orgUserRepo *repository.OrganizationUserRepository
-	userRepo    *repository.UserRepository
-	orgTypeRepo *repository.OrganizationTypeRepository
+	orgRepo       *repository.OrganizationRepository
+	orgUserRepo   *repository.OrganizationUserRepository
+	userRepo      *repository.UserRepository
+	orgTypeRepo   *repository.OrganizationTypeRepository
+	citiesName    map[string]string
+	provincesName map[string]string
 }
 
 func NewOrganizationService(orgRepo *repository.OrganizationRepository, userRepo *repository.UserRepository) *OrganizationService {
@@ -168,6 +174,126 @@ func (s *OrganizationService) UpdateOrganization(userID string, org *model.Organ
 	return s.orgRepo.Update(existingOrg)
 }
 
+func (s *OrganizationService) UpdateOrganizationDetail(orgID string, payload map[string]interface{}) error {
+	name, _ := payload["organization_name"].(string)
+	company, _ := payload["company_name"].(string)
+	phone, _ := payload["phone"].(string)
+	address, _ := payload["address"].(string)
+	email, _ := payload["email"].(string)
+	orgCode, _ := payload["organization_code"].(string)
+
+	if name == "" || company == "" || phone == "" || address == "" || email == "" {
+		return NewServiceError(ErrInvalidInput, 400, "organization_name, company_name, phone, address, email wajib")
+	}
+
+	var provinceStr *string
+	if v, ok := payload["province"]; ok {
+		switch t := v.(type) {
+		case float64:
+			s := fmt.Sprintf("%d", int(t))
+			provinceStr = &s
+		case int:
+			s := fmt.Sprintf("%d", t)
+			provinceStr = &s
+		case string:
+			s := t
+			provinceStr = &s
+		}
+	}
+
+	var cityStr *string
+	if v, ok := payload["city"]; ok {
+		switch t := v.(type) {
+		case float64:
+			s := fmt.Sprintf("%d", int(t))
+			cityStr = &s
+		case int:
+			s := fmt.Sprintf("%d", t)
+			cityStr = &s
+		case string:
+			s := t
+			cityStr = &s
+		}
+	}
+
+	var npwpPtr *string
+	if v, ok := payload["npwp_number"].(string); ok {
+		s := v
+		npwpPtr = &s
+	}
+	var postalPtr *string
+	if v, ok := payload["postal_code"].(string); ok {
+		s := v
+		postalPtr = &s
+	}
+	var orgTypePtr *int
+	if v, ok := payload["organization_type"]; ok {
+		switch t := v.(type) {
+		case float64:
+			iv := int(t)
+			orgTypePtr = &iv
+		case int:
+			iv := t
+			orgTypePtr = &iv
+		}
+	}
+
+	if orgCode == "" {
+		return NewServiceError(ErrInvalidInput, 400, "organization_code diperlukan untuk verifikasi")
+	}
+
+	if err := s.orgRepo.UpdateByIDAndCode(orgID, orgCode, name, company, phone, address, email, provinceStr, cityStr, npwpPtr, postalPtr, orgTypePtr); err != nil {
+		if err == sql.ErrNoRows {
+			return NewServiceError(ErrNotFound, 404, "organization tidak ditemukan atau code tidak cocok")
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *OrganizationService) UpdateOrganizationLogo(orgID, sourceFilePath string) (string, error) {
+	if sourceFilePath == "" {
+		return "", NewServiceError(ErrInvalidInput, 400, "file_path wajib")
+	}
+	if _, err := os.Stat(sourceFilePath); os.IsNotExist(err) {
+		return "", NewServiceError(ErrInvalidInput, 400, "file_path tidak ditemukan")
+	}
+
+	org, err := s.orgRepo.FindByID(orgID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", NewServiceError(ErrNotFound, 404, "organization tidak ditemukan")
+		}
+		return "", err
+	}
+
+	ext := strings.ToLower(filepath.Ext(sourceFilePath))
+	if ext == "" {
+		ext = ".png"
+	}
+	// Ensure storage directory exists
+	storageDir := filepath.FromSlash("assets/logo")
+	if err := os.MkdirAll(storageDir, 0755); err != nil {
+		return "", NewServiceError(ErrInternalServer, 500, fmt.Sprintf("gagal membuat direktori: %v", err))
+	}
+
+	filename := org.OrganizationCode + ext
+	destLocalPath := filepath.Join(storageDir, filename)
+
+	// Copy file
+	if err := copyFile(sourceFilePath, destLocalPath); err != nil {
+		return "", err
+	}
+
+	// Store path in DB as web path
+	webPath := "/assets/logo/" + filename
+	if err := s.orgRepo.UpdateLogo(orgID, webPath); err != nil {
+		return "", err
+	}
+
+	return helper.GetAssetURL(webPath), nil
+}
+
 // GetAPIConfig retrieves API configuration for an organization
 func (s *OrganizationService) GetAPIConfig(userID string) (map[string]interface{}, error) {
 	// Find organization by user
@@ -279,4 +405,81 @@ func (s *OrganizationService) UpdateBankAccount(req *model.UpdateOrganizationBan
 // DeleteBankAccount deletes a bank account for an organization
 func (s *OrganizationService) DeleteBankAccount(bankAccountID, organizationID string) error {
 	return s.orgRepo.DeleteBankAccount(bankAccountID, organizationID)
+}
+func (s *OrganizationService) ensureLocationsLoaded() {
+	if s.citiesName != nil && s.provincesName != nil {
+		return
+	}
+	f, err := os.Open("config/location.json")
+	if err != nil {
+		s.citiesName = map[string]string{}
+		s.provincesName = map[string]string{}
+		return
+	}
+	defer f.Close()
+	var loc model.Location
+	if err := json.NewDecoder(f).Decode(&loc); err != nil {
+		s.citiesName = map[string]string{}
+		s.provincesName = map[string]string{}
+		return
+	}
+	s.citiesName = make(map[string]string, len(loc.Cities))
+	for _, c := range loc.Cities {
+		s.citiesName[c.ID] = c.Name
+	}
+	s.provincesName = make(map[string]string, len(loc.Provinces))
+	for _, p := range loc.Provinces {
+		s.provincesName[p.ID] = p.Name
+	}
+}
+
+func (s *OrganizationService) GetOrganizationDetail(organizationID string) (map[string]interface{}, error) {
+	org, err := s.orgRepo.FindByID(organizationID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, NewServiceError(ErrNotFound, 404, "organization not found")
+		}
+		return nil, err
+	}
+
+	s.ensureLocationsLoaded()
+	cityName := org.City
+	if name, ok := s.citiesName[org.City]; ok {
+		cityName = name
+	}
+	provinceName := org.Province
+	if name, ok := s.provincesName[org.Province]; ok {
+		provinceName = name
+	}
+
+	var orgTypeLabel string
+	switch org.OrganizationType {
+	case 1:
+		orgTypeLabel = "RENTAL KENDARAAN"
+	case 2:
+		orgTypeLabel = "BIRO PERJALANAN WISATA"
+	case 3:
+		orgTypeLabel = "RENTAL DAN JASA PERJALANAN WISATA"
+	default:
+		orgTypeLabel = ""
+	}
+
+	res := map[string]interface{}{
+		"organization_code": org.OrganizationCode,
+		"organization_name": org.OrganizationName,
+		"company_name":      org.CompanyName,
+		"address":           org.Address,
+		"city":              org.City,
+		"province":          org.Province,
+		"phone":             org.Phone,
+		"npwp_number":       org.NPWPNumber,
+		"email":             org.Email,
+		"organization_type": orgTypeLabel,
+		"postal_code":       org.PostalCode,
+		"domain_url":        org.DomainURL,
+		"logo":              org.Logo,
+		"city_name":         cityName,
+		"province_name":     provinceName,
+	}
+	return res, nil
 }

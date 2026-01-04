@@ -3,6 +3,8 @@ package handler
 import (
 	"database/sql"
 	"fmt"
+	"os"
+	"path/filepath"
 	"service-travego/helper"
 	"service-travego/model"
 	"service-travego/service"
@@ -190,6 +192,97 @@ func (h *OrganizationHandler) GetBankAccounts(c *fiber.Ctx) error {
 	}
 
 	return helper.SuccessResponse(c, fiber.StatusOK, "Bank accounts loaded successfully", accounts)
+}
+
+// GetOrganizationDetail handles GET /api/organization/detail
+func (h *OrganizationHandler) GetOrganizationDetail(c *fiber.Ctx) error {
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Organization not found")
+	}
+
+	res, err := h.orgService.GetOrganizationDetail(orgID)
+	if err != nil {
+		fmt.Println("Error fetching organization detail:", err.Error())
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Organization detail retrieved", res)
+}
+
+// UpdateOrganizationDetail handles POST /api/organization/update
+func (h *OrganizationHandler) UpdateOrganizationDetail(c *fiber.Ctx) error {
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Organization not found")
+	}
+
+	var payload map[string]interface{}
+	if err := c.BodyParser(&payload); err != nil {
+		return helper.BadRequestResponse(c, "Invalid request body")
+	}
+
+	if payload["organization_name"] == nil || payload["company_name"] == nil || payload["phone"] == nil || payload["address"] == nil || payload["email"] == nil {
+		return helper.BadRequestResponse(c, "organization_name, company_name, phone, address, email wajib")
+	}
+
+	if err := h.orgService.UpdateOrganizationDetail(orgID, payload); err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Organization updated successfully", nil)
+}
+
+// UpdateOrganizationLogo handles POST /api/organization/update/logo
+func (h *OrganizationHandler) UpdateOrganizationLogo(c *fiber.Ctx) error {
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Organization not found")
+	}
+
+	// Prefer multipart file upload if provided
+	fileHeader, err := c.FormFile("file")
+	if err != nil || fileHeader == nil {
+		// try alternative field names
+		fileHeader, err = c.FormFile("logo")
+		if err != nil || fileHeader == nil {
+			fileHeader, err = c.FormFile("filepath")
+		}
+	}
+
+	if fileHeader != nil && err == nil {
+		tempDir := os.TempDir()
+		tempPath := filepath.Join(tempDir, fileHeader.Filename)
+		if saveErr := c.SaveFile(fileHeader, tempPath); saveErr != nil {
+			return helper.BadRequestResponse(c, "failed to save uploaded file")
+		}
+		defer os.Remove(tempPath)
+
+		url, svcErr := h.orgService.UpdateOrganizationLogo(orgID, tempPath)
+		if svcErr != nil {
+			code := service.GetStatusCode(svcErr)
+			return helper.SendErrorResponse(c, code, svcErr.Error())
+		}
+		return helper.SuccessResponse(c, fiber.StatusOK, "Logo updated successfully", map[string]string{"logo": url})
+	}
+
+	// Fallback: JSON body with file_path
+	var payload struct {
+		FilePath string `json:"file_path"`
+	}
+	if err := c.BodyParser(&payload); err != nil {
+		return helper.BadRequestResponse(c, "Invalid request body")
+	}
+	if payload.FilePath == "" {
+		return helper.BadRequestResponse(c, "file atau file_path wajib")
+	}
+	url, svcErr := h.orgService.UpdateOrganizationLogo(orgID, payload.FilePath)
+	if svcErr != nil {
+		code := service.GetStatusCode(svcErr)
+		return helper.SendErrorResponse(c, code, svcErr.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Logo updated successfully", map[string]string{"logo": url})
 }
 
 // CreateBankAccount handles POST /api/organization/bank-account/create

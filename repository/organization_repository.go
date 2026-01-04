@@ -58,16 +58,17 @@ func (r *OrganizationRepository) getPlaceholder(pos int) string {
 // FindByID retrieves an organization by ID from database
 func (r *OrganizationRepository) FindByID(id string) (*model.Organization, error) {
 	query := fmt.Sprintf(`
-		SELECT organization_id, organization_code, organization_name, company_name, address, city, province,
-		       phone, email, npwp_number, organization_type, postal_code, domain_url, created_by, created_at, updated_at
-		FROM organizations
-		WHERE organization_id = %s
-	`, r.getPlaceholder(1))
+        SELECT organization_id, organization_code, organization_name, company_name, address, city, province,
+               phone, email, npwp_number, organization_type, postal_code, domain_url, COALESCE(logo, ''), created_by, created_at, updated_at
+        FROM organizations
+        WHERE organization_id = %s
+    `, r.getPlaceholder(1))
 
 	var org model.Organization
 	var npwpNumber sql.NullString
 	var postalCode sql.NullString
 	var domainURL sql.NullString
+	var logo sql.NullString
 	err := r.db.QueryRow(query, id).Scan(
 		&org.ID,
 		&org.OrganizationCode,
@@ -82,6 +83,7 @@ func (r *OrganizationRepository) FindByID(id string) (*model.Organization, error
 		&org.OrganizationType,
 		&postalCode,
 		&domainURL,
+		&logo,
 		&org.CreatedBy,
 		&org.CreatedAt,
 		&org.UpdatedAt,
@@ -95,6 +97,9 @@ func (r *OrganizationRepository) FindByID(id string) (*model.Organization, error
 		}
 		if domainURL.Valid {
 			org.DomainURL = domainURL.String
+		}
+		if logo.Valid {
+			org.Logo = r.getAssetURL(logo.String)
 		}
 	}
 	if err != nil {
@@ -581,6 +586,67 @@ func (r *OrganizationRepository) Update(org *model.Organization) (*model.Organiz
 	return org, nil
 }
 
+// UpdateByIDAndCode updates organization fields with mandatory and optional values, matching by organization_id and organization_code
+func (r *OrganizationRepository) UpdateByIDAndCode(orgID, orgCode string, name, company, phone, address, email string, province, city *string, npwpNumber, postalCode *string, organizationType *int) error {
+	updatedAt := time.Now()
+
+	setParts := []string{
+		fmt.Sprintf("organization_name = %s", r.getPlaceholder(1)),
+		fmt.Sprintf("company_name = %s", r.getPlaceholder(2)),
+		fmt.Sprintf("phone = %s", r.getPlaceholder(3)),
+		fmt.Sprintf("address = %s", r.getPlaceholder(4)),
+		fmt.Sprintf("email = %s", r.getPlaceholder(5)),
+		fmt.Sprintf("updated_at = %s", r.getPlaceholder(6)),
+	}
+
+	args := []interface{}{name, company, phone, address, email, updatedAt}
+	pos := 7
+
+	if province != nil {
+		setParts = append(setParts, fmt.Sprintf("province = %s", r.getPlaceholder(pos)))
+		args = append(args, sql.NullString{String: *province, Valid: *province != ""})
+		pos++
+	}
+	if city != nil {
+		setParts = append(setParts, fmt.Sprintf("city = %s", r.getPlaceholder(pos)))
+		args = append(args, sql.NullString{String: *city, Valid: *city != ""})
+		pos++
+	}
+	if npwpNumber != nil {
+		setParts = append(setParts, fmt.Sprintf("npwp_number = %s", r.getPlaceholder(pos)))
+		args = append(args, sql.NullString{String: *npwpNumber, Valid: *npwpNumber != ""})
+		pos++
+	}
+	if postalCode != nil {
+		setParts = append(setParts, fmt.Sprintf("postal_code = %s", r.getPlaceholder(pos)))
+		args = append(args, sql.NullString{String: *postalCode, Valid: *postalCode != ""})
+		pos++
+	}
+	if organizationType != nil {
+		setParts = append(setParts, fmt.Sprintf("organization_type = %s", r.getPlaceholder(pos)))
+		args = append(args, sql.NullInt32{Int32: int32(*organizationType), Valid: true})
+		pos++
+	}
+
+	query := fmt.Sprintf("UPDATE organizations SET %s WHERE organization_id = %s AND organization_code = %s",
+		strings.Join(setParts, ", "), r.getPlaceholder(pos), r.getPlaceholder(pos+1))
+
+	args = append(args, orgID, orgCode)
+
+	res, err := r.db.Exec(query, args...)
+	if err != nil {
+		return err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 // GetDomainURL retrieves the domain_url for an organization
 func (r *OrganizationRepository) GetDomainURL(orgID string) (string, error) {
 	query := fmt.Sprintf("SELECT domain_url FROM organizations WHERE organization_id = %s", r.getPlaceholder(1))
@@ -602,6 +668,14 @@ func (r *OrganizationRepository) GetDomainURL(orgID string) (string, error) {
 func (r *OrganizationRepository) UpdateDomainURL(orgID string, domainURL string) error {
 	query := fmt.Sprintf("UPDATE organizations SET domain_url = %s, updated_at = %s WHERE organization_id = %s", r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
 	_, err := r.db.Exec(query, domainURL, time.Now(), orgID)
+	return err
+}
+
+// UpdateLogo updates the logo path for an organization
+func (r *OrganizationRepository) UpdateLogo(orgID string, logoPath string) error {
+	query := fmt.Sprintf("UPDATE organizations SET logo = %s, updated_at = %s WHERE organization_id = %s",
+		r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
+	_, err := r.db.Exec(query, logoPath, time.Now(), orgID)
 	return err
 }
 
