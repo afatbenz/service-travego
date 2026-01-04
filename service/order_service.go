@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
 	"service-travego/configs"
@@ -315,6 +316,47 @@ func (s *OrderService) GetOrderDetail(encryptedOrderID, organizationID string) (
 	return res, nil
 }
 
+func (s *OrderService) FindOrderDetail(orderID, organizationID string) (*model.OrderDetailResponse, error) {
+	res, err := s.fleetRepo.FindOrderDetail(orderID, organizationID)
+	if err != nil {
+		return nil, NewServiceError(ErrNotFound, http.StatusBadRequest, "order not found")
+	}
+
+	// Map RentType
+	switch res.RentType {
+	case 1:
+		res.RentTypeLabel = "Citytour"
+	case 2:
+		res.RentTypeLabel = "Overland"
+	case 3:
+		res.RentTypeLabel = "Citytour Drop / Pickup Only"
+	}
+
+	// Map Cities
+	s.ensureCitiesLoaded()
+
+	// Pickup City
+	if name, ok := s.citiesName[res.Pickup.PickupCity]; ok {
+		res.Pickup.PickupCity = name
+	}
+
+	// Destination Cities
+	for i := range res.Destination {
+		if name, ok := s.citiesName[res.Destination[i].City]; ok {
+			res.Destination[i].City = name
+		}
+	}
+
+	// Generate token {order_id, price_id}
+	payload := model.OrderTokenPayload{OrderID: res.OrderID, PriceID: res.PriceID}
+	b, _ := json.Marshal(payload)
+	if token, err := helper.EncryptString(string(b)); err == nil {
+		res.Token = token
+	}
+
+	return res, nil
+}
+
 func (s *OrderService) CreateOrderPayment(req *model.CreatePaymentRequest) (*model.FleetOrderPayment, error) {
 	// 1. Decrypt Token
 	decrypted, err := helper.DecryptString(req.Token)
@@ -346,38 +388,110 @@ func (s *OrderService) CreateOrderPayment(req *model.CreatePaymentRequest) (*mod
 	// 3. Calculate Amounts
 	var paymentAmount, remaining float64
 
-	if req.PaymentType == 1 { // Full Payment
-		paymentAmount = totalAmount
-		remaining = 0
-	} else if req.PaymentType == 2 { // Partial/Down Payment
-		paymentAmount = (req.PaymentPercentage / 100) * totalAmount
-		remaining = totalAmount - paymentAmount
-	} else {
-		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "invalid payment type")
-	}
+	// Check existing payments
+	existingPayments, err := s.fleetRepo.GetFleetOrderPaymentsByOrderID(orderID, req.OrganizationID)
+	if err == nil && len(existingPayments) > 0 {
+		var totalPaid float64
+		var existingType2Percent float64
+		var latestType2Remaining float64
+		var latestType2Time time.Time
+		for _, p := range existingPayments {
+			// Check for full payment (payment_type 1)
+			if p.PaymentType == 1 {
+				if p.Status == model.PaymentStatusPendingVerification { // 2
+					return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "Pembayaran anda telah berhasil")
+				}
+				if p.Status == model.PaymentStatusWaitingApproval {
+					return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "Pembayaran anda sedang menunggu persetujuan")
+				}
+			}
+			// Sum up payments for remaining calculation
+			if p.Status != model.PaymentStatusCancelled {
+				totalPaid += p.PaymentAmount
+			}
+			if p.PaymentType == 2 {
+				existingType2Percent += p.PaymentPercentage
+				if p.CreatedAt.After(latestType2Time) {
+					latestType2Time = p.CreatedAt
+					latestType2Remaining = p.PaymentRemaining
+				}
+			}
+		}
 
-	// Map Payment Method
-	var paymentMethod model.PaymentMethod
-	switch strings.ToLower(req.PaymentMethod) {
-	case "bank":
-		paymentMethod = model.PaymentMethodBank
-	case "qris":
-		paymentMethod = model.PaymentMethodQris
-	default:
-		// Try parsing as int string "1", "2"
-		if val, err := strconv.Atoi(req.PaymentMethod); err == nil {
-			paymentMethod = model.PaymentMethod(val)
+		// Calculate payment amount based on request
+		if req.PaymentType == 1 { // Full Payment
+			paymentAmount = totalAmount
+			remaining = 0
+		} else if req.PaymentType == 2 { // Partial/Down Payment
+			if req.PaymentPercentage == 0 {
+				derived := 100 - existingType2Percent
+				if derived <= 0 {
+					return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "payment_percentage tidak valid")
+				}
+				paymentAmount = (derived / 100) * totalAmount
+				remaining = latestType2Remaining - paymentAmount
+				if remaining < 0 {
+					remaining = 0
+				}
+				req.PaymentPercentage = derived
+			} else {
+				paymentAmount = (req.PaymentPercentage / 100) * totalAmount
+				if !latestType2Time.IsZero() {
+					remaining = latestType2Remaining - paymentAmount
+					if remaining < 0 {
+						remaining = 0
+					}
+				} else {
+					remaining = totalAmount - paymentAmount
+				}
+			}
 		} else {
-			return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "invalid payment method")
+			return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "invalid payment type")
+		}
+
+		// Check if new payment exceeds total amount
+		if totalPaid+paymentAmount > totalAmount {
+			return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "Pembayaran anda melebihi total tagihan")
+		}
+	} else {
+		if req.PaymentType == 1 { // Full Payment
+			paymentAmount = totalAmount
+			remaining = 0
+		} else if req.PaymentType == 2 { // Partial/Down Payment
+			if req.PaymentPercentage == 0 {
+				return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "payment_percentage diperlukan")
+			}
+			paymentAmount = (req.PaymentPercentage / 100) * totalAmount
+			remaining = totalAmount - paymentAmount
+		} else {
+			return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "invalid payment type")
 		}
 	}
 
+	// Map Payment Method
+	// Validate if payment_method is UUID
+	if _, err := uuid.Parse(req.PaymentMethod); err != nil {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "invalid payment method, must be UUID")
+	}
+
+	// Fetch Bank Account details
+	bankAccount, err := s.orgRepo.GetBankAccountByID(req.PaymentMethod, req.OrganizationID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, NewServiceError(ErrNotFound, http.StatusBadRequest, "payment method (bank account) not found")
+		}
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to get bank account details")
+	}
+
 	// 4. Create Payment Object
+	// Generate 5-digit unique code
+	uniqueCode := rand.Intn(90000) + 10000
+
 	payment := &model.FleetOrderPayment{
 		OrderPaymentID:    uuid.New().String(),
 		OrderID:           orderID,
 		OrganizationID:    req.OrganizationID,
-		PaymentMethod:     paymentMethod,
+		PaymentMethod:     req.PaymentMethod,
 		PaymentType:       req.PaymentType,
 		PaymentPercentage: req.PaymentPercentage,
 		PaymentAmount:     paymentAmount,
@@ -385,13 +499,64 @@ func (s *OrderService) CreateOrderPayment(req *model.CreatePaymentRequest) (*mod
 		PaymentRemaining:  remaining,
 		Status:            model.PaymentStatusPendingVerification, // Default 2
 		CreatedAt:         time.Now(),
+		BankCode:          bankAccount.BankCode,
+		AccountNumber:     bankAccount.AccountNumber,
+		AccountName:       bankAccount.AccountName,
+		UniqueCode:        uniqueCode,
 	}
 
-	// 5. Save
-	if err := s.fleetRepo.CreateOrderPayment(payment); err != nil {
+	// 5. Create Payment History Object
+	paymentHistory := &model.OrderPaymentHistory{
+		PaymentHistoryID: uuid.New().String(),
+		OrderID:          orderID,
+		BankCode:         bankAccount.BankCode,
+		BankAccountID:    req.PaymentMethod,
+		AccountNumber:    bankAccount.AccountNumber,
+		AccountName:      bankAccount.AccountName,
+		CreatedAt:        payment.CreatedAt,
+		OrganizationID:   req.OrganizationID,
+		PaymentAmount:    paymentAmount,
+		UniqueCode:       uniqueCode,
+	}
+
+	// 6. Save
+	if err := s.fleetRepo.CreateOrderPayment(payment, paymentHistory); err != nil {
 		fmt.Println("Error: failed to create payment record:", err)
 		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create payment record")
 	}
 
 	return payment, nil
+}
+
+func (s *OrderService) ConfirmPayment(req *model.PaymentConfirmationRequest) error {
+	// 1. Decrypt Token
+	decrypted, err := helper.DecryptString(req.Token)
+	if err != nil {
+		return NewServiceError(ErrNotFound, http.StatusBadRequest, "invalid payment token")
+	}
+
+	var orderID string
+	var payload model.OrderTokenPayload
+	if err := json.Unmarshal([]byte(decrypted), &payload); err == nil && payload.OrderID != "" {
+		orderID = payload.OrderID
+	} else {
+		orderID = decrypted
+	}
+
+	if req.OrderType == "fleet" {
+		// Update status from 2 (PendingVerification) to 10 (WaitingApproval)
+		err = s.fleetRepo.UpdateFleetOrderPaymentStatus(orderID, req.OrganizationID, int(model.PaymentStatusPendingVerification), int(model.PaymentStatusWaitingApproval))
+		if err != nil {
+			fmt.Println("Error updating fleet payment status:", err)
+			return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to update payment status")
+		}
+	} else {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "invalid order type")
+	}
+
+	return nil
+}
+
+func (s *OrderService) UploadPaymentEvidence(orderID, organizationID, filePath string) error {
+	return s.fleetRepo.UpdatePaymentEvidence(orderID, organizationID, filePath)
 }

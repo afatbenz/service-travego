@@ -102,11 +102,12 @@ type RentType int
 type PaymentStatus int
 
 const (
-	PaymentStatusCancelled   PaymentStatus = 0 // CANCELLED
-	PaymentStatusPaid        PaymentStatus = 1 // PAID
-	PaymentStatusPartialPaid PaymentStatus = 2 // PARTIAL_PAID
-	PaymentStatusPending     PaymentStatus = 3 // PENDING
-	PaymentStatusReject      PaymentStatus = 4 // REJECT
+	PaymentStatusCancelled   PaymentStatus = 0  // CANCELLED
+	PaymentStatusPaid        PaymentStatus = 1  // PAID
+	PaymentStatusPartialPaid PaymentStatus = 2  // PARTIAL_PAID
+	PaymentStatusPending     PaymentStatus = 3  // PENDING
+	PaymentStatusReject      PaymentStatus = 4  // REJECT
+	PaymentWaitingApproval   PaymentStatus = 10 // WAITING APPROVAL
 )
 
 // String returns the string representation of PaymentStatus
@@ -122,6 +123,8 @@ func (s PaymentStatus) String() string {
 		return "PENDING"
 	case PaymentStatusReject:
 		return "REJECT"
+	case PaymentWaitingApproval:
+		return "WAITING APPROVAL"
 	default:
 		return "UNKNOWN"
 	}

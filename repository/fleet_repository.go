@@ -366,6 +366,150 @@ func (r *FleetRepository) GetFleetOrderSummary(fleetID, priceID string) (*model.
 	return &res, nil
 }
 
+func (r *FleetRepository) FindOrderDetail(orderID, organizationID string) (*model.OrderDetailResponse, error) {
+	query := fmt.Sprintf(`
+        SELECT 
+            fo.order_id, fo.created_at, fo.price_id,
+            f.fleet_name, 
+            fp.rent_type, fp.duration, COALESCE(fp.uom, '') as duration_uom, fp.price, 
+            fo.unit_qty, fo.total_amount,
+            fo.pickup_location, fo.pickup_city_id, fo.start_date, fo.end_date,
+            COALESCE(foc.customer_name, '') as customer_name, COALESCE(foc.customer_phone, '') as customer_phone, COALESCE(foc.customer_email, '') as customer_email, COALESCE(foc.customer_address, '') as customer_address
+        FROM fleet_orders fo
+        JOIN fleets f ON fo.fleet_id = f.uuid
+        JOIN fleet_prices fp ON fo.price_id = fp.uuid
+        LEFT JOIN fleet_order_customers foc ON fo.order_id = foc.order_id
+        WHERE fo.order_id = %s AND fo.organization_id = %s
+    `, r.getPlaceholder(1), r.getPlaceholder(2))
+
+	var res model.OrderDetailResponse
+	var createdAt time.Time
+	var pickupCityID string
+	var startDate, endDate time.Time
+
+	err := r.db.QueryRow(query, orderID, organizationID).Scan(
+		&res.OrderID, &createdAt, &res.PriceID,
+		&res.FleetName,
+		&res.RentType, &res.Duration, &res.DurationUom, &res.Price,
+		&res.Quantity, &res.TotalAmount,
+		&res.Pickup.PickupLocation, &pickupCityID, &startDate, &endDate,
+		&res.Customer.CustomerName, &res.Customer.CustomerPhone, &res.Customer.CustomerEmail, &res.Customer.CustomerAddress,
+	)
+	if err != nil {
+		fmt.Println("Error querying order detail:", err)
+		return nil, err
+	}
+	res.OrderDate = createdAt.Format("2006-01-02 15:04:05")
+	res.Pickup.PickupCity = pickupCityID // Store ID temporarily
+	res.Pickup.StartDate = startDate.Format("2006-01-02")
+	res.Pickup.EndDate = endDate.Format("2006-01-02")
+
+	// Destinations
+	destQuery := fmt.Sprintf(`SELECT city_id, location FROM fleet_order_destinations WHERE order_id = %s`, r.getPlaceholder(1))
+	dRows, err := r.db.Query(destQuery, orderID)
+	if err != nil {
+		fmt.Println("Error querying order destinations:", err)
+		return nil, err
+	}
+	defer dRows.Close()
+	for dRows.Next() {
+		var d model.OrderDetailDest
+		var cID string
+		if err := dRows.Scan(&cID, &d.Location); err == nil {
+			d.City = cID // Store ID temporarily
+			res.Destination = append(res.Destination, d)
+		}
+	}
+
+	// Addons
+	addonQuery := fmt.Sprintf(`
+        SELECT fa.addon_name, fa.addon_price
+        FROM fleet_order_addons foa 
+        JOIN fleet_addon fa ON foa.addon_id = fa.uuid 
+        WHERE foa.order_id = %s
+    `, r.getPlaceholder(1))
+	aRows, err := r.db.Query(addonQuery, orderID)
+	if err != nil {
+		return nil, err
+	}
+	defer aRows.Close()
+	for aRows.Next() {
+		var a model.OrderDetailAddon
+		if err := aRows.Scan(&a.AddonName, &a.AddonPrice); err == nil {
+			res.Addon = append(res.Addon, a)
+		}
+	}
+
+	// Payments
+	paymentQuery := fmt.Sprintf(`
+		SELECT 
+			ba.bank_code, ba.account_name, ba.account_number, bl.name as bank_name, 
+			op.payment_type, op.payment_percentage, op.payment_amount, op.total_amount, 
+			op.payment_remaining, op.status, op.created_at as payment_date,
+			COALESCE(NULLIF(op.unique_code, '')::INTEGER, 0) as unique_code
+		FROM fleet_order_payment op 
+		INNER JOIN organization_bank_accounts ba ON op.payment_method = ba.bank_account_id 
+		INNER JOIN bank_list bl ON bl.code = ba.bank_code 
+		WHERE op.order_id = %s AND op.status > 0
+	`, r.getPlaceholder(1))
+
+	pRows, err := r.db.Query(paymentQuery, orderID)
+	if err != nil {
+		fmt.Println("Error querying order payments:", err)
+		return nil, err
+	}
+	defer pRows.Close()
+
+	res.Payment = make([]model.PaymentDetail, 0)
+	for pRows.Next() {
+		var p model.PaymentDetail
+		var paymentDate time.Time
+		err := pRows.Scan(
+			&p.BankCode, &p.AccountName, &p.AccountNumber, &p.BankName,
+			&p.PaymentType, &p.PaymentPercentage, &p.PaymentAmount, &p.TotalAmount,
+			&p.PaymentRemaining, &p.Status, &paymentDate, &p.UniqueCode,
+		)
+		if err != nil {
+			fmt.Println("Error scanning payment row:", err)
+			continue
+		}
+		p.PaymentDate = paymentDate.Format("2006-01-02 15:04:05")
+		res.Payment = append(res.Payment, p)
+	}
+
+	if len(res.Payment) == 0 {
+		res.PaymentStatus = "Dibatalkan"
+	} else {
+		countType2 := 0
+		anyStatus1 := false
+		allStatus1 := true
+		hasStatus10 := false
+		for _, p := range res.Payment {
+			if p.PaymentType == 2 {
+				countType2++
+			}
+			if p.Status == 1 {
+				anyStatus1 = true
+			}
+			if p.Status != 1 {
+				allStatus1 = false
+			}
+			if p.Status == 10 {
+				hasStatus10 = true
+			}
+		}
+		if countType2 > 0 && len(res.Payment) > 1 && anyStatus1 && !allStatus1 {
+			res.PaymentStatus = "Belum Lunas"
+		} else if hasStatus10 {
+			res.PaymentStatus = "Menunggu verifikasi"
+		} else if allStatus1 {
+			res.PaymentStatus = "Lunas"
+		}
+	}
+
+	return &res, nil
+}
+
 func (r *FleetRepository) GetFleetOrderTotalAmount(orderID, priceID, organizationID string) (float64, error) {
 	query := fmt.Sprintf("SELECT total_amount FROM fleet_orders WHERE order_id = %s AND price_id = %s AND organization_id = %s", r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
 	var amount float64
@@ -373,24 +517,100 @@ func (r *FleetRepository) GetFleetOrderTotalAmount(orderID, priceID, organizatio
 	return amount, err
 }
 
-func (r *FleetRepository) CreateOrderPayment(p *model.FleetOrderPayment) error {
+func (r *FleetRepository) CreateOrderPayment(p *model.FleetOrderPayment, h *model.OrderPaymentHistory) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+
 	query := fmt.Sprintf(`
 		INSERT INTO fleet_order_payment (
 			order_payment_id, order_id, organization_id, payment_method, 
 			payment_type, payment_percentage, payment_amount, total_amount, 
-			payment_remaining, status, created_at
-		) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+			payment_remaining, status, created_at, unique_code
+		) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 	`,
 		r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
 		r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8),
-		r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11),
+		r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12),
 	)
 
-	_, err := r.db.Exec(query,
+	_, err = tx.Exec(query,
 		p.OrderPaymentID, p.OrderID, p.OrganizationID, p.PaymentMethod,
 		p.PaymentType, p.PaymentPercentage, p.PaymentAmount, p.TotalAmount,
-		p.PaymentRemaining, p.Status, p.CreatedAt,
+		p.PaymentRemaining, p.Status, p.CreatedAt, p.UniqueCode,
 	)
+	if err != nil {
+		return err
+	}
+
+	queryHistory := fmt.Sprintf(`
+		INSERT INTO order_payment_history (
+			payment_history_id, order_id, bank_code, bank_account_id, 
+			account_number, account_name, created_at, organization_id, payment_amount, unique_code
+		) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+	`,
+		r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
+		r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8),
+		r.getPlaceholder(9), r.getPlaceholder(10),
+	)
+
+	_, err = tx.Exec(queryHistory,
+		h.PaymentHistoryID, h.OrderID, h.BankCode, h.BankAccountID,
+		h.AccountNumber, h.AccountName, h.CreatedAt, h.OrganizationID, h.PaymentAmount, h.UniqueCode,
+	)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func (r *FleetRepository) GetFleetOrderPaymentsByOrderID(orderID, organizationID string) ([]model.FleetOrderPayment, error) {
+	query := fmt.Sprintf(`
+		SELECT 
+			order_payment_id, order_id, organization_id, payment_method, 
+			payment_type, payment_percentage, payment_amount, total_amount, 
+			payment_remaining, status, created_at
+		FROM fleet_order_payment
+		WHERE order_id = %s AND organization_id = %s
+	`, r.getPlaceholder(1), r.getPlaceholder(2))
+
+	rows, err := r.db.Query(query, orderID, organizationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var payments []model.FleetOrderPayment
+	for rows.Next() {
+		var p model.FleetOrderPayment
+		err := rows.Scan(
+			&p.OrderPaymentID, &p.OrderID, &p.OrganizationID, &p.PaymentMethod,
+			&p.PaymentType, &p.PaymentPercentage, &p.PaymentAmount, &p.TotalAmount,
+			&p.PaymentRemaining, &p.Status, &p.CreatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		payments = append(payments, p)
+	}
+	return payments, nil
+}
+
+func (r *FleetRepository) UpdateFleetOrderPaymentStatus(orderID, organizationID string, currentStatus, newStatus int) error {
+	query := fmt.Sprintf(`
+		UPDATE fleet_order_payment
+		SET status = %s
+		WHERE order_id = %s AND organization_id = %s AND status = %s
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))
+	_, err := r.db.Exec(query, newStatus, orderID, organizationID, currentStatus)
 	return err
 }
 
@@ -886,5 +1106,92 @@ func (r *FleetRepository) GetOrderDetail(orderID, priceID, organizationID string
 		}
 	}
 
+	// Payments
+	paymentQuery := fmt.Sprintf(`
+		SELECT 
+			ba.bank_code, ba.account_name, ba.account_number, bl.name as bank_name, 
+			op.payment_type, op.payment_percentage, op.payment_amount, op.total_amount, 
+			op.payment_remaining, op.status, op.created_at as payment_date,
+			COALESCE(NULLIF(op.unique_code, '')::INTEGER, 0) as unique_code
+		FROM fleet_order_payment op 
+		INNER JOIN organization_bank_accounts ba ON op.payment_method = ba.bank_account_id 
+		INNER JOIN bank_list bl ON bl.code = ba.bank_code 
+		WHERE op.order_id = %s AND op.status > 0
+	`, r.getPlaceholder(1))
+
+	pRows, err := r.db.Query(paymentQuery, orderID)
+	if err != nil {
+		fmt.Println("Error querying order payments:", err)
+		return nil, err
+	}
+	defer pRows.Close()
+
+	res.Payment = make([]model.PaymentDetail, 0)
+	for pRows.Next() {
+		var p model.PaymentDetail
+		var paymentDate time.Time
+		err := pRows.Scan(
+			&p.BankCode, &p.AccountName, &p.AccountNumber, &p.BankName,
+			&p.PaymentType, &p.PaymentPercentage, &p.PaymentAmount, &p.TotalAmount,
+			&p.PaymentRemaining, &p.Status, &paymentDate, &p.UniqueCode,
+		)
+		if err != nil {
+			fmt.Println("Error scanning payment row:", err)
+			continue
+		}
+		p.PaymentDate = paymentDate.Format("2006-01-02 15:04:05")
+		res.Payment = append(res.Payment, p)
+	}
+
+	if len(res.Payment) == 0 {
+		res.PaymentStatus = "Dibatalkan"
+	} else {
+		countType2 := 0
+		anyStatus1 := false
+		allStatus1 := true
+		hasStatus10 := false
+		for _, p := range res.Payment {
+			if p.PaymentType == 2 {
+				countType2++
+			}
+			if p.Status == 1 {
+				anyStatus1 = true
+			}
+			if p.Status != 1 {
+				allStatus1 = false
+			}
+			if p.Status == 10 {
+				hasStatus10 = true
+			}
+		}
+		if countType2 > 0 && len(res.Payment) > 1 && anyStatus1 && !allStatus1 {
+			res.PaymentStatus = "Belum Lunas"
+		} else if hasStatus10 {
+			res.PaymentStatus = "Menunggu verifikasi"
+		} else if allStatus1 {
+			res.PaymentStatus = "Lunas"
+		}
+	}
+
 	return &res, nil
+}
+
+func (r *FleetRepository) UpdatePaymentEvidence(orderID, organizationID, filePath string) error {
+	// Find latest payment ID
+	subQuery := fmt.Sprintf(`
+		SELECT order_payment_id 
+		FROM fleet_order_payment 
+		WHERE order_id = %s AND organization_id = %s 
+		ORDER BY created_at DESC 
+		LIMIT 1
+	`, r.getPlaceholder(2), r.getPlaceholder(3))
+
+	query := fmt.Sprintf(`
+		UPDATE fleet_order_payment
+		SET evidence_file = %s
+		WHERE order_payment_id = (%s)
+	`, r.getPlaceholder(1), subQuery)
+
+	_, err := r.db.Exec(query, filePath, orderID, organizationID)
+	return err
 }

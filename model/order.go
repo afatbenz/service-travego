@@ -105,6 +105,25 @@ type OrderDetailResponse struct {
 	Destination   []OrderDetailDest   `json:"destination"`
 	Addon         []OrderDetailAddon  `json:"addon"`
 	Customer      OrderDetailCustomer `json:"customer"`
+	Payment       []PaymentDetail     `json:"payment"`
+	PaymentStatus string              `json:"payment_status"`
+	Token         string              `json:"token"`
+	PriceID       string              `json:"-"`
+}
+
+type PaymentDetail struct {
+	BankCode          string        `json:"bank_code"`
+	AccountName       string        `json:"account_name"`
+	AccountNumber     string        `json:"account_number"`
+	BankName          string        `json:"bank_name"`
+	PaymentType       int           `json:"payment_type"`
+	PaymentPercentage float64       `json:"payment_percentage"`
+	PaymentAmount     float64       `json:"payment_amount"`
+	TotalAmount       float64       `json:"total_amount"`
+	PaymentRemaining  float64       `json:"payment_remaining"`
+	Status            PaymentStatus `json:"status"`
+	PaymentDate       string        `json:"payment_date"`
+	UniqueCode        int           `json:"unique_code"`
 }
 
 type OrderDetailCustomer struct {
@@ -146,6 +165,7 @@ const (
 	PaymentStatusPaid                PaymentStatus = 1
 	PaymentStatusPendingVerification PaymentStatus = 2
 	PaymentStatusPartialPaid         PaymentStatus = 3
+	PaymentStatusWaitingApproval     PaymentStatus = 10
 )
 
 type PaymentMethod int
@@ -159,7 +179,7 @@ type FleetOrderPayment struct {
 	OrderPaymentID    string        `json:"order_payment_id"`
 	OrderID           string        `json:"order_id"`
 	OrganizationID    string        `json:"organization_id"`
-	PaymentMethod     PaymentMethod `json:"payment_method"`
+	PaymentMethod     string        `json:"payment_method"`
 	PaymentType       int           `json:"payment_type"`
 	PaymentPercentage float64       `json:"payment_percentage"`
 	PaymentAmount     float64       `json:"payment_amount"`
@@ -167,6 +187,23 @@ type FleetOrderPayment struct {
 	PaymentRemaining  float64       `json:"payment_remaining"`
 	Status            PaymentStatus `json:"status"`
 	CreatedAt         time.Time     `json:"created_at"`
+	BankCode          string        `json:"bank_code"`
+	AccountNumber     string        `json:"account_number"`
+	AccountName       string        `json:"account_name"`
+	UniqueCode        int           `json:"unique_code"`
+}
+
+type OrderPaymentHistory struct {
+	PaymentHistoryID string    `json:"payment_history_id"`
+	OrderID          string    `json:"order_id"`
+	BankCode         string    `json:"bank_code"`
+	BankAccountID    string    `json:"bank_account_id"`
+	AccountNumber    string    `json:"account_number"`
+	AccountName      string    `json:"account_name"`
+	CreatedAt        time.Time `json:"created_at"`
+	OrganizationID   string    `json:"organization_id"`
+	PaymentAmount    float64   `json:"payment_amount"`
+	UniqueCode       int       `json:"unique_code"`
 }
 
 type PaymentMethodResponse struct {
@@ -179,4 +216,10 @@ type PaymentMethodResponse struct {
 type PaymentMethodGroupedResponse struct {
 	Transfer []PaymentMethodResponse `json:"transfer"`
 	Qris     []PaymentMethodResponse `json:"qris"`
+}
+
+type PaymentConfirmationRequest struct {
+	OrderType      string `json:"order_type"`
+	Token          string `json:"token"`
+	OrganizationID string `json:"-"`
 }
