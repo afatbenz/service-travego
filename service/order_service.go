@@ -90,7 +90,9 @@ func (s *OrderService) CreateOrder(req *model.CreateOrderRequest) (*model.Create
 	orderID := fmt.Sprintf("%s%s%d-FRT", truncatedCode, timePart, count+1)
 
 	// 3. Save to DB
-	err = s.fleetRepo.CreateFleetOrder(orderID, totalAmount, req)
+	req.OrderID = orderID
+	req.TotalAmount = totalAmount
+	err = s.fleetRepo.CreateOrder(req)
 	if err != nil {
 		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create order")
 	}

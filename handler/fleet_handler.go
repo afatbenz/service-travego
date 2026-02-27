@@ -59,9 +59,9 @@ func (h *FleetHandler) CreateFleet(c *fiber.Ctx) error {
 			}
 		}
 		if v, ok := m["pickup_point"].([]interface{}); ok {
-			req.PickupPoint = make([]int, 0, len(v))
+			req.Pickup = make([]model.FleetPickupRequest, 0, len(v))
 			for _, it := range v {
-				req.PickupPoint = append(req.PickupPoint, toInt(it))
+				req.Pickup = append(req.Pickup, model.FleetPickupRequest{CityID: toInt(it)})
 			}
 		}
 		if v, ok := m["fascilities"].([]interface{}); ok {
@@ -73,7 +73,7 @@ func (h *FleetHandler) CreateFleet(c *fiber.Ctx) error {
 			}
 		}
 		if v, ok := m["prices"].([]interface{}); ok {
-			req.Prices = make([]model.FleetPriceRequest, 0, len(v))
+			req.Pricing = make([]model.FleetPriceRequest, 0, len(v))
 			for _, it := range v {
 				if mp, ok := it.(map[string]interface{}); ok {
 					pr := model.FleetPriceRequest{}
@@ -81,7 +81,7 @@ func (h *FleetHandler) CreateFleet(c *fiber.Ctx) error {
 						pr.Duration = toInt(dv)
 					}
 					if rv, ok := mp["rent_category"]; ok {
-						pr.RentCategory = toInt(rv)
+						pr.RentType = toInt(rv)
 					}
 					if pv, ok := mp["price"]; ok {
 						pr.Price = toInt(pv)
@@ -89,7 +89,7 @@ func (h *FleetHandler) CreateFleet(c *fiber.Ctx) error {
 					if uom, ok := mp["uom"].(string); ok {
 						pr.Uom = uom
 					}
-					req.Prices = append(req.Prices, pr)
+					req.Pricing = append(req.Pricing, pr)
 				}
 			}
 		}
@@ -102,10 +102,10 @@ func (h *FleetHandler) CreateFleet(c *fiber.Ctx) error {
 						ad.AddonName = nv
 					}
 					if dv, ok := mp["description"].(string); ok {
-						ad.Description = dv
+						ad.AddonDesc = dv
 					}
 					if pv, ok := mp["price"]; ok {
-						ad.Price = toInt(pv)
+						ad.AddonPrice = toInt(pv)
 					}
 					req.Addon = append(req.Addon, ad)
 				}
@@ -115,21 +115,21 @@ func (h *FleetHandler) CreateFleet(c *fiber.Ctx) error {
 			req.Thumbnail = v
 		}
 		if imgs, ok := m["images"].([]interface{}); ok {
-			req.BodyImages = make([]string, 0, len(imgs))
+			req.Images = make([]model.FleetImageRequest, 0, len(imgs))
 			for _, it := range imgs {
 				if s, ok := it.(string); ok && s != "" {
-					req.BodyImages = append(req.BodyImages, s)
+					req.Images = append(req.Images, model.FleetImageRequest{PathFile: s})
 				}
 			}
 		}
 		if b, ok := m["body"].(map[string]interface{}); ok {
 			if imgs, ok := b["images"].([]interface{}); ok {
-				if req.BodyImages == nil {
-					req.BodyImages = make([]string, 0, len(imgs))
+				if req.Images == nil {
+					req.Images = make([]model.FleetImageRequest, 0, len(imgs))
 				}
 				for _, it := range imgs {
 					if s, ok := it.(string); ok && s != "" {
-						req.BodyImages = append(req.BodyImages, s)
+						req.Images = append(req.Images, model.FleetImageRequest{PathFile: s})
 					}
 				}
 			}
@@ -143,19 +143,19 @@ func (h *FleetHandler) CreateFleet(c *fiber.Ctx) error {
 			if err := json.Unmarshal(raw, &m); err == nil {
 				if b, ok := m["body"].(map[string]interface{}); ok {
 					if imgs, ok := b["images"].([]interface{}); ok {
-						req.BodyImages = make([]string, 0, len(imgs))
+						req.Images = make([]model.FleetImageRequest, 0, len(imgs))
 						for _, v := range imgs {
 							if s, ok := v.(string); ok && s != "" {
-								req.BodyImages = append(req.BodyImages, s)
+								req.Images = append(req.Images, model.FleetImageRequest{PathFile: s})
 							}
 						}
 					}
 				}
 				if imgs, ok := m["images"].([]interface{}); ok {
-					req.BodyImages = make([]string, 0, len(imgs))
+					req.Images = make([]model.FleetImageRequest, 0, len(imgs))
 					for _, it := range imgs {
 						if s, ok := it.(string); ok && s != "" {
-							req.BodyImages = append(req.BodyImages, s)
+							req.Images = append(req.Images, model.FleetImageRequest{PathFile: s})
 						}
 					}
 				}
@@ -234,6 +234,40 @@ func (h *FleetHandler) FleetDetail(c *fiber.Ctx) error {
 		return helper.SendErrorResponse(c, code, err.Error())
 	}
 	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet detail loaded", res)
+}
+
+func (h *FleetHandler) GetPartnerOrderList(c *fiber.Ctx) error {
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.BadRequestResponse(c, "missing organization context")
+	}
+
+	items, err := h.service.GetPartnerOrderList(orgID)
+	if err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Order list loaded", items)
+}
+
+func (h *FleetHandler) GetPartnerOrderDetail(c *fiber.Ctx) error {
+	orderID := c.Params("order_id")
+	if orderID == "" {
+		return helper.BadRequestResponse(c, "order_id is required")
+	}
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.BadRequestResponse(c, "missing organization context")
+	}
+
+	res, err := h.service.GetPartnerOrderDetail(orderID, orgID)
+	if err != nil {
+		code := fiber.StatusInternalServerError
+		if err.Error() == "order not found or access denied" {
+			code = fiber.StatusNotFound
+		}
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Order detail loaded", res)
 }
 
 func toInt(v interface{}) int {

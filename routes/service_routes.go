@@ -27,4 +27,5 @@ func SetupServiceRoutes(api fiber.Router, db *sql.DB, driver string) {
 	svcGroup.Get("/fleet", h.GetServiceFleets)
 	svcGroup.Post("/fleet/detail", h.GetServiceFleetDetail)
 	svcGroup.Get("/fleet/addon/:fleetid", h.GetServiceFleetAddons)
+	svcGroup.Get("/available-city", h.GetAvailableCities)
 }

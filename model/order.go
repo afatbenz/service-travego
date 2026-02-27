@@ -49,6 +49,8 @@ type CreateOrderRequest struct {
 	Addons           []string           `json:"addons"`
 	OrganizationID   string             `json:"-"`
 	OrganizationCode string             `json:"-"`
+	OrderID          string             `json:"-"`
+	TotalAmount      float64            `json:"-"`
 }
 
 type OrderDestination struct {
@@ -124,6 +126,19 @@ type PaymentDetail struct {
 	Status            PaymentStatus `json:"status"`
 	PaymentDate       string        `json:"payment_date"`
 	UniqueCode        int           `json:"unique_code"`
+}
+
+type PartnerOrderListItem struct {
+	OrderID       string        `json:"order_id"`
+	FleetName     string        `json:"fleet_name"`
+	StartDate     time.Time     `json:"start_date"`
+	EndDate       time.Time     `json:"end_date"`
+	UnitQty       int           `json:"unit_qty"`
+	PaymentStatus PaymentStatus `json:"payment_status"`
+	Duration      int           `json:"duration"`
+	Uom           string        `json:"uom"`
+	TotalAmount   float64       `json:"total_amount"`
+	RentType      string        `json:"rent_type"`
 }
 
 type OrderDetailCustomer struct {
