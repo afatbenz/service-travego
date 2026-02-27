@@ -32,14 +32,14 @@ type ServiceFleetPickupItem struct {
 }
 
 type ServiceFleetPriceItem struct {
-	UUID          string `json:"uuid"`
-	Duration      int    `json:"duration"`
-	RentType      int    `json:"rent_type"`
-	RentTypeLabel string `json:"rent_type_label"`
-	Price         int    `json:"price"`
-	DiscAmount    int    `json:"disc_amount"`
-	DiscPrice     int    `json:"disc_price"`
-	Uom           string `json:"uom"`
+	UUID          string  `json:"uuid"`
+	Duration      int     `json:"duration"`
+	RentType      int     `json:"rent_type"`
+	RentTypeLabel string  `json:"rent_type_label"`
+	Price         float64 `json:"price"`
+	DiscAmount    float64 `json:"disc_amount"`
+	DiscPrice     float64 `json:"disc_price"`
+	Uom           string  `json:"uom"`
 }
 
 type ServiceFleetAddonItem struct {

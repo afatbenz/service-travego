@@ -18,7 +18,8 @@ func NewServiceHandler(s *service.FleetService) *ServiceHandler {
 }
 
 func (h *ServiceHandler) GetServiceFleets(c *fiber.Ctx) error {
-	page := c.QueryInt("page", 0)
+	fmt.Println("GetServiceFleets")
+	page := c.QueryInt("page", 1)
 	perPage := c.QueryInt("per_page", 10)
 
 	items, err := h.service.GetServiceFleets(page, perPage)
@@ -30,6 +31,7 @@ func (h *ServiceHandler) GetServiceFleets(c *fiber.Ctx) error {
 }
 
 func (h *ServiceHandler) GetServiceFleetDetail(c *fiber.Ctx) error {
+	fmt.Println("GetServiceFleetDetail")
 	var req model.ServiceFleetDetailRequest
 	if err := c.BodyParser(&req); err != nil {
 		return helper.BadRequestResponse(c, "Invalid payload")
@@ -40,6 +42,7 @@ func (h *ServiceHandler) GetServiceFleetDetail(c *fiber.Ctx) error {
 
 	res, err := h.service.GetServiceFleetDetail(req.FleetID)
 	if err != nil {
+		fmt.Println("Error fetching service fleet detail:", err)
 		code := fiber.StatusInternalServerError
 		if err.Error() == "fleet not found" {
 			code = fiber.StatusNotFound
@@ -64,4 +67,17 @@ func (h *ServiceHandler) GetServiceFleetAddons(c *fiber.Ctx) error {
 		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, err.Error())
 	}
 	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet addons retrieved", items)
+}
+
+func (h *ServiceHandler) GetAvailableCities(c *fiber.Ctx) error {
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.BadRequestResponse(c, "Invalid or missing organization_id")
+	}
+
+	cities, err := h.service.GetAvailableCities(orgID)
+	if err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Available cities retrieved", cities)
 }

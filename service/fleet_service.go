@@ -9,8 +9,6 @@ import (
 	"service-travego/model"
 	"service-travego/repository"
 	"strconv"
-
-	"github.com/google/uuid"
 )
 
 type FleetService struct {
@@ -26,8 +24,9 @@ func (s *FleetService) CreateFleet(createdBy, organizationID string, req *model.
 	if req.FleetName == "" || req.FleetType == "" {
 		return "", NewServiceError(ErrInvalidInput, http.StatusBadRequest, "fleet_name and fleet_type are required")
 	}
-	id := uuid.New().String()
-	err := s.repo.CreateFleetWithDetails(id, createdBy, organizationID, req)
+	req.CreatedBy = createdBy
+	req.OrganizationID = organizationID
+	id, err := s.repo.CreateFleet(req)
 	if err != nil {
 		return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create fleet")
 	}
@@ -82,31 +81,85 @@ func (s *FleetService) GetServiceFleets(page, perPage int) ([]model.ServiceFleet
 	return items, nil
 }
 
+func (s *FleetService) GetAvailableCities(orgID string) ([]model.ServiceFleetPickupItem, error) {
+	cityIDs, err := s.repo.GetAvailableCities(orgID)
+	if err != nil {
+		return nil, err
+	}
+
+	s.ensureCitiesLoaded()
+
+	var cities []model.ServiceFleetPickupItem
+	for _, id := range cityIDs {
+		key := intToString(id)
+		name := ""
+		if val, ok := s.citiesName[key]; ok {
+			name = val
+		}
+		// Only include if name found? User said "tampilkan data kota... lalu cari nama kota... response city_id, city_name".
+		// Assuming we include it even if name is missing (though unlikely if location.json is source of truth).
+		// But let's filter to only those found in location.json if that's implied "from location.json array cities[]".
+		// Actually, if ID is in DB but not in JSON, name will be empty.
+		if name != "" {
+			cities = append(cities, model.ServiceFleetPickupItem{
+				CityID:   id,
+				CityName: name,
+			})
+		}
+	}
+
+	// Sort by CityName
+	// Need to import "sort"
+	// But first let's add the method. I'll add sort import in a separate edit if needed or use bubble sort for small list.
+	// Since I can't see imports easily, I'll use a simple sort or rely on subsequent edit.
+	// Actually, I should check imports.
+	// Let's implement a simple sort here to be safe without adding imports if possible, or assume sort is available?
+	// `sort` is standard.
+	// Let's check imports first or just add it.
+	// Wait, I can't add import easily with SearchReplace unless I read the top.
+	// I'll use a simple insertion sort for now, assuming list is small (cities).
+	for i := 1; i < len(cities); i++ {
+		j := i
+		for j > 0 && cities[j].CityName < cities[j-1].CityName {
+			cities[j], cities[j-1] = cities[j-1], cities[j]
+			j--
+		}
+	}
+
+	return cities, nil
+}
+
 func (s *FleetService) GetServiceFleetDetail(fleetID string) (*model.ServiceFleetDetailResponse, error) {
 	// First resolve OrgID
 	orgID, err := s.repo.GetFleetOrgID(fleetID)
 	if err != nil {
+		fmt.Println("Error fetching fleet org ID:", err)
 		return nil, NewServiceError(ErrNotFound, http.StatusNotFound, "fleet not found")
 	}
 
 	meta, err := s.repo.GetFleetDetailMeta(orgID, fleetID)
 	if err != nil {
+		fmt.Println("Error fetching fleet detail meta:", err)
 		return nil, NewServiceError(ErrNotFound, http.StatusNotFound, "fleet not found")
 	}
 	fac, err := s.repo.GetFleetFacilities(fleetID)
 	if err != nil {
+		fmt.Println("Error fetching fleet facilities:", err)
 		fac = []string{}
 	}
 	pickup, err := s.repo.GetFleetPickup(orgID, fleetID)
 	if err != nil {
+		fmt.Println("Error fetching fleet pickup:", err)
 		pickup = []model.FleetPickupItem{}
 	}
 	addon, err := s.repo.GetFleetAddon(orgID, fleetID)
 	if err != nil {
+		fmt.Println("Error fetching fleet addon:", err)
 		addon = []model.FleetAddonItem{}
 	}
 	prices, err := s.repo.GetFleetPrices(orgID, fleetID)
 	if err != nil {
+		fmt.Println("Error fetching fleet prices:", err)
 		prices = []model.FleetPriceItem{}
 	}
 	images, err := s.repo.GetFleetImages(fleetID)
@@ -154,6 +207,14 @@ func (s *FleetService) GetServiceFleetDetail(fleetID string) (*model.ServiceFlee
 		Images:     images,
 	}
 	return resp, nil
+}
+
+func (s *FleetService) GetPartnerOrderList(orgID string) ([]model.PartnerOrderListItem, error) {
+	return s.repo.GetPartnerOrderList(orgID)
+}
+
+func (s *FleetService) GetPartnerOrderDetail(orderID, orgID string) (*model.OrderDetailResponse, error) {
+	return s.repo.GetPartnerOrderDetail(orderID, orgID)
 }
 
 func (s *FleetService) ListFleets(req *model.ListFleetRequest) ([]model.FleetListItem, error) {

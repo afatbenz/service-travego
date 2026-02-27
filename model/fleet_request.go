@@ -1,33 +1,45 @@
 package model
 
 type FleetPriceRequest struct {
-	Duration     int    `json:"duration"`
-	RentCategory int    `json:"rent_category"`
-	Price        int    `json:"price"`
-	Uom          string `json:"uom"`
+	Duration   int    `json:"duration"`
+	RentType   int    `json:"rent_type"`
+	Price      int    `json:"price"`
+	DiscAmount int    `json:"disc_amount"`
+	DiscPrice  int    `json:"disc_price"`
+	Uom        string `json:"uom"`
 }
 
 type FleetAddonRequest struct {
-	AddonName   string `json:"addon_name"`
-	Description string `json:"description"`
-	Price       int    `json:"price"`
+	AddonName  string `json:"addon_name"`
+	AddonDesc  string `json:"addon_desc"`
+	AddonPrice int    `json:"addon_price"`
+}
+
+type FleetPickupRequest struct {
+	CityID int `json:"city_id"`
+}
+
+type FleetImageRequest struct {
+	PathFile string `json:"path_file"`
 }
 
 type CreateFleetRequest struct {
-	FleetName      string              `json:"fleet_name"`
-	FleetType      string              `json:"fleet_type"`
-	Capacity       int                 `json:"capacity"`
-	ProductionYear int                 `json:"production_year"`
-	Engine         string              `json:"engine"`
-	Body           string              `json:"body"`
-	Description    string              `json:"description"`
-	Active         bool                `json:"active"`
-	PickupPoint    []int               `json:"pickup_point"`
-	Facilities     []string            `json:"fascilities"`
-	Prices         []FleetPriceRequest `json:"prices"`
-	Addon          []FleetAddonRequest `json:"addon"`
-	Thumbnail      string              `json:"thumbnail"`
-	BodyImages     []string            `json:"-"`
+	FleetName      string               `json:"fleet_name"`
+	FleetType      string               `json:"fleet_type"`
+	Capacity       int                  `json:"capacity"`
+	ProductionYear int                  `json:"production_year"`
+	Engine         string               `json:"engine"`
+	Body           string               `json:"body"`
+	Description    string               `json:"description"`
+	Active         bool                 `json:"active"`
+	Pickup         []FleetPickupRequest `json:"pickup"`
+	Facilities     []string             `json:"fascilities"`
+	Pricing        []FleetPriceRequest  `json:"pricing"`
+	Addon          []FleetAddonRequest  `json:"addon"`
+	Thumbnail      string               `json:"thumbnail"`
+	Images         []FleetImageRequest  `json:"images"`
+	OrganizationID string               `json:"-"`
+	CreatedBy      string               `json:"-"`
 }
 
 type ListFleetRequest struct {
@@ -67,6 +79,8 @@ type FleetDetailMeta struct {
 	Transmission   string `json:"transmission"`
 	Description    string `json:"description"`
 	Thumbnail      string `json:"thumbnail"`
+	Active         bool   `json:"active"`
+	Status         int    `json:"status"`
 	CreatedAt      string `json:"created_at"`
 	CreatedBy      string `json:"created_by"`
 	UpdatedAt      string `json:"updated_at"`
@@ -87,14 +101,14 @@ type FleetAddonItem struct {
 }
 
 type FleetPriceItem struct {
-	UUID          string `json:"uuid"`
-	Duration      int    `json:"duration"`
-	RentType      int    `json:"rent_type"`
-	RentTypeLabel string `json:"rent_type_label"`
-	Price         int    `json:"price"`
-	DiscAmount    int    `json:"disc_amount"`
-	DiscPrice     int    `json:"disc_price"`
-	Uom           string `json:"uom"`
+	UUID          string  `json:"uuid"`
+	Duration      int     `json:"duration"`
+	RentType      int     `json:"rent_type"`
+	RentTypeLabel string  `json:"rent_type_label"`
+	Price         float64 `json:"price"`
+	DiscAmount    float64 `json:"disc_amount"`
+	DiscPrice     float64 `json:"disc_price"`
+	Uom           string  `json:"uom"`
 }
 
 type FleetImageItem struct {
@@ -106,7 +120,7 @@ type FleetDetailResponse struct {
 	Meta       FleetDetailMeta   `json:"meta"`
 	Facilities []string          `json:"facilities"`
 	Pickup     []FleetPickupItem `json:"pickup"`
-	Addon      []FleetAddonItem  `json:"addon"`
 	Pricing    []FleetPriceItem  `json:"pricing"`
+	Addon      []FleetAddonItem  `json:"addon"`
 	Images     []FleetImageItem  `json:"images"`
 }
