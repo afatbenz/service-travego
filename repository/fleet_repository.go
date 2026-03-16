@@ -1003,13 +1003,30 @@ func (r *FleetRepository) GetFleetOrgID(fleetID string) (string, error) {
 
 func (r *FleetRepository) GetFleetDetailMeta(orgID, fleetID string) (*model.FleetDetailMeta, error) {
 	query := `
-        SELECT uuid, fleet_type, fleet_name, capacity, production_year, engine, body, description, thumbnail, active, status, created_at, created_by, updated_at, updated_by
-        FROM fleets
-        WHERE uuid = %s
+        SELECT 
+			f.uuid,
+			COALESCE(ft.label, f.fleet_type::text) AS fleet_type,
+			f.fleet_name,
+			f.capacity,
+			f.production_year,
+			f.engine,
+			f.body,
+			f.description,
+			f.thumbnail,
+			f.active,
+			f.status,
+			f.created_at,
+			COALESCE(u.fullname, f.created_by::text) AS created_by,
+			f.updated_at,
+			f.updated_by
+        FROM fleets f
+		LEFT JOIN fleet_types ft ON ft.id::text = f.fleet_type::text
+		LEFT JOIN users u ON u.user_id::text = f.created_by::text
+        WHERE f.uuid = %s
     `
 	args := []interface{}{fleetID}
 	if orgID != "" {
-		query += " AND organization_id = %s"
+		query += " AND f.organization_id = %s"
 		query = fmt.Sprintf(query, r.getPlaceholder(1), r.getPlaceholder(2))
 		args = append(args, orgID)
 	} else {
@@ -1024,16 +1041,20 @@ func (r *FleetRepository) GetFleetDetailMeta(orgID, fleetID string) (*model.Flee
 	var createdAt time.Time
 	var updatedAt sql.NullTime
 	var updatedBy sql.NullString
+	var createdBy sql.NullString
 	// FleetDetailMeta: CreatedAt string `json:"created_at"`
 
 	err := r.db.QueryRow(query, args...).Scan(
 		&meta.FleetID, &meta.FleetType, &meta.FleetName, &meta.Capacity, &meta.ProductionYear, &meta.Engine, &meta.Body, &meta.Description, &meta.Thumbnail, &meta.Active, &meta.Status,
-		&createdAt, &meta.CreatedBy, &updatedAt, &updatedBy,
+		&createdAt, &createdBy, &updatedAt, &updatedBy,
 	)
 	if err != nil {
 		return nil, err
 	}
 	meta.CreatedAt = createdAt.Format("2006-01-02 15:04:05")
+	if createdBy.Valid {
+		meta.CreatedBy = createdBy.String
+	}
 	if updatedAt.Valid {
 		meta.UpdatedAt = updatedAt.Time.Format("2006-01-02 15:04:05")
 	}
