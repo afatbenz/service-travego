@@ -67,9 +67,62 @@ type FleetDetailRequest struct {
 	OrganizationID string `json:"-"`
 }
 
+type FleetFacilityUpsertItem struct {
+	UUID     string `json:"uuid"`
+	Facility string `json:"facility"`
+}
+
+type FleetPickupUpsertItem struct {
+	UUID   string `json:"uuid"`
+	CityID int    `json:"city_id"`
+}
+
+type FleetAddonUpsertItem struct {
+	UUID       string `json:"uuid"`
+	AddonName  string `json:"addon_name"`
+	AddonDesc  string `json:"addon_desc"`
+	AddonPrice int    `json:"addon_price"`
+}
+
+type FleetPriceUpsertItem struct {
+	UUID       string `json:"uuid"`
+	Duration   int    `json:"duration"`
+	RentType   int    `json:"rent_type"`
+	Price      int    `json:"price"`
+	DiscAmount int    `json:"disc_amount"`
+	DiscPrice  int    `json:"disc_price"`
+	Uom        string `json:"uom"`
+}
+
+type FleetImageUpsertItem struct {
+	UUID     string `json:"uuid"`
+	PathFile string `json:"path_file"`
+}
+
+type UpdateFleetRequest struct {
+	FleetID        string                    `json:"fleet_id"`
+	FleetName      string                    `json:"fleet_name"`
+	FleetType      string                    `json:"fleet_type"`
+	Capacity       int                       `json:"capacity"`
+	ProductionYear int                       `json:"production_year"`
+	Engine         string                    `json:"engine"`
+	Body           string                    `json:"body"`
+	Description    string                    `json:"description"`
+	Active         bool                      `json:"active"`
+	Thumbnail      string                    `json:"thumbnail"`
+	Facilities     []FleetFacilityUpsertItem `json:"fascilities"`
+	Pickup         []FleetPickupUpsertItem   `json:"pickup"`
+	Pricing        []FleetPriceUpsertItem    `json:"pricing"`
+	Addon          []FleetAddonUpsertItem    `json:"addon"`
+	Images         []FleetImageUpsertItem    `json:"images"`
+	OrganizationID string                    `json:"-"`
+	UpdatedBy      string                    `json:"-"`
+}
+
 type FleetDetailMeta struct {
 	FleetID        string `json:"fleet_id"`
 	FleetType      string `json:"fleet_type"`
+	FleetTypeLabel string `json:"fleet_type_label"`
 	FleetName      string `json:"fleet_name"`
 	Capacity       int    `json:"capacity"`
 	ProductionYear int    `json:"production_year"`

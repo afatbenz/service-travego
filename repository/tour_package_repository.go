@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"service-travego/model"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -37,6 +38,8 @@ func (r *TourPackageRepository) GetTourPackagesByOrgID(orgID string) ([]model.To
 			tp.package_name,
 			tp.thumbnail,
 			tp.package_description,
+			tp.status,
+			tp.active,
 			MIN(tpp.min_pax) AS min_pax,
 			MIN(tpp.price) AS min_price,
 			MAX(tpp.min_pax) AS max_pax,
@@ -46,7 +49,7 @@ func (r *TourPackageRepository) GetTourPackagesByOrgID(orgID string) ([]model.To
 			ON tpp.package_id = tp.uuid
 		WHERE tp.organization_id = %s 
 		  AND tp.status = 1 AND tp.active = true
-		GROUP BY tp.uuid, tp.package_name, tp.thumbnail, tp.package_description
+		GROUP BY tp.uuid, tp.package_name, tp.thumbnail, tp.package_description, tp.status, tp.active
 	`
 
 	// Adjust query placeholder
@@ -63,6 +66,8 @@ func (r *TourPackageRepository) GetTourPackagesByOrgID(orgID string) ([]model.To
 		var item model.TourPackageListItem
 
 		var thumbnail, description sql.NullString
+		var status sql.NullInt64
+		var active sql.NullBool
 		var minPax, maxPax sql.NullInt64
 		var minPrice, maxPrice sql.NullFloat64
 
@@ -71,6 +76,8 @@ func (r *TourPackageRepository) GetTourPackagesByOrgID(orgID string) ([]model.To
 			&item.PackageName,
 			&thumbnail,
 			&description,
+			&status,
+			&active,
 			&minPax,
 			&minPrice,
 			&maxPax,
@@ -98,6 +105,12 @@ func (r *TourPackageRepository) GetTourPackagesByOrgID(orgID string) ([]model.To
 		}
 		if maxPrice.Valid {
 			item.MaxPrice = maxPrice.Float64
+		}
+		if status.Valid {
+			item.Status = int(status.Int64)
+		}
+		if active.Valid {
+			item.Active = active.Bool
 		}
 
 		items = append(items, item)
@@ -279,6 +292,332 @@ func (r *TourPackageRepository) CreateTourPackage(ctx context.Context, req *mode
 		for _, img := range req.Images {
 			_, err = stmt.ExecContext(ctx, uuid.New().String(), packageID, orgID, img, now, userID)
 			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (r *TourPackageRepository) UpdateTourPackage(ctx context.Context, req *model.UpdateTourPackageRequest, orgID, userID string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	now := time.Now()
+
+	updateQuery := `UPDATE tour_packages SET package_name = %s, package_type = %s, package_description = %s, active = %s, thumbnail = %s, updated_at = %s, updated_by = %s WHERE uuid = %s AND organization_id = %s`
+	updateQuery = fmt.Sprintf(
+		updateQuery,
+		r.getPlaceholder(1),
+		r.getPlaceholder(2),
+		r.getPlaceholder(3),
+		r.getPlaceholder(4),
+		r.getPlaceholder(5),
+		r.getPlaceholder(6),
+		r.getPlaceholder(7),
+		r.getPlaceholder(8),
+		r.getPlaceholder(9),
+	)
+
+	res, err := tx.ExecContext(
+		ctx,
+		updateQuery,
+		req.PackageName,
+		req.PackageType,
+		req.PackageDescription,
+		req.Active,
+		req.Thumbnail,
+		now,
+		userID,
+		req.PackageID,
+		orgID,
+	)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err == nil && affected == 0 {
+		return sql.ErrNoRows
+	}
+
+	if req.Addons != nil {
+		keep := make([]string, 0, len(req.Addons))
+		for _, it := range req.Addons {
+			if it.UUID == "" {
+				newID := uuid.New().String()
+				ins := `INSERT INTO tour_package_addons (uuid, package_id, organization_id, description, price, created_at, created_by) VALUES `
+				if r.driver == "postgres" || r.driver == "pgx" {
+					ins += `($1, $2, $3, $4, $5, $6, $7)`
+				} else {
+					ins += `(?, ?, ?, ?, ?, ?, ?)`
+				}
+				if _, err := tx.ExecContext(ctx, ins, newID, req.PackageID, orgID, it.Description, it.Price, now, userID); err != nil {
+					return err
+				}
+				keep = append(keep, newID)
+				continue
+			}
+
+			upd := `UPDATE tour_package_addons SET description = %s, price = %s WHERE uuid = %s AND package_id = %s AND organization_id = %s`
+			upd = fmt.Sprintf(upd, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5))
+			if _, err := tx.ExecContext(ctx, upd, it.Description, it.Price, it.UUID, req.PackageID, orgID); err != nil {
+				return err
+			}
+			keep = append(keep, it.UUID)
+		}
+
+		if len(keep) == 0 {
+			del := fmt.Sprintf("DELETE FROM tour_package_addons WHERE package_id = %s AND organization_id = %s", r.getPlaceholder(1), r.getPlaceholder(2))
+			if _, err := tx.ExecContext(ctx, del, req.PackageID, orgID); err != nil {
+				return err
+			}
+		} else {
+			ph := make([]string, 0, len(keep))
+			args := make([]interface{}, 0, 2+len(keep))
+			args = append(args, req.PackageID, orgID)
+			for i, id := range keep {
+				ph = append(ph, r.getPlaceholder(i+3))
+				args = append(args, id)
+			}
+			del := fmt.Sprintf("DELETE FROM tour_package_addons WHERE package_id = %s AND organization_id = %s AND uuid NOT IN (%s)", r.getPlaceholder(1), r.getPlaceholder(2), strings.Join(ph, ","))
+			if _, err := tx.ExecContext(ctx, del, args...); err != nil {
+				return err
+			}
+		}
+	}
+
+	if req.Facilities != nil {
+		keep := make([]string, 0, len(req.Facilities))
+		for _, it := range req.Facilities {
+			if it.UUID == "" {
+				newID := uuid.New().String()
+				ins := `INSERT INTO tour_package_facilities (uuid, package_id, organization_id, facility, created_at, created_by) VALUES `
+				if r.driver == "postgres" || r.driver == "pgx" {
+					ins += `($1, $2, $3, $4, $5, $6)`
+				} else {
+					ins += `(?, ?, ?, ?, ?, ?)`
+				}
+				if _, err := tx.ExecContext(ctx, ins, newID, req.PackageID, orgID, it.Facility, now, userID); err != nil {
+					return err
+				}
+				keep = append(keep, newID)
+				continue
+			}
+			upd := `UPDATE tour_package_facilities SET facility = %s, updated_at = %s, updated_by = %s WHERE uuid = %s AND package_id = %s AND organization_id = %s`
+			upd = fmt.Sprintf(upd, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6))
+			if _, err := tx.ExecContext(ctx, upd, it.Facility, now, userID, it.UUID, req.PackageID, orgID); err != nil {
+				return err
+			}
+			keep = append(keep, it.UUID)
+		}
+
+		if len(keep) == 0 {
+			del := fmt.Sprintf("DELETE FROM tour_package_facilities WHERE package_id = %s AND organization_id = %s", r.getPlaceholder(1), r.getPlaceholder(2))
+			if _, err := tx.ExecContext(ctx, del, req.PackageID, orgID); err != nil {
+				return err
+			}
+		} else {
+			ph := make([]string, 0, len(keep))
+			args := make([]interface{}, 0, 2+len(keep))
+			args = append(args, req.PackageID, orgID)
+			for i, id := range keep {
+				ph = append(ph, r.getPlaceholder(i+3))
+				args = append(args, id)
+			}
+			del := fmt.Sprintf("DELETE FROM tour_package_facilities WHERE package_id = %s AND organization_id = %s AND uuid NOT IN (%s)", r.getPlaceholder(1), r.getPlaceholder(2), strings.Join(ph, ","))
+			if _, err := tx.ExecContext(ctx, del, args...); err != nil {
+				return err
+			}
+		}
+	}
+
+	if req.PickupAreas != nil {
+		keep := make([]string, 0, len(req.PickupAreas))
+		for _, it := range req.PickupAreas {
+			if it.UUID == "" {
+				newID := uuid.New().String()
+				ins := `INSERT INTO tour_package_pickup (uuid, package_id, organization_id, city_id, created_at, created_by) VALUES `
+				if r.driver == "postgres" || r.driver == "pgx" {
+					ins += `($1, $2, $3, $4, $5, $6)`
+				} else {
+					ins += `(?, ?, ?, ?, ?, ?)`
+				}
+				if _, err := tx.ExecContext(ctx, ins, newID, req.PackageID, orgID, it.ID, now, userID); err != nil {
+					return err
+				}
+				keep = append(keep, newID)
+				continue
+			}
+			upd := `UPDATE tour_package_pickup SET city_id = %s, updated_at = %s, updated_by = %s WHERE uuid = %s AND package_id = %s AND organization_id = %s`
+			upd = fmt.Sprintf(upd, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6))
+			if _, err := tx.ExecContext(ctx, upd, it.ID, now, userID, it.UUID, req.PackageID, orgID); err != nil {
+				return err
+			}
+			keep = append(keep, it.UUID)
+		}
+
+		if len(keep) == 0 {
+			del := fmt.Sprintf("DELETE FROM tour_package_pickup WHERE package_id = %s AND organization_id = %s", r.getPlaceholder(1), r.getPlaceholder(2))
+			if _, err := tx.ExecContext(ctx, del, req.PackageID, orgID); err != nil {
+				return err
+			}
+		} else {
+			ph := make([]string, 0, len(keep))
+			args := make([]interface{}, 0, 2+len(keep))
+			args = append(args, req.PackageID, orgID)
+			for i, id := range keep {
+				ph = append(ph, r.getPlaceholder(i+3))
+				args = append(args, id)
+			}
+			del := fmt.Sprintf("DELETE FROM tour_package_pickup WHERE package_id = %s AND organization_id = %s AND uuid NOT IN (%s)", r.getPlaceholder(1), r.getPlaceholder(2), strings.Join(ph, ","))
+			if _, err := tx.ExecContext(ctx, del, args...); err != nil {
+				return err
+			}
+		}
+	}
+
+	if req.Pricing != nil {
+		keep := make([]string, 0, len(req.Pricing))
+		for _, it := range req.Pricing {
+			if it.UUID == "" {
+				newID := uuid.New().String()
+				ins := `INSERT INTO tour_package_prices (uuid, package_id, organization_id, min_pax, max_pax, price, created_at, created_by) VALUES `
+				if r.driver == "postgres" || r.driver == "pgx" {
+					ins += `($1, $2, $3, $4, $5, $6, $7, $8)`
+				} else {
+					ins += `(?, ?, ?, ?, ?, ?, ?, ?)`
+				}
+				if _, err := tx.ExecContext(ctx, ins, newID, req.PackageID, orgID, it.MinPax, it.MaxPax, it.Price, now, userID); err != nil {
+					return err
+				}
+				keep = append(keep, newID)
+				continue
+			}
+			upd := `UPDATE tour_package_prices SET min_pax = %s, max_pax = %s, price = %s, updated_at = %s, updated_by = %s WHERE uuid = %s AND package_id = %s AND organization_id = %s`
+			upd = fmt.Sprintf(upd, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8))
+			if _, err := tx.ExecContext(ctx, upd, it.MinPax, it.MaxPax, it.Price, now, userID, it.UUID, req.PackageID, orgID); err != nil {
+				return err
+			}
+			keep = append(keep, it.UUID)
+		}
+
+		if len(keep) == 0 {
+			del := fmt.Sprintf("DELETE FROM tour_package_prices WHERE package_id = %s AND organization_id = %s", r.getPlaceholder(1), r.getPlaceholder(2))
+			if _, err := tx.ExecContext(ctx, del, req.PackageID, orgID); err != nil {
+				return err
+			}
+		} else {
+			ph := make([]string, 0, len(keep))
+			args := make([]interface{}, 0, 2+len(keep))
+			args = append(args, req.PackageID, orgID)
+			for i, id := range keep {
+				ph = append(ph, r.getPlaceholder(i+3))
+				args = append(args, id)
+			}
+			del := fmt.Sprintf("DELETE FROM tour_package_prices WHERE package_id = %s AND organization_id = %s AND uuid NOT IN (%s)", r.getPlaceholder(1), r.getPlaceholder(2), strings.Join(ph, ","))
+			if _, err := tx.ExecContext(ctx, del, args...); err != nil {
+				return err
+			}
+		}
+	}
+
+	if req.Images != nil {
+		keep := make([]string, 0, len(req.Images))
+		for _, it := range req.Images {
+			if it.UUID == "" {
+				newID := uuid.New().String()
+				ins := `INSERT INTO tour_package_images (uuid, package_id, organization_id, image_path, created_at, created_by) VALUES `
+				if r.driver == "postgres" || r.driver == "pgx" {
+					ins += `($1, $2, $3, $4, $5, $6)`
+				} else {
+					ins += `(?, ?, ?, ?, ?, ?)`
+				}
+				if _, err := tx.ExecContext(ctx, ins, newID, req.PackageID, orgID, it.ImagePath, now, userID); err != nil {
+					return err
+				}
+				keep = append(keep, newID)
+				continue
+			}
+			upd := `UPDATE tour_package_images SET image_path = %s WHERE uuid = %s AND package_id = %s AND organization_id = %s`
+			upd = fmt.Sprintf(upd, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))
+			if _, err := tx.ExecContext(ctx, upd, it.ImagePath, it.UUID, req.PackageID, orgID); err != nil {
+				return err
+			}
+			keep = append(keep, it.UUID)
+		}
+
+		if len(keep) == 0 {
+			del := fmt.Sprintf("DELETE FROM tour_package_images WHERE package_id = %s AND organization_id = %s", r.getPlaceholder(1), r.getPlaceholder(2))
+			if _, err := tx.ExecContext(ctx, del, req.PackageID, orgID); err != nil {
+				return err
+			}
+		} else {
+			ph := make([]string, 0, len(keep))
+			args := make([]interface{}, 0, 2+len(keep))
+			args = append(args, req.PackageID, orgID)
+			for i, id := range keep {
+				ph = append(ph, r.getPlaceholder(i+3))
+				args = append(args, id)
+			}
+			del := fmt.Sprintf("DELETE FROM tour_package_images WHERE package_id = %s AND organization_id = %s AND uuid NOT IN (%s)", r.getPlaceholder(1), r.getPlaceholder(2), strings.Join(ph, ","))
+			if _, err := tx.ExecContext(ctx, del, args...); err != nil {
+				return err
+			}
+		}
+	}
+
+	if req.Itineraries != nil {
+		keep := make([]string, 0)
+		for _, day := range req.Itineraries {
+			for _, act := range day.Activities {
+				activityTime := act.Time
+				if activityTime == "" {
+					activityTime = "00:00:00"
+				}
+
+				if act.UUID == "" {
+					newID := uuid.New().String()
+					ins := `INSERT INTO tour_package_itineraries (uuid, package_id, organization_id, day, activity, location, city_id, created_at, created_by) VALUES `
+					if r.driver == "postgres" || r.driver == "pgx" {
+						ins += `($1, $2, $3, $4, $5, $6, $7, $8, $9)`
+					} else {
+						ins += `(?, ?, ?, ?, ?, ?, ?, ?, ?)`
+					}
+					if _, err := tx.ExecContext(ctx, ins, newID, req.PackageID, orgID, activityTime, act.Description, act.Location, act.City.ID, now, userID); err != nil {
+						return err
+					}
+					keep = append(keep, newID)
+					continue
+				}
+
+				upd := `UPDATE tour_package_itineraries SET day = %s, activity = %s, location = %s, city_id = %s, updated_at = %s, updated_by = %s WHERE uuid = %s AND package_id = %s AND organization_id = %s`
+				upd = fmt.Sprintf(upd, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9))
+				if _, err := tx.ExecContext(ctx, upd, activityTime, act.Description, act.Location, act.City.ID, now, userID, act.UUID, req.PackageID, orgID); err != nil {
+					return err
+				}
+				keep = append(keep, act.UUID)
+			}
+		}
+
+		if len(keep) == 0 {
+			del := fmt.Sprintf("DELETE FROM tour_package_itineraries WHERE package_id = %s AND organization_id = %s", r.getPlaceholder(1), r.getPlaceholder(2))
+			if _, err := tx.ExecContext(ctx, del, req.PackageID, orgID); err != nil {
+				return err
+			}
+		} else {
+			ph := make([]string, 0, len(keep))
+			args := make([]interface{}, 0, 2+len(keep))
+			args = append(args, req.PackageID, orgID)
+			for i, id := range keep {
+				ph = append(ph, r.getPlaceholder(i+3))
+				args = append(args, id)
+			}
+			del := fmt.Sprintf("DELETE FROM tour_package_itineraries WHERE package_id = %s AND organization_id = %s AND uuid NOT IN (%s)", r.getPlaceholder(1), r.getPlaceholder(2), strings.Join(ph, ","))
+			if _, err := tx.ExecContext(ctx, del, args...); err != nil {
 				return err
 			}
 		}

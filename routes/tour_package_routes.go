@@ -20,5 +20,6 @@ func SetupTourPackageRoutes(api fiber.Router, db *sql.DB, driver string) {
 	tourPackages := services.Group("/tour-packages")
 	tourPackages.Get("/list", helper.JWTAuthorizationMiddleware(), h.GetTourPackages)
 	tourPackages.Post("/create", helper.JWTAuthorizationMiddleware(), h.CreateTourPackage)
+	tourPackages.Post("/update", helper.JWTAuthorizationMiddleware(), h.UpdateTourPackage)
 	tourPackages.Post("/detail", helper.JWTAuthorizationMiddleware(), h.TourPackageDetail)
 }

@@ -167,6 +167,257 @@ func (r *FleetRepository) CreateFleet(req *model.CreateFleetRequest) (string, er
 	return id, nil
 }
 
+func (r *FleetRepository) UpdateFleet(req *model.UpdateFleetRequest) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	now := time.Now()
+	updateFleetQuery := fmt.Sprintf(
+		`UPDATE fleets SET fleet_type = %s, fleet_name = %s, capacity = %s, production_year = %s, engine = %s, body = %s, description = %s, thumbnail = %s, active = %s, updated_at = %s, updated_by = %s WHERE uuid = %s AND organization_id = %s`,
+		r.getPlaceholder(1),
+		r.getPlaceholder(2),
+		r.getPlaceholder(3),
+		r.getPlaceholder(4),
+		r.getPlaceholder(5),
+		r.getPlaceholder(6),
+		r.getPlaceholder(7),
+		r.getPlaceholder(8),
+		r.getPlaceholder(9),
+		r.getPlaceholder(10),
+		r.getPlaceholder(11),
+		r.getPlaceholder(12),
+		r.getPlaceholder(13),
+	)
+
+	res, err := tx.Exec(
+		updateFleetQuery,
+		req.FleetType,
+		req.FleetName,
+		req.Capacity,
+		req.ProductionYear,
+		req.Engine,
+		req.Body,
+		req.Description,
+		req.Thumbnail,
+		req.Active,
+		now,
+		req.UpdatedBy,
+		req.FleetID,
+		req.OrganizationID,
+	)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err == nil && affected == 0 {
+		return sql.ErrNoRows
+	}
+
+	if req.Facilities != nil {
+		keepIDs := make([]string, 0, len(req.Facilities))
+		for _, it := range req.Facilities {
+			if it.UUID == "" {
+				newID := uuid2()
+				insertQuery := fmt.Sprintf("INSERT INTO fleet_facilities (uuid, fleet_id, facility) VALUES (%s, %s, %s)", r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
+				if _, err := tx.Exec(insertQuery, newID, req.FleetID, it.Facility); err != nil {
+					return err
+				}
+				keepIDs = append(keepIDs, newID)
+				continue
+			}
+			updateQuery := fmt.Sprintf("UPDATE fleet_facilities SET facility = %s WHERE uuid = %s AND fleet_id = %s", r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
+			if _, err := tx.Exec(updateQuery, it.Facility, it.UUID, req.FleetID); err != nil {
+				return err
+			}
+			keepIDs = append(keepIDs, it.UUID)
+		}
+
+		if len(keepIDs) == 0 {
+			delQuery := fmt.Sprintf("DELETE FROM fleet_facilities WHERE fleet_id = %s", r.getPlaceholder(1))
+			if _, err := tx.Exec(delQuery, req.FleetID); err != nil {
+				return err
+			}
+		} else {
+			in := make([]string, 0, len(keepIDs))
+			args := make([]interface{}, 0, 1+len(keepIDs))
+			args = append(args, req.FleetID)
+			for i, id := range keepIDs {
+				in = append(in, r.getPlaceholder(i+2))
+				args = append(args, id)
+			}
+			delQuery := fmt.Sprintf("DELETE FROM fleet_facilities WHERE fleet_id = %s AND uuid NOT IN (%s)", r.getPlaceholder(1), strings.Join(in, ","))
+			if _, err := tx.Exec(delQuery, args...); err != nil {
+				return err
+			}
+		}
+	}
+
+	if req.Pickup != nil {
+		keepIDs := make([]string, 0, len(req.Pickup))
+		for _, it := range req.Pickup {
+			if it.UUID == "" {
+				newID := uuid2()
+				insertQuery := fmt.Sprintf("INSERT INTO fleet_pickup (uuid, fleet_id, organization_id, city_id) VALUES (%s, %s, %s, %s)", r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))
+				if _, err := tx.Exec(insertQuery, newID, req.FleetID, req.OrganizationID, it.CityID); err != nil {
+					return err
+				}
+				keepIDs = append(keepIDs, newID)
+				continue
+			}
+			updateQuery := fmt.Sprintf("UPDATE fleet_pickup SET city_id = %s WHERE uuid = %s AND fleet_id = %s AND organization_id = %s", r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))
+			if _, err := tx.Exec(updateQuery, it.CityID, it.UUID, req.FleetID, req.OrganizationID); err != nil {
+				return err
+			}
+			keepIDs = append(keepIDs, it.UUID)
+		}
+
+		if len(keepIDs) == 0 {
+			delQuery := fmt.Sprintf("DELETE FROM fleet_pickup WHERE fleet_id = %s AND organization_id = %s", r.getPlaceholder(1), r.getPlaceholder(2))
+			if _, err := tx.Exec(delQuery, req.FleetID, req.OrganizationID); err != nil {
+				return err
+			}
+		} else {
+			in := make([]string, 0, len(keepIDs))
+			args := make([]interface{}, 0, 2+len(keepIDs))
+			args = append(args, req.FleetID, req.OrganizationID)
+			for i, id := range keepIDs {
+				in = append(in, r.getPlaceholder(i+3))
+				args = append(args, id)
+			}
+			delQuery := fmt.Sprintf("DELETE FROM fleet_pickup WHERE fleet_id = %s AND organization_id = %s AND uuid NOT IN (%s)", r.getPlaceholder(1), r.getPlaceholder(2), strings.Join(in, ","))
+			if _, err := tx.Exec(delQuery, args...); err != nil {
+				return err
+			}
+		}
+	}
+
+	if req.Addon != nil {
+		keepIDs := make([]string, 0, len(req.Addon))
+		for _, it := range req.Addon {
+			if it.UUID == "" {
+				newID := uuid2()
+				insertQuery := fmt.Sprintf("INSERT INTO fleet_addon (uuid, fleet_id, organization_id, addon_name, addon_desc, addon_price) VALUES (%s, %s, %s, %s, %s, %s)",
+					r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6))
+				if _, err := tx.Exec(insertQuery, newID, req.FleetID, req.OrganizationID, it.AddonName, it.AddonDesc, it.AddonPrice); err != nil {
+					return err
+				}
+				keepIDs = append(keepIDs, newID)
+				continue
+			}
+			updateQuery := fmt.Sprintf("UPDATE fleet_addon SET addon_name = %s, addon_desc = %s, addon_price = %s WHERE uuid = %s AND fleet_id = %s AND organization_id = %s",
+				r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6))
+			if _, err := tx.Exec(updateQuery, it.AddonName, it.AddonDesc, it.AddonPrice, it.UUID, req.FleetID, req.OrganizationID); err != nil {
+				return err
+			}
+			keepIDs = append(keepIDs, it.UUID)
+		}
+
+		if len(keepIDs) == 0 {
+			delQuery := fmt.Sprintf("DELETE FROM fleet_addon WHERE fleet_id = %s AND organization_id = %s", r.getPlaceholder(1), r.getPlaceholder(2))
+			if _, err := tx.Exec(delQuery, req.FleetID, req.OrganizationID); err != nil {
+				return err
+			}
+		} else {
+			in := make([]string, 0, len(keepIDs))
+			args := make([]interface{}, 0, 2+len(keepIDs))
+			args = append(args, req.FleetID, req.OrganizationID)
+			for i, id := range keepIDs {
+				in = append(in, r.getPlaceholder(i+3))
+				args = append(args, id)
+			}
+			delQuery := fmt.Sprintf("DELETE FROM fleet_addon WHERE fleet_id = %s AND organization_id = %s AND uuid NOT IN (%s)", r.getPlaceholder(1), r.getPlaceholder(2), strings.Join(in, ","))
+			if _, err := tx.Exec(delQuery, args...); err != nil {
+				return err
+			}
+		}
+	}
+
+	if req.Pricing != nil {
+		keepIDs := make([]string, 0, len(req.Pricing))
+		for _, it := range req.Pricing {
+			if it.UUID == "" {
+				newID := uuid2()
+				insertQuery := fmt.Sprintf("INSERT INTO fleet_prices (uuid, fleet_id, organization_id, duration, rent_type, price, disc_amount, disc_price, uom) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+					r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9))
+				if _, err := tx.Exec(insertQuery, newID, req.FleetID, req.OrganizationID, it.Duration, it.RentType, it.Price, it.DiscAmount, it.DiscPrice, it.Uom); err != nil {
+					return err
+				}
+				keepIDs = append(keepIDs, newID)
+				continue
+			}
+			updateQuery := fmt.Sprintf("UPDATE fleet_prices SET duration = %s, rent_type = %s, price = %s, disc_amount = %s, disc_price = %s, uom = %s WHERE uuid = %s AND fleet_id = %s AND organization_id = %s",
+				r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9))
+			if _, err := tx.Exec(updateQuery, it.Duration, it.RentType, it.Price, it.DiscAmount, it.DiscPrice, it.Uom, it.UUID, req.FleetID, req.OrganizationID); err != nil {
+				return err
+			}
+			keepIDs = append(keepIDs, it.UUID)
+		}
+
+		if len(keepIDs) == 0 {
+			delQuery := fmt.Sprintf("DELETE FROM fleet_prices WHERE fleet_id = %s AND organization_id = %s", r.getPlaceholder(1), r.getPlaceholder(2))
+			if _, err := tx.Exec(delQuery, req.FleetID, req.OrganizationID); err != nil {
+				return err
+			}
+		} else {
+			in := make([]string, 0, len(keepIDs))
+			args := make([]interface{}, 0, 2+len(keepIDs))
+			args = append(args, req.FleetID, req.OrganizationID)
+			for i, id := range keepIDs {
+				in = append(in, r.getPlaceholder(i+3))
+				args = append(args, id)
+			}
+			delQuery := fmt.Sprintf("DELETE FROM fleet_prices WHERE fleet_id = %s AND organization_id = %s AND uuid NOT IN (%s)", r.getPlaceholder(1), r.getPlaceholder(2), strings.Join(in, ","))
+			if _, err := tx.Exec(delQuery, args...); err != nil {
+				return err
+			}
+		}
+	}
+
+	if req.Images != nil {
+		keepIDs := make([]string, 0, len(req.Images))
+		for _, it := range req.Images {
+			if it.UUID == "" {
+				newID := uuid2()
+				insertQuery := fmt.Sprintf("INSERT INTO fleet_images (uuid, fleet_id, path_file) VALUES (%s, %s, %s)", r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
+				if _, err := tx.Exec(insertQuery, newID, req.FleetID, it.PathFile); err != nil {
+					return err
+				}
+				keepIDs = append(keepIDs, newID)
+				continue
+			}
+			updateQuery := fmt.Sprintf("UPDATE fleet_images SET path_file = %s WHERE uuid = %s AND fleet_id = %s", r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
+			if _, err := tx.Exec(updateQuery, it.PathFile, it.UUID, req.FleetID); err != nil {
+				return err
+			}
+			keepIDs = append(keepIDs, it.UUID)
+		}
+
+		if len(keepIDs) == 0 {
+			delQuery := fmt.Sprintf("DELETE FROM fleet_images WHERE fleet_id = %s", r.getPlaceholder(1))
+			if _, err := tx.Exec(delQuery, req.FleetID); err != nil {
+				return err
+			}
+		} else {
+			in := make([]string, 0, len(keepIDs))
+			args := make([]interface{}, 0, 1+len(keepIDs))
+			args = append(args, req.FleetID)
+			for i, id := range keepIDs {
+				in = append(in, r.getPlaceholder(i+2))
+				args = append(args, id)
+			}
+			delQuery := fmt.Sprintf("DELETE FROM fleet_images WHERE fleet_id = %s AND uuid NOT IN (%s)", r.getPlaceholder(1), strings.Join(in, ","))
+			if _, err := tx.Exec(delQuery, args...); err != nil {
+				return err
+			}
+		}
+	}
+
+	return tx.Commit()
+}
+
 func (r *FleetRepository) GetFleetDetail(id, orgID string) (*model.FleetDetailResponse, error) {
 	// Main fleet data
 	query := fmt.Sprintf(`
@@ -1002,35 +1253,44 @@ func (r *FleetRepository) GetFleetOrgID(fleetID string) (string, error) {
 }
 
 func (r *FleetRepository) GetFleetDetailMeta(orgID, fleetID string) (*model.FleetDetailMeta, error) {
-	query := `
+	fleetTypeExpr := "CAST(f.fleet_type AS CHAR)"
+	createdByExpr := "COALESCE(u.fullname, CAST(f.created_by AS CHAR))"
+	if r.driver == "postgres" || r.driver == "pgx" {
+		fleetTypeExpr = "f.fleet_type::text"
+		createdByExpr = "COALESCE(u.fullname, f.created_by::text)"
+	}
+
+	query := fmt.Sprintf(`
         SELECT 
 			f.uuid,
-			COALESCE(ft.label, f.fleet_type::text) AS fleet_type,
+			%s AS fleet_type,
+			COALESCE(ft.label, '') AS fleet_type_label,
 			f.fleet_name,
 			f.capacity,
 			f.production_year,
 			f.engine,
 			f.body,
+			COALESCE(f.fuel_type, '') AS fuel_type,
+			COALESCE(f.transmission, '') AS transmission,
 			f.description,
 			f.thumbnail,
 			f.active,
 			f.status,
 			f.created_at,
-			COALESCE(u.fullname, f.created_by::text) AS created_by,
+			%s AS created_by,
 			f.updated_at,
 			f.updated_by
         FROM fleets f
-		LEFT JOIN fleet_types ft ON ft.id::text = f.fleet_type::text
-		LEFT JOIN users u ON u.user_id::text = f.created_by::text
+		LEFT JOIN fleet_types ft ON f.fleet_type = ft.id
+		LEFT JOIN users u ON u.user_id = f.created_by
         WHERE f.uuid = %s
-    `
+    `, fleetTypeExpr, createdByExpr, r.getPlaceholder(1))
+
 	args := []interface{}{fleetID}
 	if orgID != "" {
 		query += " AND f.organization_id = %s"
-		query = fmt.Sprintf(query, r.getPlaceholder(1), r.getPlaceholder(2))
+		query = fmt.Sprintf(query, r.getPlaceholder(2))
 		args = append(args, orgID)
-	} else {
-		query = fmt.Sprintf(query, r.getPlaceholder(1))
 	}
 
 	var meta model.FleetDetailMeta
@@ -1042,14 +1302,44 @@ func (r *FleetRepository) GetFleetDetailMeta(orgID, fleetID string) (*model.Flee
 	var updatedAt sql.NullTime
 	var updatedBy sql.NullString
 	var createdBy sql.NullString
+	var fleetType string
+	var fleetTypeLabel sql.NullString
+	var fuelType sql.NullString
+	var transmission sql.NullString
 	// FleetDetailMeta: CreatedAt string `json:"created_at"`
 
 	err := r.db.QueryRow(query, args...).Scan(
-		&meta.FleetID, &meta.FleetType, &meta.FleetName, &meta.Capacity, &meta.ProductionYear, &meta.Engine, &meta.Body, &meta.Description, &meta.Thumbnail, &meta.Active, &meta.Status,
-		&createdAt, &createdBy, &updatedAt, &updatedBy,
+		&meta.FleetID,
+		&fleetType,
+		&fleetTypeLabel,
+		&meta.FleetName,
+		&meta.Capacity,
+		&meta.ProductionYear,
+		&meta.Engine,
+		&meta.Body,
+		&fuelType,
+		&transmission,
+		&meta.Description,
+		&meta.Thumbnail,
+		&meta.Active,
+		&meta.Status,
+		&createdAt,
+		&createdBy,
+		&updatedAt,
+		&updatedBy,
 	)
 	if err != nil {
 		return nil, err
+	}
+	meta.FleetType = fleetType
+	if fleetTypeLabel.Valid {
+		meta.FleetTypeLabel = fleetTypeLabel.String
+	}
+	if fuelType.Valid {
+		meta.FuelType = fuelType.String
+	}
+	if transmission.Valid {
+		meta.Transmission = transmission.String
 	}
 	meta.CreatedAt = createdAt.Format("2006-01-02 15:04:05")
 	if createdBy.Valid {
