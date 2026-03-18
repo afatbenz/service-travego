@@ -12,6 +12,7 @@ type TourPackageListItem struct {
 	MinPrice           float64 `json:"min_price"`
 	MaxPrice           float64 `json:"max_price"`
 	Status             int     `json:"status"`
+	Active             bool    `json:"active"`
 }
 
 type TourPackageAddon struct {
@@ -58,6 +59,62 @@ type CreateTourPackageRequest struct {
 	Addons             []TourPackageAddon      `json:"addons"`
 	PickupAreas        []TourPackagePickupArea `json:"pickup_areas"`
 	Active             bool                    `json:"active"`
+}
+
+type TourPackageAddonUpsertItem struct {
+	UUID        string  `json:"uuid"`
+	Description string  `json:"description"`
+	Price       float64 `json:"price"`
+}
+
+type TourPackageFacilityUpsertItem struct {
+	UUID     string `json:"uuid"`
+	Facility string `json:"facility"`
+}
+
+type TourPackageActivityUpsert struct {
+	UUID        string                  `json:"uuid"`
+	Time        string                  `json:"time"`
+	Description string                  `json:"description"`
+	Location    string                  `json:"location"`
+	City        TourPackageActivityCity `json:"city"`
+}
+
+type TourPackageItineraryUpsert struct {
+	Day        int                    `json:"day"`
+	Activities []TourPackageActivityUpsert `json:"activities"`
+}
+
+type TourPackagePricingUpsertItem struct {
+	UUID   string  `json:"uuid"`
+	MinPax int     `json:"min_pax"`
+	MaxPax int     `json:"max_pax"`
+	Price  float64 `json:"price"`
+}
+
+type TourPackagePickupAreaUpsertItem struct {
+	UUID string `json:"uuid"`
+	ID   string `json:"id"`
+}
+
+type TourPackageImageUpsertItem struct {
+	UUID      string `json:"uuid"`
+	ImagePath string `json:"image_path"`
+}
+
+type UpdateTourPackageRequest struct {
+	PackageID          string                     `json:"package_id"`
+	PackageName        string                     `json:"package_name"`
+	PackageType        string                     `json:"package_type"`
+	PackageDescription string                     `json:"package_description"`
+	Thumbnail          string                     `json:"thumbnail"`
+	Images             []TourPackageImageUpsertItem   `json:"images"`
+	Facilities         []TourPackageFacilityUpsertItem `json:"facilities"`
+	Itineraries        []TourPackageItineraryUpsert    `json:"itineraries"`
+	Pricing            []TourPackagePricingUpsertItem  `json:"pricing"`
+	Addons             []TourPackageAddonUpsertItem    `json:"addons"`
+	PickupAreas        []TourPackagePickupAreaUpsertItem `json:"pickup_areas"`
+	Active             bool                       `json:"active"`
 }
 
 type TourPackageDetailRequest struct {

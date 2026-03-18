@@ -177,6 +177,26 @@ func (h *FleetHandler) CreateFleet(c *fiber.Ctx) error {
 	})
 }
 
+func (h *FleetHandler) UpdateFleet(c *fiber.Ctx) error {
+	var req model.UpdateFleetRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.BadRequestResponse(c, "invalid payload")
+	}
+	if req.FleetID == "" {
+		return helper.BadRequestResponse(c, "fleet_id is required")
+	}
+	userID, _ := c.Locals("user_id").(string)
+	orgID, _ := c.Locals("organization_id").(string)
+	if userID == "" || orgID == "" {
+		return helper.BadRequestResponse(c, "missing user or organization context")
+	}
+	if err := h.service.UpdateFleet(userID, orgID, &req); err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet updated", nil)
+}
+
 func (h *FleetHandler) ListFleets(c *fiber.Ctx) error {
 	var req model.ListFleetRequest
 	if err := c.BodyParser(&req); err != nil {

@@ -30,6 +30,10 @@ func (s *TourPackageService) CreateTourPackage(ctx context.Context, req *model.C
 	return s.repo.CreateTourPackage(ctx, req, packageID, orgID, userID)
 }
 
+func (s *TourPackageService) UpdateTourPackage(ctx context.Context, req *model.UpdateTourPackageRequest, orgID, userID string) error {
+	return s.repo.UpdateTourPackage(ctx, req, orgID, userID)
+}
+
 func (s *TourPackageService) GetTourPackageDetail(ctx context.Context, orgID, packageID string) (*model.TourPackageDetailResponse, error) {
 	res, err := s.repo.GetTourPackageDetail(ctx, orgID, packageID)
 	if err != nil {

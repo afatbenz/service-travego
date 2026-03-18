@@ -1,6 +1,7 @@
 package service
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -31,6 +32,21 @@ func (s *FleetService) CreateFleet(createdBy, organizationID string, req *model.
 		return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create fleet")
 	}
 	return id, nil
+}
+
+func (s *FleetService) UpdateFleet(updatedBy, organizationID string, req *model.UpdateFleetRequest) error {
+	if req.FleetID == "" {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "fleet_id is required")
+	}
+	req.OrganizationID = organizationID
+	req.UpdatedBy = updatedBy
+	if err := s.repo.UpdateFleet(req); err != nil {
+		if err == sql.ErrNoRows {
+			return NewServiceError(ErrNotFound, http.StatusNotFound, "fleet not found")
+		}
+		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to update fleet")
+	}
+	return nil
 }
 
 func (s *FleetService) GetServiceFleets(page, perPage int) ([]model.ServiceFleetItem, error) {
