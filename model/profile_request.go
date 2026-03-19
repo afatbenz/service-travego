@@ -20,3 +20,14 @@ type UpdateProfilePasswordRequest struct {
 	NewPassword     string `json:"new_password" validate:"required,min=6"`
 	ConfirmPassword string `json:"confirm_password" validate:"required,min=6"`
 }
+
+type CheckPasswordRequest struct {
+	Password string `json:"password" validate:"required"`
+}
+
+type UpdatePasswordWithOTPRequest struct {
+	OTP              string `json:"otp" validate:"required"`
+	ExistingPassword string `json:"existing_password" validate:"required"`
+	NewPassword      string `json:"new_password" validate:"required,min=6"`
+	ConfirmPassword  string `json:"confirm_password" validate:"required,min=6"`
+}

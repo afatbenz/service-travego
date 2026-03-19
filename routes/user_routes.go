@@ -37,5 +37,7 @@ func SetupUserRoutes(api fiber.Router, db *sql.DB, driver string) {
 	profile := api.Group("/profile")
 	profile.Post("/update", helper.JWTAuthorizationMiddleware(), userHandler.UpdateProfile)
 	profile.Post("/update-password", helper.JWTAuthorizationMiddleware(), userHandler.UpdatePassword)
+	profile.Get("/update-password/validate", helper.JWTAuthorizationMiddleware(), userHandler.ValidateUpdatePassword)
+	profile.Post("/check-password", helper.JWTAuthorizationMiddleware(), userHandler.CheckPassword)
 	profile.Get("/detail", helper.JWTAuthorizationMiddleware(), userHandler.GetProfile)
 }

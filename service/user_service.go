@@ -2,8 +2,12 @@ package service
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"os"
+	"service-travego/configs"
 	"service-travego/helper"
 	"service-travego/model"
 	"service-travego/repository"
@@ -11,9 +15,11 @@ import (
 )
 
 type UserService struct {
-	userRepo    *repository.UserRepository
-	orgUserRepo *repository.OrganizationUserRepository
-	orgRepo     *repository.OrganizationRepository
+	userRepo      *repository.UserRepository
+	orgUserRepo   *repository.OrganizationUserRepository
+	orgRepo       *repository.OrganizationRepository
+	citiesName    map[string]string
+	provincesName map[string]string
 }
 
 func NewUserService(userRepo *repository.UserRepository) *UserService {
@@ -196,24 +202,26 @@ func (s *UserService) UpdatePassword(userID, currentPassword, newPassword string
 
 // ProfileResponse represents the profile response with organization data
 type ProfileResponse struct {
-	UserID       string               `json:"user_id"`
-	Username     string               `json:"username"`
-	Name         string               `json:"name"`
-	Email        string               `json:"email"`
-	Phone        string               `json:"phone"`
-	Address      string               `json:"address"`
-	City         string               `json:"city"`
-	Province     string               `json:"province"`
-	PostalCode   string               `json:"postal_code"`
-	NPWP         string               `json:"npwp"`
-	Gender       string               `json:"gender"` // M = Male, F = Female
-	DateOfBirth  *time.Time           `json:"date_of_birth"`
-	Avatar       string               `json:"avatar"`
-	IsActive     bool                 `json:"is_active"`
-	IsVerified   bool                 `json:"is_verified"`
-	CreatedAt    time.Time            `json:"created_at"`
-	UpdatedAt    time.Time            `json:"updated_at"`
-	Organization *OrganizationProfile `json:"organization"`
+	UserID        string               `json:"user_id"`
+	Username      string               `json:"username"`
+	Name          string               `json:"name"`
+	Email         string               `json:"email"`
+	Phone         string               `json:"phone"`
+	Address       string               `json:"address"`
+	City          string               `json:"city"`
+	CityLabel     string               `json:"city_label"`
+	Province      string               `json:"province"`
+	ProvinceLabel string               `json:"province_label"`
+	PostalCode    string               `json:"postal_code"`
+	NPWP          string               `json:"npwp"`
+	Gender        string               `json:"gender"` // M = Male, F = Female
+	DateOfBirth   *time.Time           `json:"date_of_birth"`
+	Avatar        string               `json:"avatar"`
+	IsActive      bool                 `json:"is_active"`
+	IsVerified    bool                 `json:"is_verified"`
+	CreatedAt     time.Time            `json:"created_at"`
+	UpdatedAt     time.Time            `json:"updated_at"`
+	Organization  *OrganizationProfile `json:"organization"`
 }
 
 // OrganizationProfile represents organization data in profile response
@@ -266,6 +274,22 @@ func (s *UserService) GetProfile(userID string) (*ProfileResponse, error) {
 		Organization: nil, // Default to nil, will be set if organization exists
 	}
 
+	s.ensureLocationsLoaded()
+	if profile.City != "" {
+		if name, ok := s.citiesName[profile.City]; ok && name != "" {
+			profile.CityLabel = name
+		} else {
+			profile.CityLabel = profile.City
+		}
+	}
+	if profile.Province != "" {
+		if name, ok := s.provincesName[profile.Province]; ok && name != "" {
+			profile.ProvinceLabel = name
+		} else {
+			profile.ProvinceLabel = profile.Province
+		}
+	}
+
 	// Get organization data if available
 	if s.orgUserRepo != nil {
 		orgCode, orgName, companyName, joinDate, orgRole, err := s.orgUserRepo.GetOrganizationWithJoinDateByUserID(userID)
@@ -284,4 +308,114 @@ func (s *UserService) GetProfile(userID string) (*ProfileResponse, error) {
 	}
 
 	return profile, nil
+}
+
+func (s *UserService) CheckPassword(userID, password string) error {
+	user, err := s.userRepo.FindByID(userID)
+	if err != nil {
+		return NewServiceError(ErrUserNotFound, http.StatusNotFound, "user not found")
+	}
+	if !helper.CheckPasswordHash(password, user.Password) {
+		return NewServiceError(ErrInvalidCredentials, http.StatusOK, "Password Tidak Sesuai")
+	}
+	return nil
+}
+
+func (s *UserService) SendUpdatePasswordOTP(orgID, userID string) error {
+	user, err := s.userRepo.FindByID(userID)
+	if err != nil {
+		return NewServiceError(ErrUserNotFound, http.StatusNotFound, "user not found")
+	}
+	if user.Email == "" {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "email is required")
+	}
+	if s.orgUserRepo != nil {
+		gotOrgID, _, err := s.orgUserRepo.GetOrganizationAndRoleByUserID(userID)
+		if err != nil {
+			return NewServiceError(ErrUnauthorized, http.StatusUnauthorized, "unauthorized")
+		}
+		if gotOrgID != orgID {
+			return NewServiceError(ErrUnauthorized, http.StatusUnauthorized, "unauthorized")
+		}
+	}
+
+	emailCfg := &configs.EmailConfig{
+		From:     os.Getenv("EMAIL_FROM"),
+		Password: os.Getenv("EMAIL_PASSWORD"),
+		SMTPHost: os.Getenv("EMAIL_SMTP_HOST"),
+		SMTPPort: os.Getenv("EMAIL_SMTP_PORT"),
+	}
+	if err := configs.ValidateEmailConfig(emailCfg); err != nil {
+		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "email config not set")
+	}
+
+	otp := helper.GenerateOTP(6)
+	key := fmt.Sprintf("Password_%s", userID)
+	if err := helper.SetOTPWithTTL(key, otp, 5*time.Minute); err != nil {
+		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to store OTP")
+	}
+	if err := helper.SendResetPasswordOTPEmail(emailCfg, user.Email, user.Username, otp); err != nil {
+		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to send OTP email")
+	}
+
+	return nil
+}
+
+func (s *UserService) UpdatePasswordWithOTP(userID, otp, existingPassword, newPassword, confirmPassword string) error {
+	if newPassword != confirmPassword {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "confirm_password must match new_password")
+	}
+
+	key := fmt.Sprintf("Password_%s", userID)
+	storedOTP, err := helper.GetOTP(key)
+	if err != nil || storedOTP != otp {
+		return NewServiceError(ErrInvalidOTP, http.StatusBadRequest, "INVALID_OTP")
+	}
+
+	user, err := s.userRepo.FindByID(userID)
+	if err != nil {
+		return NewServiceError(ErrUserNotFound, http.StatusNotFound, "user not found")
+	}
+	if !helper.CheckPasswordHash(existingPassword, user.Password) {
+		return NewServiceError(ErrInvalidCredentials, http.StatusBadRequest, "INVALID_PASSWORD")
+	}
+
+	hashedPassword, err := helper.HashPassword(newPassword)
+	if err != nil {
+		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to hash password")
+	}
+	if err = s.userRepo.UpdatePassword(userID, hashedPassword); err != nil {
+		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to update password")
+	}
+	helper.DeleteOTP(key)
+	return nil
+}
+
+func (s *UserService) ensureLocationsLoaded() {
+	if s.citiesName != nil && s.provincesName != nil {
+		return
+	}
+	f, err := os.Open("config/location.json")
+	if err != nil {
+		s.citiesName = map[string]string{}
+		s.provincesName = map[string]string{}
+		return
+	}
+	defer f.Close()
+	var loc model.Location
+	if err := json.NewDecoder(f).Decode(&loc); err != nil {
+		s.citiesName = map[string]string{}
+		s.provincesName = map[string]string{}
+		return
+	}
+	cm := make(map[string]string, len(loc.Cities))
+	for _, c := range loc.Cities {
+		cm[c.ID] = c.Name
+	}
+	pm := make(map[string]string, len(loc.Provinces))
+	for _, p := range loc.Provinces {
+		pm[p.ID] = p.Name
+	}
+	s.citiesName = cm
+	s.provincesName = pm
 }
