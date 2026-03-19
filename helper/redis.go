@@ -52,6 +52,16 @@ func SetOTP(key, otp string) error {
 	return redisClient.Set(ctx, fmt.Sprintf("otp:%s", key), otp, ttl).Err()
 }
 
+func SetOTPWithTTL(key, otp string, ttl time.Duration) error {
+	if redisClient == nil {
+		return fmt.Errorf("redis client not initialized")
+	}
+	if ttl <= 0 {
+		ttl = 5 * time.Minute
+	}
+	return redisClient.Set(ctx, fmt.Sprintf("otp:%s", key), otp, ttl).Err()
+}
+
 // GetOTP retrieves OTP from Redis
 func GetOTP(key string) (string, error) {
 	if redisClient == nil {

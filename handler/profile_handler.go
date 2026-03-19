@@ -86,6 +86,45 @@ func (h *UserHandler) GetProfile(c *fiber.Ctx) error {
 	return helper.SuccessResponse(c, fiber.StatusOK, "Profile retrieved successfully", profile)
 }
 
+func (h *UserHandler) CheckPassword(c *fiber.Ctx) error {
+	userID, ok := c.Locals("user_id").(string)
+	if !ok || userID == "" {
+		return helper.UnauthorizedResponse(c, "User not authenticated")
+	}
+
+	var req model.CheckPasswordRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.BadRequestResponse(c, "Invalid request body")
+	}
+	if validationErrors := helper.ValidateStruct(req); len(validationErrors) > 0 {
+		return helper.SendValidationErrorResponse(c, validationErrors)
+	}
+
+	if err := h.userService.CheckPassword(userID, req.Password); err != nil {
+		statusCode := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, statusCode, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Password is valid", nil)
+}
+
+func (h *UserHandler) ValidateUpdatePassword(c *fiber.Ctx) error {
+	userID, ok := c.Locals("user_id").(string)
+	if !ok || userID == "" {
+		return helper.UnauthorizedResponse(c, "User not authenticated")
+	}
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.UnauthorizedResponse(c, "Organization not found")
+	}
+
+	if err := h.userService.SendUpdatePasswordOTP(orgID, userID); err != nil {
+		statusCode := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, statusCode, err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "OTP sent", nil)
+}
+
 // UpdatePassword handles POST /api/profile/update-password
 func (h *UserHandler) UpdatePassword(c *fiber.Ctx) error {
 	// Get user_id from locals (set by JWT middleware)
@@ -98,8 +137,7 @@ func (h *UserHandler) UpdatePassword(c *fiber.Ctx) error {
 		return helper.BadRequestResponse(c, "Invalid user ID format")
 	}
 
-	var req model.UpdateProfilePasswordRequest
-
+	var req model.UpdatePasswordWithOTPRequest
 	if err := c.BodyParser(&req); err != nil {
 		return helper.BadRequestResponse(c, "Invalid request body")
 	}
@@ -108,12 +146,7 @@ func (h *UserHandler) UpdatePassword(c *fiber.Ctx) error {
 		return helper.SendValidationErrorResponse(c, validationErrors)
 	}
 
-	// Validate new_password and confirm_password match
-	if req.NewPassword != req.ConfirmPassword {
-		return helper.BadRequestResponse(c, "new_password and confirm_password must match")
-	}
-
-	if err := h.userService.UpdatePassword(userID, req.CurrentPassword, req.NewPassword); err != nil {
+	if err := h.userService.UpdatePasswordWithOTP(userID, req.OTP, req.ExistingPassword, req.NewPassword, req.ConfirmPassword); err != nil {
 		statusCode := service.GetStatusCode(err)
 		return helper.SendErrorResponse(c, statusCode, err.Error())
 	}

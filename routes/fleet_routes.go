@@ -15,8 +15,7 @@ func SetupFleetRoutes(api fiber.Router, db *sql.DB, driver string) {
 	srv := service.NewFleetService(repo)
 	h := handler.NewFleetHandler(srv)
 
-	partner := api.Group("/partner")
-	services := partner.Group("/services")
+	services := api.Group("/services")
 	fleet := services.Group("/fleet")
 	fleet.Post("/create", helper.JWTAuthorizationMiddleware(), h.CreateFleet)
 	fleet.Post("/update", helper.JWTAuthorizationMiddleware(), h.UpdateFleet)
