@@ -199,12 +199,25 @@ func (h *FleetHandler) UpdateFleet(c *fiber.Ctx) error {
 
 func (h *FleetHandler) ListFleets(c *fiber.Ctx) error {
 	var req model.ListFleetRequest
-	if err := c.BodyParser(&req); err != nil {
+	req.FleetType = c.Query("fleet_type")
+	req.FleetName = c.Query("fleet_name")
+	req.FleetBody = c.Query("fleet_body")
+	req.FleetEngine = c.Query("fleet_engine")
+	if v := c.Query("pickup_location"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			req.PickupLocation = n
+		}
+	}
+
+	if len(c.Body()) > 0 {
 		raw := c.Body()
 		var m map[string]interface{}
 		if err2 := json.Unmarshal(raw, &m); err2 == nil {
 			if v, ok := m["fleet_type"].(string); ok {
 				req.FleetType = v
+			}
+			if v, ok := m["fleet_name"].(string); ok {
+				req.FleetName = v
 			}
 			if v, ok := m["fleet_body"].(string); ok {
 				req.FleetBody = v

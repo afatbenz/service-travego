@@ -299,3 +299,25 @@ func (r *UserRepository) UpdatePassword(userID, hashedPassword string) error {
 
 	return nil
 }
+
+func (r *UserRepository) UpdateAvatar(userID, avatarPath string) error {
+	query := fmt.Sprintf(`
+		UPDATE users
+		SET avatar = %s, updated_at = %s
+		WHERE user_id = %s AND deleted_at IS NULL
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
+
+	now := time.Now()
+	result, err := r.db.Exec(query, avatarPath, now, userID)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}

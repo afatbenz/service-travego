@@ -44,6 +44,7 @@ type CreateFleetRequest struct {
 
 type ListFleetRequest struct {
 	FleetType      string `json:"fleet_type"`
+	FleetName      string `json:"fleet_name"`
 	FleetBody      string `json:"fleet_body"`
 	FleetEngine    string `json:"fleet_engine"`
 	PickupLocation int    `json:"pickup_location"`

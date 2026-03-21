@@ -37,7 +37,7 @@ func SetupRoutes(app *fiber.App, cfg *configs.Config) {
 	SetupBookingRoutes(api)
 	SetupOrganizationRoutes(api, db, cfg.Database.Driver, cfg)
 	SetupUserRoutes(api, db, cfg.Database.Driver)
-	SetupUploadRoutes(api)
+	SetupUploadRoutes(api, db, cfg.Database.Driver)
 	SetupFleetRoutes(api, db, cfg.Database.Driver)
 	SetupContentRoutes(api, db, cfg.Database.Driver)
 	SetupServiceRoutes(api, db, cfg.Database.Driver)

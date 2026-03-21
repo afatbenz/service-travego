@@ -43,6 +43,15 @@ func (r *FleetRepository) ListFleets(req *model.ListFleetRequest) ([]model.Fleet
 		args = append(args, req.FleetType)
 		pos++
 	}
+	if req.FleetName != "" {
+		likeExpr := "f.fleet_name LIKE " + r.getPlaceholder(pos)
+		if r.driver == "postgres" || r.driver == "pgx" {
+			likeExpr = "f.fleet_name ILIKE " + r.getPlaceholder(pos)
+		}
+		where = append(where, likeExpr)
+		args = append(args, "%"+req.FleetName+"%")
+		pos++
+	}
 	if req.FleetBody != "" {
 		where = append(where, fmt.Sprintf("f.body = %s", r.getPlaceholder(pos)))
 		args = append(args, req.FleetBody)
