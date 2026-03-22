@@ -17,5 +17,7 @@ func SetupCustomersRoutes(api fiber.Router, db *sql.DB, driver string) {
 
 	services := api.Group("/services")
 	services.Get("/customers", helper.JWTAuthorizationMiddleware(), h.ListCustomers)
+	services.Post("/customers/create", helper.JWTAuthorizationMiddleware(), h.CreateCustomer)
+	services.Post("/customers/update", helper.JWTAuthorizationMiddleware(), h.UpdateCustomer)
+	services.Get("/customers/detail/:customerid", helper.JWTAuthorizationMiddleware(), h.CustomerDetail)
 }
-
