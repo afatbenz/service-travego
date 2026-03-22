@@ -303,6 +303,108 @@ func (h *FleetHandler) GetPartnerOrderDetail(c *fiber.Ctx) error {
 	return helper.SuccessResponse(c, fiber.StatusOK, "Order detail loaded", res)
 }
 
+func (h *FleetHandler) GetFleetPricesByFleetID(c *fiber.Ctx) error {
+	fleetID := c.Params("fleetid")
+	if fleetID == "" {
+		return helper.BadRequestResponse(c, "fleetid is required")
+	}
+	typeID := c.Params("typeid")
+	if typeID == "" {
+		return helper.BadRequestResponse(c, "typeid is required")
+	}
+
+	orgID, _ := c.Locals("organization_id").(string)
+	if orgID == "" {
+		return helper.BadRequestResponse(c, "missing organization context")
+	}
+
+	items, err := h.service.GetFleetPricesByFleetID(orgID, fleetID, typeID)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet prices loaded", items)
+}
+
+func (h *FleetHandler) GetFleetAddonList(c *fiber.Ctx) error {
+	fleetID := c.Params("fleetid")
+	if fleetID == "" {
+		return helper.BadRequestResponse(c, "fleetid is required")
+	}
+
+	orgID, _ := c.Locals("organization_id").(string)
+	if orgID == "" {
+		return helper.BadRequestResponse(c, "missing organization context")
+	}
+
+	items, err := h.service.GetFleetAddonList(orgID, fleetID)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet addon loaded", items)
+}
+
+func (h *FleetHandler) CreatePartnerOrder(c *fiber.Ctx) error {
+	var req model.FleetOrderCreateRequest
+	if err := c.BodyParser(&req); err != nil {
+		raw := c.Body()
+		var m map[string]interface{}
+		if err2 := json.Unmarshal(raw, &m); err2 != nil {
+			return helper.BadRequestResponse(c, "invalid payload")
+		}
+		if v, ok := m["fleet_id"].(string); ok {
+			req.FleetID = v
+		}
+		if v, ok := m["customer_id"].(string); ok {
+			req.CustomerID = v
+		}
+		if v, ok := m["pickup_datetime"].(string); ok {
+			req.PickupDatetime = v
+		}
+		if v, ok := m["dropoff_datetime"].(string); ok {
+			req.DropoffDatetime = v
+		}
+		if v, ok := m["pickup_address"].(string); ok {
+			req.PickupAddress = v
+		}
+		if v, ok := m["pickup_city_id"]; ok {
+			req.PickupCityID = strconv.Itoa(toInt(v))
+		}
+		if v, ok := m["pickup_location"].(string); ok {
+			req.PickupLocation = v
+		}
+		if v, ok := m["quantity"]; ok {
+			req.Quantity = toInt(v)
+		}
+		if v, ok := m["price_id"].(string); ok {
+			req.PriceID = v
+		}
+		if v, ok := m["price"]; ok {
+			req.Price = float64(toInt(v))
+		}
+		if v, ok := m["dp_amount"]; ok {
+			req.DpAmount = float64(toInt(v))
+		}
+	}
+
+	orgID, _ := c.Locals("organization_id").(string)
+	orgCode, _ := c.Locals("organization_code").(string)
+	userID, _ := c.Locals("user_id").(string)
+	if orgID == "" || orgCode == "" || userID == "" {
+		return helper.BadRequestResponse(c, "missing organization context")
+	}
+
+	orderID, err := h.service.CreatePartnerOrder(orgID, orgCode, userID, &req)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Order created", fiber.Map{
+		"order_id": orderID,
+	})
+}
+
 func toInt(v interface{}) int {
 	switch vv := v.(type) {
 	case float64:
