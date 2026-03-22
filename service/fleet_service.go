@@ -10,6 +10,8 @@ import (
 	"service-travego/model"
 	"service-travego/repository"
 	"strconv"
+	"strings"
+	"time"
 )
 
 type FleetService struct {
@@ -233,12 +235,146 @@ func (s *FleetService) GetPartnerOrderDetail(orderID, orgID string) (*model.Orde
 	return s.repo.GetPartnerOrderDetail(orderID, orgID)
 }
 
+func (s *FleetService) GetFleetAddonList(orgID, fleetID string) ([]model.FleetAddonListItem, error) {
+	if fleetID == "" {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "fleetid is required")
+	}
+	addons, err := s.repo.GetFleetAddon(orgID, fleetID)
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to get fleet addon")
+	}
+	items := make([]model.FleetAddonListItem, len(addons))
+	for i, a := range addons {
+		items[i] = model.FleetAddonListItem{
+			AddonID:    a.UUID,
+			AddonName:  a.AddonName,
+			AddonPrice: float64(a.AddonPrice),
+		}
+	}
+	return items, nil
+}
+
+func (s *FleetService) GetFleetPricesByFleetID(orgID, fleetID, typeID string) ([]model.FleetPriceListItem, error) {
+	if fleetID == "" {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "fleetid is required")
+	}
+	if typeID == "" {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "typeid is required")
+	}
+	rentType, err := strconv.Atoi(typeID)
+	if err != nil {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "invalid typeid")
+	}
+	_ = orgID
+
+	items, err := s.repo.GetFleetPriceListByRentType(fleetID, rentType)
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to get fleet prices")
+	}
+
+	for i := range items {
+		items[i].RentTypeLabel = configs.RentType(items[i].RentType).String()
+	}
+	return items, nil
+}
+
+func (s *FleetService) CreatePartnerOrder(orgID, orgCode, userID string, req *model.FleetOrderCreateRequest) (string, error) {
+	if req.FleetID == "" {
+		return "", NewServiceError(ErrInvalidInput, http.StatusBadRequest, "fleet_id is required")
+	}
+	if req.PickupDatetime == "" {
+		return "", NewServiceError(ErrInvalidInput, http.StatusBadRequest, "pickup_datetime is required")
+	}
+	if req.DropoffDatetime == "" {
+		return "", NewServiceError(ErrInvalidInput, http.StatusBadRequest, "dropoff_datetime is required")
+	}
+	if req.PickupCityID == "" {
+		return "", NewServiceError(ErrInvalidInput, http.StatusBadRequest, "pickup_city_id is required")
+	}
+	if req.PriceID == "" {
+		return "", NewServiceError(ErrInvalidInput, http.StatusBadRequest, "price_id is required")
+	}
+
+	qty := req.Quantity
+	if qty <= 0 {
+		qty = 1
+	}
+
+	pickupLoc := strings.TrimSpace(req.PickupLocation)
+	if pickupLoc == "" {
+		pickupLoc = strings.TrimSpace(req.PickupAddress)
+	}
+	if pickupLoc == "" {
+		return "", NewServiceError(ErrInvalidInput, http.StatusBadRequest, "pickup_location is required")
+	}
+
+	startDate, err := normalizeDateTime(req.PickupDatetime)
+	if err != nil {
+		return "", NewServiceError(ErrInvalidInput, http.StatusBadRequest, "invalid pickup_datetime")
+	}
+	endDate, err := normalizeDateTime(req.DropoffDatetime)
+	if err != nil {
+		return "", NewServiceError(ErrInvalidInput, http.StatusBadRequest, "invalid dropoff_datetime")
+	}
+
+	price := req.Price
+	if price <= 0 {
+		p, _, err := s.repo.GetPriceByID(req.PriceID)
+		if err != nil {
+			return "", NewServiceError(ErrNotFound, http.StatusNotFound, "price not found")
+		}
+		price = p
+	}
+	totalAmount := float64(qty) * price
+
+	if orgID == "" || orgCode == "" {
+		return "", NewServiceError(ErrInvalidInput, http.StatusBadRequest, "organization context missing")
+	}
+
+	count, err := s.repo.GetOrderCountByOrgID(orgID)
+	if err != nil {
+		return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to get order count")
+	}
+
+	truncatedCode := orgCode
+	if len(orgCode) >= 5 {
+		truncatedCode = orgCode[:3] + orgCode[len(orgCode)-2:]
+	}
+	timePart := time.Now().Format("06020115")
+	orderID := fmt.Sprintf("%s%s%d-FRT", truncatedCode, timePart, count+1)
+
+	if err := s.repo.CreatePartnerOrder(orderID, req.FleetID, startDate, endDate, req.PickupCityID, pickupLoc, qty, req.PriceID, totalAmount, orgID, userID, req.Itinerary); err != nil {
+		return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create order")
+	}
+	return orderID, nil
+}
+
 func (s *FleetService) ListFleets(req *model.ListFleetRequest) ([]model.FleetListItem, error) {
 	items, err := s.repo.ListFleets(req)
 	if err != nil {
 		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to list fleets")
 	}
 	return items, nil
+}
+
+func normalizeDateTime(v string) (string, error) {
+	s := strings.TrimSpace(v)
+	if s == "" {
+		return "", fmt.Errorf("empty")
+	}
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t.Format("2006-01-02 15:04:05"), nil
+	}
+	if t, err := time.Parse("2006-01-02T15:04", s); err == nil {
+		return t.Format("2006-01-02 15:04:05"), nil
+	}
+	if t, err := time.Parse("2006-01-02 15:04", s); err == nil {
+		return t.Format("2006-01-02 15:04:05"), nil
+	}
+	if t, err := time.Parse("2006-01-02 15:04:05", s); err == nil {
+		return t.Format("2006-01-02 15:04:05"), nil
+	}
+	return "", fmt.Errorf("invalid datetime")
 }
 
 func (s *FleetService) GetFleetDetail(orgID, fleetID string) (*model.FleetDetailResponse, error) {

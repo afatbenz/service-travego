@@ -600,6 +600,65 @@ func (r *FleetRepository) CreateOrder(req *model.CreateOrderRequest) error {
 	return nil
 }
 
+func (r *FleetRepository) CreatePartnerOrder(orderID, fleetID, startDate, endDate, pickupCityID, pickupLocation string, qty int, priceID string, totalAmount float64, orgID, createdBy string, itinerary []model.FleetOrderItineraryItem) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+
+	now := time.Now()
+
+	insertWithCreatedBy := fmt.Sprintf(`
+		INSERT INTO fleet_orders (order_id, fleet_id, start_date, end_date, pickup_city_id, pickup_location, unit_qty, price_id, created_at, total_amount, status, payment_status, organization_id, created_by)
+		VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 2, 3, %s, %s)
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
+		r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12))
+
+	_, err = tx.Exec(insertWithCreatedBy, orderID, fleetID, startDate, endDate, pickupCityID, pickupLocation, qty, priceID, now, totalAmount, orgID, createdBy)
+	if err != nil {
+		errMsg := strings.ToLower(err.Error())
+		if strings.Contains(errMsg, "unknown column") || strings.Contains(errMsg, "does not exist") {
+			insertWithoutCreatedBy := fmt.Sprintf(`
+				INSERT INTO fleet_orders (order_id, fleet_id, start_date, end_date, pickup_city_id, pickup_location, unit_qty, price_id, created_at, total_amount, status, payment_status, organization_id)
+				VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 2, 3, %s)
+			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
+				r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11))
+			_, err = tx.Exec(insertWithoutCreatedBy, orderID, fleetID, startDate, endDate, pickupCityID, pickupLocation, qty, priceID, now, totalAmount, orgID)
+			if err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+	}
+
+	if len(itinerary) > 0 {
+		destQuery := fmt.Sprintf(`
+			INSERT INTO fleet_order_destinations (uuid, order_id, city_id, location, created_at)
+			VALUES (%s, %s, %s, %s, %s)
+		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5))
+		for _, it := range itinerary {
+			id := uuid2()
+			_, err = tx.Exec(destQuery, id, orderID, it.CityID, it.Destination, now)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (r *FleetRepository) GetFleetOrderSummary(fleetID, priceID string) (*model.OrderFleetSummaryResponse, error) {
 	query := fmt.Sprintf(`
 		SELECT f.fleet_name, f.capacity, f.engine, f.body, f.description, f.active, f.thumbnail,
@@ -674,6 +733,31 @@ func (r *FleetRepository) GetFleetPrices(orgID, fleetID string) ([]model.FleetPr
 			}
 			items = append(items, it)
 		}
+	}
+	return items, nil
+}
+
+func (r *FleetRepository) GetFleetPriceListByRentType(fleetID string, rentType int) ([]model.FleetPriceListItem, error) {
+	query := fmt.Sprintf(`
+		SELECT fleet_id, duration, rent_type, price
+		FROM fleet_prices
+		WHERE fleet_id = %s AND rent_type = %s
+		ORDER BY price
+	`, r.getPlaceholder(1), r.getPlaceholder(2))
+
+	rows, err := r.db.Query(query, fleetID, rentType)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]model.FleetPriceListItem, 0)
+	for rows.Next() {
+		var it model.FleetPriceListItem
+		if err := rows.Scan(&it.FleetID, &it.Duration, &it.RentType, &it.Price); err != nil {
+			return nil, err
+		}
+		items = append(items, it)
 	}
 	return items, nil
 }
