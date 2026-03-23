@@ -600,7 +600,7 @@ func (r *FleetRepository) CreateOrder(req *model.CreateOrderRequest) error {
 	return nil
 }
 
-func (r *FleetRepository) CreatePartnerOrder(orderID, fleetID, startDate, endDate, pickupCityID, pickupLocation string, qty int, priceID string, totalAmount float64, orgID, createdBy string, itinerary []model.FleetOrderItineraryItem) error {
+func (r *FleetRepository) CreatePartnerOrder(orderID, fleetID, startDate, endDate, pickupCityID, pickupLocation string, qty int, priceID string, totalAmount float64, customerID, orgID, createdBy string, itinerary []model.FleetOrderItineraryItem, addons []model.FleetOrderAddonItem) error {
 	tx, err := r.db.Begin()
 	if err != nil {
 		return err
@@ -638,16 +638,119 @@ func (r *FleetRepository) CreatePartnerOrder(orderID, fleetID, startDate, endDat
 		}
 	}
 
+	custOrderWithCreatedBy := fmt.Sprintf(`
+		INSERT INTO customer_orders (order_id, customer_id, order_type, created_at, created_by, organization_id)
+		VALUES (%s, %s, 1, %s, %s, %s)
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5))
+	_, err = tx.Exec(custOrderWithCreatedBy, orderID, customerID, now, createdBy, orgID)
+	if err != nil {
+		errMsg := strings.ToLower(err.Error())
+		if strings.Contains(errMsg, "unknown column") || strings.Contains(errMsg, "does not exist") {
+			custOrderWithoutCreatedBy := fmt.Sprintf(`
+				INSERT INTO customer_orders (order_id, customer_id, order_type, created_at, organization_id)
+				VALUES (%s, %s, 1, %s, %s)
+			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))
+			_, err = tx.Exec(custOrderWithoutCreatedBy, orderID, customerID, now, orgID)
+			if err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+	}
+
 	if len(itinerary) > 0 {
+		mode := 0
+		itineraryWithCreatedBy := fmt.Sprintf(`
+			INSERT INTO fleet_order_itinerary (fleet_itinerary_id, order_id, day_num, city_id, location, organization_id, created_at, created_by)
+			VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8))
+		itineraryWithoutCreatedBy := fmt.Sprintf(`
+			INSERT INTO fleet_order_itinerary (fleet_itinerary_id, order_id, day_num, city_id, location, organization_id, created_at)
+			VALUES (%s, %s, %s, %s, %s, %s, %s)
+		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7))
 		destQuery := fmt.Sprintf(`
 			INSERT INTO fleet_order_destinations (uuid, order_id, city_id, location, created_at)
 			VALUES (%s, %s, %s, %s, %s)
 		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5))
+
 		for _, it := range itinerary {
 			id := uuid2()
-			_, err = tx.Exec(destQuery, id, orderID, it.CityID, it.Destination, now)
-			if err != nil {
+			for {
+				if mode == 0 {
+					_, err = tx.Exec(itineraryWithCreatedBy, id, orderID, it.Day, it.CityID, it.Destination, orgID, now, createdBy)
+				} else if mode == 1 {
+					_, err = tx.Exec(itineraryWithoutCreatedBy, id, orderID, it.Day, it.CityID, it.Destination, orgID, now)
+				} else {
+					_, err = tx.Exec(destQuery, id, orderID, it.CityID, it.Destination, now)
+				}
+				if err == nil {
+					break
+				}
+				errMsg := strings.ToLower(err.Error())
+				if mode == 0 && (strings.Contains(errMsg, "unknown column") || strings.Contains(errMsg, "does not exist")) {
+					mode = 1
+					continue
+				}
+				if mode != 2 && (strings.Contains(errMsg, "doesn't exist") || strings.Contains(errMsg, "does not exist") || strings.Contains(errMsg, "relation") || strings.Contains(errMsg, "unknown table")) {
+					mode = 2
+					continue
+				}
 				return err
+			}
+		}
+	}
+
+	if len(addons) > 0 {
+		mode := 0
+		addonWithCreatedBy := fmt.Sprintf(`
+			INSERT INTO fleet_order_addons (order_addon_id, order_id, organization_id, addon_id, addon_price, addon_qty, created_at, created_by)
+			SELECT %s, %s, %s, uuid, addon_price, %s, %s, %s FROM fleet_addon WHERE uuid = %s
+		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7))
+		addonWithoutCreatedBy := fmt.Sprintf(`
+			INSERT INTO fleet_order_addons (order_addon_id, order_id, organization_id, addon_id, addon_price, addon_qty, created_at)
+			SELECT %s, %s, %s, uuid, addon_price, %s, %s FROM fleet_addon WHERE uuid = %s
+		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6))
+		addonLegacy := fmt.Sprintf(`
+			INSERT INTO fleet_order_addons (order_addon_id, order_id, addon_id, addon_price, created_at)
+			SELECT %s, %s, uuid, addon_price, %s FROM fleet_addon WHERE uuid = %s
+		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))
+
+		for _, a := range addons {
+			if a.AddonID == "" {
+				continue
+			}
+			addonQty := a.Quantity
+			if addonQty <= 0 {
+				addonQty = 1
+			}
+			id := uuid2()
+			var res sql.Result
+			for {
+				if mode == 0 {
+					res, err = tx.Exec(addonWithCreatedBy, id, orderID, orgID, addonQty, now, createdBy, a.AddonID)
+				} else if mode == 1 {
+					res, err = tx.Exec(addonWithoutCreatedBy, id, orderID, orgID, addonQty, now, a.AddonID)
+				} else {
+					res, err = tx.Exec(addonLegacy, id, orderID, now, a.AddonID)
+				}
+				if err == nil {
+					break
+				}
+				errMsg := strings.ToLower(err.Error())
+				if mode == 0 && (strings.Contains(errMsg, "unknown column") || strings.Contains(errMsg, "does not exist")) {
+					mode = 1
+					continue
+				}
+				if mode == 1 && (strings.Contains(errMsg, "unknown column") || strings.Contains(errMsg, "does not exist")) {
+					mode = 2
+					continue
+				}
+				return err
+			}
+			rows, _ := res.RowsAffected()
+			if rows == 0 {
+				return fmt.Errorf("addon not found: %s", a.AddonID)
 			}
 		}
 	}
@@ -739,7 +842,7 @@ func (r *FleetRepository) GetFleetPrices(orgID, fleetID string) ([]model.FleetPr
 
 func (r *FleetRepository) GetFleetPriceListByRentType(fleetID string, rentType int) ([]model.FleetPriceListItem, error) {
 	query := fmt.Sprintf(`
-		SELECT fleet_id, duration, rent_type, price
+		SELECT uuid, fleet_id, duration, rent_type, price
 		FROM fleet_prices
 		WHERE fleet_id = %s AND rent_type = %s
 		ORDER BY price
@@ -754,7 +857,7 @@ func (r *FleetRepository) GetFleetPriceListByRentType(fleetID string, rentType i
 	items := make([]model.FleetPriceListItem, 0)
 	for rows.Next() {
 		var it model.FleetPriceListItem
-		if err := rows.Scan(&it.FleetID, &it.Duration, &it.RentType, &it.Price); err != nil {
+		if err := rows.Scan(&it.PriceID, &it.FleetID, &it.Duration, &it.RentType, &it.Price); err != nil {
 			return nil, err
 		}
 		items = append(items, it)
@@ -1456,6 +1559,58 @@ func (r *FleetRepository) GetPriceByID(priceID string) (float64, int, error) {
 	return price, rentType, err
 }
 
+func (r *FleetRepository) GetAddonPrices(addonIDs []string) (map[string]float64, error) {
+	res := make(map[string]float64)
+	if len(addonIDs) == 0 {
+		return res, nil
+	}
+	unique := make(map[string]struct{}, len(addonIDs))
+	ids := make([]string, 0, len(addonIDs))
+	for _, id := range addonIDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := unique[id]; ok {
+			continue
+		}
+		unique[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		return res, nil
+	}
+	placeholders := make([]string, len(ids))
+	args := make([]interface{}, len(ids))
+	for i, id := range ids {
+		placeholders[i] = r.getPlaceholder(i + 1)
+		args[i] = id
+	}
+	query := fmt.Sprintf("SELECT uuid, addon_price FROM fleet_addon WHERE uuid IN (%s)", strings.Join(placeholders, ","))
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var price float64
+		if err := rows.Scan(&id, &price); err != nil {
+			return nil, err
+		}
+		res[id] = price
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for _, id := range ids {
+		if _, ok := res[id]; !ok {
+			return nil, fmt.Errorf("addon not found: %s", id)
+		}
+	}
+	return res, nil
+}
+
 func (r *FleetRepository) GetAddonPriceSum(addonIDs []string) (float64, error) {
 	if len(addonIDs) == 0 {
 		return 0, nil
@@ -1478,6 +1633,13 @@ func (r *FleetRepository) GetOrderCountByOrgID(orgID string) (int, error) {
 	var count int
 	err := r.db.QueryRow(query, orgID).Scan(&count)
 	return count, err
+}
+
+func (r *FleetRepository) GetOrganizationCodeByOrgID(orgID string) (string, error) {
+	query := fmt.Sprintf("SELECT organization_code FROM organizations WHERE organization_id = %s", r.getPlaceholder(1))
+	var code string
+	err := r.db.QueryRow(query, orgID).Scan(&code)
+	return code, err
 }
 
 func (r *FleetRepository) getPlaceholder(pos int) string {

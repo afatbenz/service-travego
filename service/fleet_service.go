@@ -278,9 +278,12 @@ func (s *FleetService) GetFleetPricesByFleetID(orgID, fleetID, typeID string) ([
 	return items, nil
 }
 
-func (s *FleetService) CreatePartnerOrder(orgID, orgCode, userID string, req *model.FleetOrderCreateRequest) (string, error) {
+func (s *FleetService) CreatePartnerOrder(orgID, userID string, req *model.FleetOrderCreateRequest) (string, error) {
 	if req.FleetID == "" {
 		return "", NewServiceError(ErrInvalidInput, http.StatusBadRequest, "fleet_id is required")
+	}
+	if req.CustomerID == "" {
+		return "", NewServiceError(ErrInvalidInput, http.StatusBadRequest, "customer_id is required")
 	}
 	if req.PickupDatetime == "" {
 		return "", NewServiceError(ErrInvalidInput, http.StatusBadRequest, "pickup_datetime is required")
@@ -295,7 +298,10 @@ func (s *FleetService) CreatePartnerOrder(orgID, orgCode, userID string, req *mo
 		return "", NewServiceError(ErrInvalidInput, http.StatusBadRequest, "price_id is required")
 	}
 
-	qty := req.Quantity
+	qty := req.FleetQty
+	if qty <= 0 {
+		qty = req.Quantity
+	}
 	if qty <= 0 {
 		qty = 1
 	}
@@ -325,9 +331,39 @@ func (s *FleetService) CreatePartnerOrder(orgID, orgCode, userID string, req *mo
 		}
 		price = p
 	}
-	totalAmount := float64(qty) * price
+	addonTotal := 0.0
+	if len(req.Addons) > 0 {
+		addonIDs := make([]string, 0, len(req.Addons))
+		qtyByID := make(map[string]int, len(req.Addons))
+		for _, a := range req.Addons {
+			if a.AddonID == "" {
+				continue
+			}
+			addonIDs = append(addonIDs, a.AddonID)
+			q := a.Quantity
+			if q <= 0 {
+				q = 1
+			}
+			qtyByID[a.AddonID] += q
+		}
+		prices, err := s.repo.GetAddonPrices(addonIDs)
+		if err != nil {
+			return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to calc addons")
+		}
+		for id, q := range qtyByID {
+			addonTotal += prices[id] * float64(q)
+		}
+	}
+	totalAmount := (float64(qty) * price) + addonTotal - req.DiscountAmount
+	if totalAmount < 0 {
+		totalAmount = 0
+	}
 
-	if orgID == "" || orgCode == "" {
+	if orgID == "" {
+		return "", NewServiceError(ErrInvalidInput, http.StatusBadRequest, "organization context missing")
+	}
+	orgCode, err := s.repo.GetOrganizationCodeByOrgID(orgID)
+	if err != nil || strings.TrimSpace(orgCode) == "" {
 		return "", NewServiceError(ErrInvalidInput, http.StatusBadRequest, "organization context missing")
 	}
 
@@ -343,7 +379,7 @@ func (s *FleetService) CreatePartnerOrder(orgID, orgCode, userID string, req *mo
 	timePart := time.Now().Format("06020115")
 	orderID := fmt.Sprintf("%s%s%d-FRT", truncatedCode, timePart, count+1)
 
-	if err := s.repo.CreatePartnerOrder(orderID, req.FleetID, startDate, endDate, req.PickupCityID, pickupLoc, qty, req.PriceID, totalAmount, orgID, userID, req.Itinerary); err != nil {
+	if err := s.repo.CreatePartnerOrder(orderID, req.FleetID, startDate, endDate, req.PickupCityID, pickupLoc, qty, req.PriceID, totalAmount, req.CustomerID, orgID, userID, req.Itinerary, req.Addons); err != nil {
 		return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create order")
 	}
 	return orderID, nil
