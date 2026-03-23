@@ -98,33 +98,28 @@ func (u UploadType) GetStoragePath() string {
 
 type RentType int
 
-// PaymentStatus represents the status of a payment
 type PaymentStatus int
 
 const (
-	PaymentStatusCancelled   PaymentStatus = 0  // CANCELLED
-	PaymentStatusPaid        PaymentStatus = 1  // PAID
-	PaymentStatusPartialPaid PaymentStatus = 2  // PARTIAL_PAID
-	PaymentStatusPending     PaymentStatus = 3  // PENDING
-	PaymentStatusReject      PaymentStatus = 4  // REJECT
-	PaymentWaitingApproval   PaymentStatus = 10 // WAITING APPROVAL
+	PaymentStatusPaid            PaymentStatus = 1
+	PaymentStatusWaitingPayment  PaymentStatus = 2
+	PaymentStatusWaitingApproval PaymentStatus = 3
+	PaymentStatusPartiallyPaid   PaymentStatus = 4
+	PaymentStatusCancelled       PaymentStatus = 5
 )
 
-// String returns the string representation of PaymentStatus
 func (s PaymentStatus) String() string {
 	switch s {
-	case PaymentStatusCancelled:
-		return "CANCELLED"
 	case PaymentStatusPaid:
 		return "PAID"
-	case PaymentStatusPartialPaid:
-		return "PARTIAL_PAID"
-	case PaymentStatusPending:
-		return "PENDING"
-	case PaymentStatusReject:
-		return "REJECT"
-	case PaymentWaitingApproval:
+	case PaymentStatusWaitingPayment:
+		return "WAITING PAYMENT"
+	case PaymentStatusWaitingApproval:
 		return "WAITING APPROVAL"
+	case PaymentStatusPartiallyPaid:
+		return "PARTIALLY PAID"
+	case PaymentStatusCancelled:
+		return "CANCELLED"
 	default:
 		return "UNKNOWN"
 	}

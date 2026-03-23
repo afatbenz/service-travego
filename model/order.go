@@ -131,8 +131,8 @@ type PaymentDetail struct {
 type PartnerOrderListItem struct {
 	OrderID       string        `json:"order_id"`
 	FleetName     string        `json:"fleet_name"`
-	StartDate     time.Time     `json:"start_date"`
-	EndDate       time.Time     `json:"end_date"`
+	StartDate     string        `json:"start_date"`
+	EndDate       string        `json:"end_date"`
 	UnitQty       int           `json:"unit_qty"`
 	PaymentStatus PaymentStatus `json:"payment_status"`
 	Duration      int           `json:"duration"`
