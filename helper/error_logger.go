@@ -220,6 +220,12 @@ func LogErrorToFile(c *fiber.Ctx, errorCode int, errorMessage string, response i
 		return fmt.Errorf("failed to marshal log entry: %w", err)
 	}
 
+	// Print to console for non-production environments
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+	if env != "production" && env != "prod" {
+		fmt.Println(string(jsonData))
+	}
+
 	if _, err := logFile.WriteString(string(jsonData) + "\n"); err != nil {
 		return fmt.Errorf("failed to write log: %w", err)
 	}

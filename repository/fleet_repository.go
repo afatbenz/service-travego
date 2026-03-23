@@ -534,9 +534,9 @@ func (r *FleetRepository) CreateOrder(req *model.CreateOrderRequest) error {
 	// 1. Insert fleet_order
 	orderQuery := fmt.Sprintf(`
 		INSERT INTO fleet_orders (order_id, fleet_id, start_date, end_date, pickup_city_id, pickup_location, unit_qty, price_id, created_at, total_amount, status, payment_status, organization_id)
-		VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 2, 3, %s)
+		VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 2, %d, %s)
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
-		r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11))
+		r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), configs.PaymentStatusWaitingPayment, r.getPlaceholder(11))
 
 	_, err = tx.Exec(orderQuery, orderID, req.FleetID, req.StartDate, req.EndDate, req.PickupCityID, req.PickupLocation, req.Qty, req.PriceID, now, totalAmount, req.OrganizationID)
 	if err != nil {
@@ -616,32 +616,36 @@ func (r *FleetRepository) CreatePartnerOrder(orderID, fleetID, startDate, endDat
 
 	insertWithCreatedBy := fmt.Sprintf(`
 		INSERT INTO fleet_orders (order_id, fleet_id, start_date, end_date, pickup_city_id, pickup_location, unit_qty, price_id, created_at, total_amount, status, payment_status, organization_id, created_by)
-		VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 2, 3, %s, %s)
+		VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 2, %d, %s, %s)
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
-		r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12))
+		r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), configs.PaymentStatusWaitingPayment, r.getPlaceholder(11), r.getPlaceholder(12))
 
+	_, _ = tx.Exec("SAVEPOINT sp_orders")
 	_, err = tx.Exec(insertWithCreatedBy, orderID, fleetID, startDate, endDate, pickupCityID, pickupLocation, qty, priceID, now, totalAmount, orgID, createdBy)
 	if err != nil {
 		errMsg := strings.ToLower(err.Error())
 		if strings.Contains(errMsg, "unknown column") || strings.Contains(errMsg, "does not exist") {
 			insertWithoutCreatedBy := fmt.Sprintf(`
 				INSERT INTO fleet_orders (order_id, fleet_id, start_date, end_date, pickup_city_id, pickup_location, unit_qty, price_id, created_at, total_amount, status, payment_status, organization_id)
-				VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 2, 3, %s)
+				VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 2, %d, %s)
 			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
-				r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11))
+				r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), configs.PaymentStatusWaitingPayment, r.getPlaceholder(11))
+			_, _ = tx.Exec("ROLLBACK TO SAVEPOINT sp_orders")
 			_, err = tx.Exec(insertWithoutCreatedBy, orderID, fleetID, startDate, endDate, pickupCityID, pickupLocation, qty, priceID, now, totalAmount, orgID)
 			if err != nil {
-				return err
+				return fmt.Errorf("insert fleet_orders: %w", err)
 			}
 		} else {
-			return err
+			return fmt.Errorf("insert fleet_orders: %w", err)
 		}
 	}
+	_, _ = tx.Exec("RELEASE SAVEPOINT sp_orders")
 
 	custOrderWithCreatedBy := fmt.Sprintf(`
 		INSERT INTO customer_orders (order_id, customer_id, order_type, created_at, created_by, organization_id)
 		VALUES (%s, %s, 1, %s, %s, %s)
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5))
+	_, _ = tx.Exec("SAVEPOINT sp_custorders")
 	_, err = tx.Exec(custOrderWithCreatedBy, orderID, customerID, now, createdBy, orgID)
 	if err != nil {
 		errMsg := strings.ToLower(err.Error())
@@ -650,14 +654,16 @@ func (r *FleetRepository) CreatePartnerOrder(orderID, fleetID, startDate, endDat
 				INSERT INTO customer_orders (order_id, customer_id, order_type, created_at, organization_id)
 				VALUES (%s, %s, 1, %s, %s)
 			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))
+			_, _ = tx.Exec("ROLLBACK TO SAVEPOINT sp_custorders")
 			_, err = tx.Exec(custOrderWithoutCreatedBy, orderID, customerID, now, orgID)
 			if err != nil {
-				return err
+				return fmt.Errorf("insert customer_orders: %w", err)
 			}
 		} else {
-			return err
+			return fmt.Errorf("insert customer_orders: %w", err)
 		}
 	}
+	_, _ = tx.Exec("RELEASE SAVEPOINT sp_custorders")
 
 	if len(itinerary) > 0 {
 		mode := 0
@@ -677,6 +683,7 @@ func (r *FleetRepository) CreatePartnerOrder(orderID, fleetID, startDate, endDat
 		for _, it := range itinerary {
 			id := uuid2()
 			for {
+				_, _ = tx.Exec("SAVEPOINT sp_it")
 				if mode == 0 {
 					_, err = tx.Exec(itineraryWithCreatedBy, id, orderID, it.Day, it.CityID, it.Destination, orgID, now, createdBy)
 				} else if mode == 1 {
@@ -685,18 +692,21 @@ func (r *FleetRepository) CreatePartnerOrder(orderID, fleetID, startDate, endDat
 					_, err = tx.Exec(destQuery, id, orderID, it.CityID, it.Destination, now)
 				}
 				if err == nil {
+					_, _ = tx.Exec("RELEASE SAVEPOINT sp_it")
 					break
 				}
 				errMsg := strings.ToLower(err.Error())
 				if mode == 0 && (strings.Contains(errMsg, "unknown column") || strings.Contains(errMsg, "does not exist")) {
+					_, _ = tx.Exec("ROLLBACK TO SAVEPOINT sp_it")
 					mode = 1
 					continue
 				}
 				if mode != 2 && (strings.Contains(errMsg, "doesn't exist") || strings.Contains(errMsg, "does not exist") || strings.Contains(errMsg, "relation") || strings.Contains(errMsg, "unknown table")) {
+					_, _ = tx.Exec("ROLLBACK TO SAVEPOINT sp_it")
 					mode = 2
 					continue
 				}
-				return err
+				return fmt.Errorf("insert itinerary: %w", err)
 			}
 		}
 	}
@@ -727,6 +737,7 @@ func (r *FleetRepository) CreatePartnerOrder(orderID, fleetID, startDate, endDat
 			id := uuid2()
 			var res sql.Result
 			for {
+				_, _ = tx.Exec("SAVEPOINT sp_addon")
 				if mode == 0 {
 					res, err = tx.Exec(addonWithCreatedBy, id, orderID, orgID, addonQty, now, createdBy, a.AddonID)
 				} else if mode == 1 {
@@ -735,18 +746,21 @@ func (r *FleetRepository) CreatePartnerOrder(orderID, fleetID, startDate, endDat
 					res, err = tx.Exec(addonLegacy, id, orderID, now, a.AddonID)
 				}
 				if err == nil {
+					_, _ = tx.Exec("RELEASE SAVEPOINT sp_addon")
 					break
 				}
 				errMsg := strings.ToLower(err.Error())
 				if mode == 0 && (strings.Contains(errMsg, "unknown column") || strings.Contains(errMsg, "does not exist")) {
+					_, _ = tx.Exec("ROLLBACK TO SAVEPOINT sp_addon")
 					mode = 1
 					continue
 				}
 				if mode == 1 && (strings.Contains(errMsg, "unknown column") || strings.Contains(errMsg, "does not exist")) {
+					_, _ = tx.Exec("ROLLBACK TO SAVEPOINT sp_addon")
 					mode = 2
 					continue
 				}
-				return err
+				return fmt.Errorf("insert addons: %w", err)
 			}
 			rows, _ := res.RowsAffected()
 			if rows == 0 {
@@ -1221,8 +1235,8 @@ func (r *FleetRepository) GetPartnerOrderList(orgID string) ([]model.PartnerOrde
 		); err != nil {
 			return nil, err
 		}
-		it.StartDate = startDate
-		it.EndDate = endDate
+		it.StartDate = startDate.Format("2006-01-02")
+		it.EndDate = endDate.Format("2006-01-02")
 
 		switch rentType {
 		case 1:
