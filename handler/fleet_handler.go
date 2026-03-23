@@ -377,25 +377,81 @@ func (h *FleetHandler) CreatePartnerOrder(c *fiber.Ctx) error {
 		if v, ok := m["quantity"]; ok {
 			req.Quantity = toInt(v)
 		}
+		if v, ok := m["fleet_qty"]; ok {
+			req.FleetQty = toInt(v)
+		}
 		if v, ok := m["price_id"].(string); ok {
 			req.PriceID = v
 		}
 		if v, ok := m["price"]; ok {
 			req.Price = float64(toInt(v))
 		}
+		if v, ok := m["discount_amount"]; ok {
+			req.DiscountAmount = float64(toInt(v))
+		}
 		if v, ok := m["dp_amount"]; ok {
 			req.DpAmount = float64(toInt(v))
+		}
+		if v, ok := m["addons"]; ok {
+			if arr, ok := v.([]interface{}); ok {
+				addons := make([]model.FleetOrderAddonItem, 0, len(arr))
+				for _, rawItem := range arr {
+					mm, ok := rawItem.(map[string]interface{})
+					if !ok {
+						continue
+					}
+					var it model.FleetOrderAddonItem
+					if s, ok := mm["addon_id"].(string); ok {
+						it.AddonID = s
+					}
+					if q, ok := mm["quantity"]; ok {
+						it.Quantity = toInt(q)
+					}
+					if p, ok := mm["addon_price"]; ok {
+						it.AddonPrice = float64(toInt(p))
+					}
+					addons = append(addons, it)
+				}
+				req.Addons = addons
+			}
+		}
+		if v, ok := m["itinerary"]; ok {
+			if arr, ok := v.([]interface{}); ok {
+				items := make([]model.FleetOrderItineraryItem, 0, len(arr))
+				for _, rawItem := range arr {
+					mm, ok := rawItem.(map[string]interface{})
+					if !ok {
+						continue
+					}
+					var it model.FleetOrderItineraryItem
+					if d, ok := mm["day"]; ok {
+						it.Day = toInt(d)
+					}
+					if s, ok := mm["city_id"]; ok {
+						switch vv := s.(type) {
+						case string:
+							it.CityID = vv
+						default:
+							it.CityID = strconv.Itoa(toInt(vv))
+						}
+					}
+					if s, ok := mm["destination"].(string); ok {
+						it.Destination = s
+					}
+					items = append(items, it)
+				}
+				req.Itinerary = items
+			}
 		}
 	}
 
 	orgID, _ := c.Locals("organization_id").(string)
-	orgCode, _ := c.Locals("organization_code").(string)
 	userID, _ := c.Locals("user_id").(string)
-	if orgID == "" || orgCode == "" || userID == "" {
+	if orgID == "" || userID == "" {
 		return helper.BadRequestResponse(c, "missing organization context")
 	}
 
-	orderID, err := h.service.CreatePartnerOrder(orgID, orgCode, userID, &req)
+	orderID, err := h.service.CreatePartnerOrder(orgID, userID, &req)
 	if err != nil {
 		code := service.GetStatusCode(err)
 		return helper.SendErrorResponse(c, code, err.Error())
