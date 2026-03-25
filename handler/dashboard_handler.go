@@ -21,7 +21,7 @@ func NewDashboardHandler(service *service.DashboardService) *DashboardHandler {
 func (h *DashboardHandler) GetPartnerSummary(c *fiber.Ctx) error {
 	user := c.Locals("user").(*jwt.Token)
 	claims := user.Claims.(jwt.MapClaims)
-	
+
 	orgID, ok := claims["organization_id"].(string)
 	if !ok {
 		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Invalid organization ID")
@@ -33,4 +33,21 @@ func (h *DashboardHandler) GetPartnerSummary(c *fiber.Ctx) error {
 	}
 
 	return helper.SuccessResponse(c, fiber.StatusOK, "Dashboard summary retrieved successfully", summary)
+}
+
+func (h *DashboardHandler) GetDashboard(c *fiber.Ctx) error {
+	user := c.Locals("user").(*jwt.Token)
+	claims := user.Claims.(jwt.MapClaims)
+
+	orgID, ok := claims["organization_id"].(string)
+	if !ok {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Invalid organization ID")
+	}
+
+	res, err := h.service.GetDashboard(orgID)
+	if err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Dashboard retrieved successfully", res)
 }

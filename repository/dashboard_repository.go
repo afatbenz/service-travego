@@ -47,6 +47,24 @@ func (r *DashboardRepository) GetPartnerSummary(orgID string) (*model.DashboardP
 	return resp, nil
 }
 
+func (r *DashboardRepository) GetDashboard(orgID string) (*model.DashboardResponse, error) {
+	resp := &model.DashboardResponse{}
+
+	tx, err := r.getTransactionMetrics(orgID)
+	if err != nil {
+		return nil, err
+	}
+	resp.Transaction = *tx
+
+	cust, err := r.getCustomerMetrics(orgID)
+	if err != nil {
+		return nil, err
+	}
+	resp.Customers = *cust
+
+	return resp, nil
+}
+
 func (r *DashboardRepository) getOrdersSummary(orgID string) (*model.DashboardOrdersSummary, error) {
 	// Total orders (all time)
 	var totalOrders int
@@ -115,5 +133,103 @@ func (r *DashboardRepository) getOrdersSummary(orgID string) (*model.DashboardOr
 		Percentage:  math.Round(percentage*100) / 100, // Round to 2 decimal places
 		Direction:   direction,
 		Period:      "this month",
+	}, nil
+}
+
+func (r *DashboardRepository) getTransactionMetrics(orgID string) (*model.DashboardTransaction, error) {
+	now := time.Now()
+	from := now.AddDate(-1, 0, 0)
+
+	var total int
+	qTotal := fmt.Sprintf(`
+		SELECT COUNT(order_id)
+		FROM customer_orders
+		WHERE organization_id = %s AND created_at >= %s AND created_at <= %s
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
+	if err := r.db.QueryRow(qTotal, orgID, from, now).Scan(&total); err != nil {
+		return nil, err
+	}
+
+	startOfMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.Local)
+	startOfLastMonth := startOfMonth.AddDate(0, -1, 0)
+	startOfNextMonth := startOfMonth.AddDate(0, 1, 0)
+
+	var currentMonthCount int
+	var lastMonthCount int
+
+	qMonth := fmt.Sprintf(`
+		SELECT COUNT(order_id)
+		FROM customer_orders
+		WHERE organization_id = %s AND created_at >= %s AND created_at < %s
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
+
+	if err := r.db.QueryRow(qMonth, orgID, startOfMonth, startOfNextMonth).Scan(&currentMonthCount); err != nil {
+		return nil, err
+	}
+	if err := r.db.QueryRow(qMonth, orgID, startOfLastMonth, startOfMonth).Scan(&lastMonthCount); err != nil {
+		return nil, err
+	}
+
+	var percentage float64
+	if lastMonthCount > 0 {
+		percentage = (float64(currentMonthCount-lastMonthCount) / float64(lastMonthCount)) * 100
+	} else if currentMonthCount > 0 {
+		percentage = 100
+	} else {
+		percentage = 0
+	}
+
+	return &model.DashboardTransaction{
+		TotalOrder:      total,
+		OrderPercentage: math.Round(percentage*100) / 100,
+	}, nil
+}
+
+func (r *DashboardRepository) getCustomerMetrics(orgID string) (*model.DashboardCustomers, error) {
+	now := time.Now()
+	from := now.AddDate(-1, 0, 0)
+
+	var total int
+	qTotal := fmt.Sprintf(`
+		SELECT COUNT(customer_id)
+		FROM customers
+		WHERE organization_id = %s AND created_at >= %s AND created_at <= %s
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
+	if err := r.db.QueryRow(qTotal, orgID, from, now).Scan(&total); err != nil {
+		return nil, err
+	}
+
+	startOfMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.Local)
+	startOfLastMonth := startOfMonth.AddDate(0, -1, 0)
+	startOfNextMonth := startOfMonth.AddDate(0, 1, 0)
+
+	var currentMonthCount int
+	var lastMonthCount int
+
+	qMonth := fmt.Sprintf(`
+		SELECT COUNT(customer_id)
+		FROM customers
+		WHERE organization_id = %s AND created_at >= %s AND created_at < %s
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
+
+	if err := r.db.QueryRow(qMonth, orgID, startOfMonth, startOfNextMonth).Scan(&currentMonthCount); err != nil {
+		return nil, err
+	}
+	if err := r.db.QueryRow(qMonth, orgID, startOfLastMonth, startOfMonth).Scan(&lastMonthCount); err != nil {
+		return nil, err
+	}
+
+	var percentage float64
+	if lastMonthCount > 0 {
+		percentage = (float64(currentMonthCount-lastMonthCount) / float64(lastMonthCount)) * 100
+	} else if currentMonthCount > 0 {
+		percentage = 100
+	} else {
+		percentage = 0
+	}
+
+	return &model.DashboardCustomers{
+		TotalCustomers:     total,
+		CustomerPercentage: math.Round(percentage*100) / 100,
 	}, nil
 }

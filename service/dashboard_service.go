@@ -18,3 +18,7 @@ func NewDashboardService(repo *repository.DashboardRepository) *DashboardService
 func (s *DashboardService) GetPartnerSummary(orgID string) (*model.DashboardPartnerSummaryResponse, error) {
 	return s.repo.GetPartnerSummary(orgID)
 }
+
+func (s *DashboardService) GetDashboard(orgID string) (*model.DashboardResponse, error) {
+	return s.repo.GetDashboard(orgID)
+}
