@@ -1207,18 +1207,49 @@ func (r *FleetRepository) UpdatePaymentEvidence(orderID, organizationID, filePat
 	return err
 }
 
-func (r *FleetRepository) GetPartnerOrderList(orgID string) ([]model.PartnerOrderListItem, error) {
-	query := fmt.Sprintf(`
-        SELECT fo.order_id, f.fleet_name, fo.start_date, fo.end_date, fo.unit_qty, fo.payment_status, 
-               p.duration, p.uom, fo.total_amount, p.rent_type
+func (r *FleetRepository) GetPartnerOrderList(orgID string, filter *model.PartnerOrderListFilter) ([]model.PartnerOrderListItem, error) {
+	base := `
+        SELECT 
+			fo.order_id, f.fleet_name,
+			COALESCE(c.customer_name, '') as customer_name,
+			COALESCE(c.customer_phone, '') as customer_phone,
+			fo.start_date, fo.end_date, fo.unit_qty, fo.payment_status, 
+			p.duration, p.uom, fo.total_amount, p.rent_type
         FROM fleet_orders fo 
         INNER JOIN fleets f ON fo.fleet_id = f.uuid 
         INNER JOIN fleet_prices p ON p.uuid = fo.price_id 
+		LEFT JOIN customer_orders co ON co.order_id = fo.order_id
+		LEFT JOIN customers c ON c.customer_id = co.customer_id AND c.organization_id = f.organization_id
         WHERE f.organization_id = %s
-        ORDER BY fo.created_at DESC
-    `, r.getPlaceholder(1))
+    `
+	args := make([]interface{}, 0, 6)
+	args = append(args, orgID)
+	cond := ""
+	if filter != nil {
+		if strings.TrimSpace(filter.StartDateFrom) != "" {
+			cond += fmt.Sprintf(" AND fo.start_date >= %s", r.getPlaceholder(len(args)+1))
+			args = append(args, filter.StartDateFrom)
+		}
+		if strings.TrimSpace(filter.StartDateTo) != "" {
+			cond += fmt.Sprintf(" AND fo.start_date <= %s", r.getPlaceholder(len(args)+1))
+			args = append(args, filter.StartDateTo)
+		}
+		if strings.TrimSpace(filter.OrderDateFrom) != "" {
+			cond += fmt.Sprintf(" AND fo.created_at >= %s", r.getPlaceholder(len(args)+1))
+			args = append(args, filter.OrderDateFrom)
+		}
+		if strings.TrimSpace(filter.OrderDateTo) != "" {
+			cond += fmt.Sprintf(" AND fo.created_at <= %s", r.getPlaceholder(len(args)+1))
+			args = append(args, filter.OrderDateTo)
+		}
+		if filter.HasPaymentStatus {
+			cond += fmt.Sprintf(" AND fo.payment_status = %s", r.getPlaceholder(len(args)+1))
+			args = append(args, filter.PaymentStatus)
+		}
+	}
+	query := fmt.Sprintf(base, r.getPlaceholder(1)) + cond + " ORDER BY fo.created_at DESC"
 
-	rows, err := r.db.Query(query, orgID)
+	rows, err := r.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1230,8 +1261,9 @@ func (r *FleetRepository) GetPartnerOrderList(orgID string) ([]model.PartnerOrde
 		var startDate, endDate time.Time
 		var rentType int
 		if err := rows.Scan(
-			&it.OrderID, &it.FleetName, &startDate, &endDate, &it.UnitQty,
-			&it.PaymentStatus, &it.Duration, &it.Uom, &it.TotalAmount, &rentType,
+			&it.OrderID, &it.FleetName, &it.CustomerName, &it.CustomerPhone,
+			&startDate, &endDate, &it.UnitQty, &it.PaymentStatus,
+			&it.Duration, &it.Uom, &it.TotalAmount, &rentType,
 		); err != nil {
 			return nil, err
 		}
@@ -1252,6 +1284,53 @@ func (r *FleetRepository) GetPartnerOrderList(orgID string) ([]model.PartnerOrde
 		items = append(items, it)
 	}
 	return items, nil
+}
+
+func (r *FleetRepository) GetPartnerOrderSummary(orgID string, filter *model.PartnerOrderListFilter) (*model.PartnerOrderSummary, error) {
+	base := `
+        SELECT 
+            COUNT(*) AS total_orders,
+            SUM(CASE WHEN fo.payment_status = 1 THEN 1 ELSE 0 END) AS paid,
+            SUM(CASE WHEN fo.payment_status = 2 THEN 1 ELSE 0 END) AS unpaid,
+            SUM(CASE WHEN fo.payment_status IN (3,4) THEN 1 ELSE 0 END) AS pending,
+            SUM(CASE WHEN fo.payment_status = 1 THEN fo.total_amount ELSE 0 END) AS revenue,
+            SUM(CASE WHEN fo.start_date <= CURRENT_DATE AND fo.end_date >= CURRENT_DATE THEN 1 ELSE 0 END) AS ongoing
+        FROM fleet_orders fo
+        INNER JOIN fleets f ON fo.fleet_id = f.uuid
+        WHERE f.organization_id = %s
+    `
+	args := make([]interface{}, 0, 6)
+	args = append(args, orgID)
+	cond := ""
+	if filter != nil {
+		if strings.TrimSpace(filter.StartDateFrom) != "" {
+			cond += fmt.Sprintf(" AND fo.start_date >= %s", r.getPlaceholder(len(args)+1))
+			args = append(args, filter.StartDateFrom)
+		}
+		if strings.TrimSpace(filter.StartDateTo) != "" {
+			cond += fmt.Sprintf(" AND fo.start_date <= %s", r.getPlaceholder(len(args)+1))
+			args = append(args, filter.StartDateTo)
+		}
+		if strings.TrimSpace(filter.OrderDateFrom) != "" {
+			cond += fmt.Sprintf(" AND fo.created_at >= %s", r.getPlaceholder(len(args)+1))
+			args = append(args, filter.OrderDateFrom)
+		}
+		if strings.TrimSpace(filter.OrderDateTo) != "" {
+			cond += fmt.Sprintf(" AND fo.created_at <= %s", r.getPlaceholder(len(args)+1))
+			args = append(args, filter.OrderDateTo)
+		}
+		if filter.HasPaymentStatus {
+			cond += fmt.Sprintf(" AND fo.payment_status = %s", r.getPlaceholder(len(args)+1))
+			args = append(args, filter.PaymentStatus)
+		}
+	}
+	query := fmt.Sprintf(base, r.getPlaceholder(1)) + cond
+	row := r.db.QueryRow(query, args...)
+	var s model.PartnerOrderSummary
+	if err := row.Scan(&s.TotalOrders, &s.Paid, &s.Unpaid, &s.Pending, &s.Revenue, &s.Ongoing); err != nil {
+		return nil, err
+	}
+	return &s, nil
 }
 
 func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.OrderDetailResponse, error) {

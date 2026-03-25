@@ -131,6 +131,8 @@ type PaymentDetail struct {
 type PartnerOrderListItem struct {
 	OrderID       string        `json:"order_id"`
 	FleetName     string        `json:"fleet_name"`
+	CustomerName  string        `json:"customer_name"`
+	CustomerPhone string        `json:"customer_phone"`
 	StartDate     string        `json:"start_date"`
 	EndDate       string        `json:"end_date"`
 	UnitQty       int           `json:"unit_qty"`
@@ -139,6 +141,29 @@ type PartnerOrderListItem struct {
 	Uom           string        `json:"uom"`
 	TotalAmount   float64       `json:"total_amount"`
 	RentType      string        `json:"rent_type"`
+}
+
+type PartnerOrderSummary struct {
+	TotalOrders int     `json:"total_orders"`
+	Paid        int     `json:"paid"`
+	Unpaid      int     `json:"unpaid"`
+	Pending     int     `json:"pending"`
+	Ongoing     int     `json:"ongoing"`
+	Revenue     float64 `json:"revenue"`
+}
+
+type PartnerOrderListResponse struct {
+	Summary PartnerOrderSummary    `json:"summary"`
+	Orders  []PartnerOrderListItem `json:"orders"`
+}
+
+type PartnerOrderListFilter struct {
+	StartDateFrom    string
+	StartDateTo      string
+	OrderDateFrom    string
+	OrderDateTo      string
+	PaymentStatus    int
+	HasPaymentStatus bool
 }
 
 type OrderDetailCustomer struct {
