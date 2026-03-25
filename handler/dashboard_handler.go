@@ -5,7 +5,6 @@ import (
 	"service-travego/service"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/golang-jwt/jwt/v5"
 )
 
 type DashboardHandler struct {
@@ -19,12 +18,9 @@ func NewDashboardHandler(service *service.DashboardService) *DashboardHandler {
 }
 
 func (h *DashboardHandler) GetPartnerSummary(c *fiber.Ctx) error {
-	user := c.Locals("user").(*jwt.Token)
-	claims := user.Claims.(jwt.MapClaims)
-
-	orgID, ok := claims["organization_id"].(string)
-	if !ok {
-		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Invalid organization ID")
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Missing organization context")
 	}
 
 	summary, err := h.service.GetPartnerSummary(orgID)
@@ -36,12 +32,9 @@ func (h *DashboardHandler) GetPartnerSummary(c *fiber.Ctx) error {
 }
 
 func (h *DashboardHandler) GetDashboard(c *fiber.Ctx) error {
-	user := c.Locals("user").(*jwt.Token)
-	claims := user.Claims.(jwt.MapClaims)
-
-	orgID, ok := claims["organization_id"].(string)
-	if !ok {
-		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Invalid organization ID")
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Missing organization context")
 	}
 
 	res, err := h.service.GetDashboard(orgID)
