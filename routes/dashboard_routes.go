@@ -17,6 +17,8 @@ func SetupDashboardRoutes(api fiber.Router, db *sql.DB, driver string) {
 
 	dashboard := api.Group("/dashboard") // This is inside /api group because it's passed 'api' router which is app.Group("/api")
 
+	dashboard.Get("/", helper.JWTAuthorizationMiddleware(), h.GetDashboard)
+
 	// GET /api/dashboard/summary
 	dashboard.Get("/summary", helper.JWTAuthorizationMiddleware(), h.GetPartnerSummary)
 }

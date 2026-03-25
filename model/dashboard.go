@@ -7,6 +7,21 @@ type DashboardPartnerSummaryResponse struct {
 	Revenue  DashboardSummaryItem   `json:"revenue"`
 }
 
+type DashboardResponse struct {
+	Transaction DashboardTransaction `json:"transaction"`
+	Customers   DashboardCustomers   `json:"customers"`
+}
+
+type DashboardTransaction struct {
+	TotalOrder      int     `json:"total_order"`
+	OrderPercentage float64 `json:"order_percentage"`
+}
+
+type DashboardCustomers struct {
+	TotalCustomers     int     `json:"total_customers"`
+	CustomerPercentage float64 `json:"customer_percentage"`
+}
+
 type DashboardOrdersSummary struct {
 	TotalOrders int     `json:"total_orders"`
 	Percentage  float64 `json:"percentage"`
