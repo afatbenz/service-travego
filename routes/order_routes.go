@@ -17,6 +17,9 @@ func SetupOrderRoutes(api fiber.Router, db *sql.DB, driver string, cfg *configs.
 	contentRepo := repository.NewContentRepository(db, driver)
 	orderService := service.NewOrderService(fleetRepo, contentRepo, orgRepo, &cfg.Email)
 	orderHandler := handler.NewOrderHandler(orderService)
+	// Reuse fleet repository for partner order listing handler
+	fleetService := service.NewFleetService(fleetRepo)
+	fleetHandler := handler.NewFleetHandler(fleetService)
 
 	orderGroup := api.Group("/order")
 	orderGroup.Use(helper.DualAuthMiddleware(orgRepo))
@@ -29,4 +32,9 @@ func SetupOrderRoutes(api fiber.Router, db *sql.DB, driver string, cfg *configs.
 	orderGroup.Post("/payment-confirmation", orderHandler.ConfirmPayment)
 	orderGroup.Post("/payment/confirmation/upload", orderHandler.UploadPaymentEvidence)
 	orderGroup.Get("/payment-method", orderHandler.GetPaymentMethods)
+
+	// Move /api/services/fleet/orders registration here to keep path consistent
+	services := api.Group("/services")
+	fleet := services.Group("/fleet")
+	fleet.Get("/orders", helper.JWTAuthorizationMiddleware(), fleetHandler.GetPartnerOrderList)
 }

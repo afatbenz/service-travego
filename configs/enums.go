@@ -101,11 +101,11 @@ type RentType int
 type PaymentStatus int
 
 const (
-	PaymentStatusPaid            PaymentStatus = 1
-	PaymentStatusWaitingPayment  PaymentStatus = 2
+	PaymentStatusPaid           PaymentStatus = 1
+	PaymentStatusWaitingPayment PaymentStatus = 2
 	PaymentStatusWaitingApproval PaymentStatus = 3
-	PaymentStatusPartiallyPaid   PaymentStatus = 4
-	PaymentStatusCancelled       PaymentStatus = 5
+	PaymentStatusPartiallyPaid  PaymentStatus = 4
+	PaymentStatusCancelled      PaymentStatus = 5
 )
 
 func (s PaymentStatus) String() string {

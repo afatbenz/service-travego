@@ -227,8 +227,31 @@ func (s *FleetService) GetServiceFleetDetail(fleetID string) (*model.ServiceFlee
 	return resp, nil
 }
 
-func (s *FleetService) GetPartnerOrderList(orgID string) ([]model.PartnerOrderListItem, error) {
-	return s.repo.GetPartnerOrderList(orgID)
+func (s *FleetService) GetPartnerOrderList(orgID string, filter *model.PartnerOrderListFilter) ([]model.PartnerOrderListItem, error) {
+	return s.repo.GetPartnerOrderList(orgID, filter)
+}
+
+func (s *FleetService) GetPartnerOrdersWithSummary(orgID string, filter *model.PartnerOrderListFilter) (*model.PartnerOrderListResponse, error) {
+	items, err := s.repo.GetPartnerOrderList(orgID, filter)
+	if err != nil {
+		msg := "failed to get order list"
+		if env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV"))); env != "production" && env != "prod" {
+			msg = fmt.Sprintf("%s: %v", msg, err)
+		}
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, msg)
+	}
+	summary, err := s.repo.GetPartnerOrderSummary(orgID, filter)
+	if err != nil {
+		msg := "failed to get order summary"
+		if env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV"))); env != "production" && env != "prod" {
+			msg = fmt.Sprintf("%s: %v", msg, err)
+		}
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, msg)
+	}
+	return &model.PartnerOrderListResponse{
+		Summary: *summary,
+		Orders:  items,
+	}, nil
 }
 
 func (s *FleetService) GetPartnerOrderDetail(orderID, orgID string) (*model.OrderDetailResponse, error) {

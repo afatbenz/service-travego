@@ -6,6 +6,8 @@ import (
 	"service-travego/model"
 	"service-travego/service"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -275,11 +277,42 @@ func (h *FleetHandler) GetPartnerOrderList(c *fiber.Ctx) error {
 		return helper.BadRequestResponse(c, "missing organization context")
 	}
 
-	items, err := h.service.GetPartnerOrderList(orgID)
-	if err != nil {
-		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, err.Error())
+	var filter model.PartnerOrderListFilter
+	if v := strings.TrimSpace(c.Query("start_date")); v != "" {
+		filter.StartDateFrom = v
 	}
-	return helper.SuccessResponse(c, fiber.StatusOK, "Order list loaded", items)
+	if v := strings.TrimSpace(c.Query("end_date")); v != "" {
+		filter.StartDateTo = v
+	}
+	if v := strings.TrimSpace(c.Query("order_date_start")); v != "" {
+		filter.OrderDateFrom = v
+	}
+	if v := strings.TrimSpace(c.Query("order_date_end")); v != "" {
+		filter.OrderDateTo = v
+	}
+	if v := strings.TrimSpace(c.Query("payment_status")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			filter.PaymentStatus = n
+			filter.HasPaymentStatus = true
+		}
+	}
+	if strings.TrimSpace(filter.OrderDateFrom) == "" && strings.TrimSpace(filter.OrderDateTo) == "" {
+		now := time.Now()
+		from := now.AddDate(-1, 0, 0)
+		filter.OrderDateFrom = from.Format("2006-01-02") + " 00:00:00"
+		filter.OrderDateTo = now.Format("2006-01-02") + " 23:59:59"
+	}
+	show := strings.ToLower(strings.TrimSpace(c.Query("show")))
+
+	res, err := h.service.GetPartnerOrdersWithSummary(orgID, &filter)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	if show == "summary" {
+		return helper.SuccessResponse(c, fiber.StatusOK, "Order summary loaded", res.Summary)
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Order list loaded", res)
 }
 
 func (h *FleetHandler) GetPartnerOrderDetail(c *fiber.Ctx) error {
