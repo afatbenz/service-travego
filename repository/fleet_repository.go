@@ -532,17 +532,35 @@ func (r *FleetRepository) CreateOrder(req *model.CreateOrderRequest) error {
 	now := time.Now()
 
 	// 1. Insert fleet_order
-	orderQuery := fmt.Sprintf(`
-		INSERT INTO fleet_orders (order_id, fleet_id, start_date, end_date, pickup_city_id, pickup_location, unit_qty, price_id, created_at, total_amount, status, payment_status, organization_id)
-		VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 2, %d, %s)
+	orderQueryFull := fmt.Sprintf(`
+		INSERT INTO fleet_orders (order_id, fleet_id, start_date, end_date, pickup_city_id, pickup_location, unit_qty, price_id, created_at, total_amount, status, payment_status, organization_id, additional_request)
+		VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 2, %d, %s, %s)
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
-		r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), configs.PaymentStatusWaitingPayment, r.getPlaceholder(11))
+		r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), configs.PaymentStatusWaitingPayment, r.getPlaceholder(11), r.getPlaceholder(12))
 
-	_, err = tx.Exec(orderQuery, orderID, req.FleetID, req.StartDate, req.EndDate, req.PickupCityID, req.PickupLocation, req.Qty, req.PriceID, now, totalAmount, req.OrganizationID)
+	_, _ = tx.Exec("SAVEPOINT sp_orders")
+	_, err = tx.Exec(orderQueryFull, orderID, req.FleetID, req.StartDate, req.EndDate, req.PickupCityID, req.PickupLocation, req.Qty, req.PriceID, now, totalAmount, req.OrganizationID, req.AdditionalRequest)
 	if err != nil {
-		fmt.Println("error create orders", err)
-		return err
+		errMsg := strings.ToLower(err.Error())
+		if strings.Contains(errMsg, "unknown column") || strings.Contains(errMsg, "does not exist") {
+			_, _ = tx.Exec("ROLLBACK TO SAVEPOINT sp_orders")
+			orderQueryLegacy := fmt.Sprintf(`
+				INSERT INTO fleet_orders (order_id, fleet_id, start_date, end_date, pickup_city_id, pickup_location, unit_qty, price_id, created_at, total_amount, status, payment_status, organization_id)
+				VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 2, %d, %s)
+			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
+				r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), configs.PaymentStatusWaitingPayment, r.getPlaceholder(11))
+
+			_, err = tx.Exec(orderQueryLegacy, orderID, req.FleetID, req.StartDate, req.EndDate, req.PickupCityID, req.PickupLocation, req.Qty, req.PriceID, now, totalAmount, req.OrganizationID)
+			if err != nil {
+				fmt.Println("error create orders legacy", err)
+				return err
+			}
+		} else {
+			fmt.Println("error create orders full", err)
+			return err
+		}
 	}
+	_, _ = tx.Exec("RELEASE SAVEPOINT sp_orders")
 
 	// 2. Insert fleet_orders_customers
 	custID := uuid2()
@@ -600,7 +618,7 @@ func (r *FleetRepository) CreateOrder(req *model.CreateOrderRequest) error {
 	return nil
 }
 
-func (r *FleetRepository) CreatePartnerOrder(orderID, fleetID, startDate, endDate, pickupCityID, pickupLocation string, qty int, priceID string, totalAmount float64, customerID, orgID, createdBy string, itinerary []model.FleetOrderItineraryItem, addons []model.FleetOrderAddonItem) error {
+func (r *FleetRepository) CreatePartnerOrder(orderID, fleetID, startDate, endDate, pickupCityID, pickupLocation string, qty int, priceID string, totalAmount float64, customerID, orgID, createdBy string, itinerary []model.FleetOrderItineraryItem, addons []model.FleetOrderAddonItem, additionalRequest string) error {
 	tx, err := r.db.Begin()
 	if err != nil {
 		return err
@@ -615,28 +633,46 @@ func (r *FleetRepository) CreatePartnerOrder(orderID, fleetID, startDate, endDat
 	now := time.Now()
 
 	insertWithCreatedBy := fmt.Sprintf(`
-		INSERT INTO fleet_orders (order_id, fleet_id, start_date, end_date, pickup_city_id, pickup_location, unit_qty, price_id, created_at, total_amount, status, payment_status, organization_id, created_by)
-		VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 2, %d, %s, %s)
+		INSERT INTO fleet_orders (order_id, fleet_id, start_date, end_date, pickup_city_id, pickup_location, unit_qty, price_id, created_at, total_amount, status, payment_status, organization_id, created_by, additional_request)
+		VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 2, %d, %s, %s, %s)
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
-		r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), configs.PaymentStatusWaitingPayment, r.getPlaceholder(11), r.getPlaceholder(12))
+		r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), configs.PaymentStatusWaitingPayment, r.getPlaceholder(11), r.getPlaceholder(12), r.getPlaceholder(13))
 
 	_, _ = tx.Exec("SAVEPOINT sp_orders")
-	_, err = tx.Exec(insertWithCreatedBy, orderID, fleetID, startDate, endDate, pickupCityID, pickupLocation, qty, priceID, now, totalAmount, orgID, createdBy)
+	_, err = tx.Exec(insertWithCreatedBy, orderID, fleetID, startDate, endDate, pickupCityID, pickupLocation, qty, priceID, now, totalAmount, orgID, createdBy, additionalRequest)
 	if err != nil {
 		errMsg := strings.ToLower(err.Error())
 		if strings.Contains(errMsg, "unknown column") || strings.Contains(errMsg, "does not exist") {
-			insertWithoutCreatedBy := fmt.Sprintf(`
-				INSERT INTO fleet_orders (order_id, fleet_id, start_date, end_date, pickup_city_id, pickup_location, unit_qty, price_id, created_at, total_amount, status, payment_status, organization_id)
-				VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 2, %d, %s)
-			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
-				r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), configs.PaymentStatusWaitingPayment, r.getPlaceholder(11))
 			_, _ = tx.Exec("ROLLBACK TO SAVEPOINT sp_orders")
-			_, err = tx.Exec(insertWithoutCreatedBy, orderID, fleetID, startDate, endDate, pickupCityID, pickupLocation, qty, priceID, now, totalAmount, orgID)
+			insertWithoutCreatedBy := fmt.Sprintf(`
+				INSERT INTO fleet_orders (order_id, fleet_id, start_date, end_date, pickup_city_id, pickup_location, unit_qty, price_id, created_at, total_amount, status, payment_status, organization_id, additional_request)
+				VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 2, %d, %s, %s)
+			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
+				r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), configs.PaymentStatusWaitingPayment, r.getPlaceholder(11), r.getPlaceholder(12))
+
+			_, _ = tx.Exec("SAVEPOINT sp_orders_2")
+			_, err = tx.Exec(insertWithoutCreatedBy, orderID, fleetID, startDate, endDate, pickupCityID, pickupLocation, qty, priceID, now, totalAmount, orgID, additionalRequest)
 			if err != nil {
-				return fmt.Errorf("insert fleet_orders: %w", err)
+				errMsg2 := strings.ToLower(err.Error())
+				if strings.Contains(errMsg2, "additional_request") {
+					// Fallback to even simpler if additional_request is missing too
+					_, _ = tx.Exec("ROLLBACK TO SAVEPOINT sp_orders_2")
+					insertLegacy := fmt.Sprintf(`
+						INSERT INTO fleet_orders (order_id, fleet_id, start_date, end_date, pickup_city_id, pickup_location, unit_qty, price_id, created_at, total_amount, status, payment_status, organization_id)
+						VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 2, %d, %s)
+					`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
+						r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), configs.PaymentStatusWaitingPayment, r.getPlaceholder(11))
+					_, err = tx.Exec(insertLegacy, orderID, fleetID, startDate, endDate, pickupCityID, pickupLocation, qty, priceID, now, totalAmount, orgID)
+					if err != nil {
+						return fmt.Errorf("insert fleet_orders legacy: %w", err)
+					}
+				} else {
+					return fmt.Errorf("insert fleet_orders without created_by: %w", err)
+				}
 			}
+			_, _ = tx.Exec("RELEASE SAVEPOINT sp_orders_2")
 		} else {
-			return fmt.Errorf("insert fleet_orders: %w", err)
+			return fmt.Errorf("insert fleet_orders full: %w", err)
 		}
 	}
 	_, _ = tx.Exec("RELEASE SAVEPOINT sp_orders")
@@ -1068,7 +1104,8 @@ func (r *FleetRepository) FindOrderDetail(orderID, organizationID string) (*mode
             fp.rent_type, fp.duration, COALESCE(fp.uom, '') as duration_uom, fp.price, 
             fo.unit_qty, fo.total_amount,
             fo.pickup_location, fo.pickup_city_id, fo.start_date, fo.end_date,
-            COALESCE(foc.customer_name, '') as customer_name, COALESCE(foc.customer_phone, '') as customer_phone, COALESCE(foc.customer_email, '') as customer_email, COALESCE(foc.customer_address, '') as customer_address
+            COALESCE(foc.customer_name, '') as customer_name, COALESCE(foc.customer_phone, '') as customer_phone, COALESCE(foc.customer_email, '') as customer_email, COALESCE(foc.customer_address, '') as customer_address,
+            COALESCE(fo.additional_request, '') as additional_request
         FROM fleet_orders fo
         JOIN fleets f ON fo.fleet_id = f.uuid
         JOIN fleet_prices fp ON fo.price_id = fp.uuid
@@ -1088,6 +1125,7 @@ func (r *FleetRepository) FindOrderDetail(orderID, organizationID string) (*mode
 		&res.Quantity, &res.TotalAmount,
 		&res.Pickup.PickupLocation, &pickupCityID, &startDate, &endDate,
 		&res.Customer.CustomerName, &res.Customer.CustomerPhone, &res.Customer.CustomerEmail, &res.Customer.CustomerAddress,
+		&res.AdditionalRequest,
 	)
 	if err != nil {
 		fmt.Println("Error querying order detail:", err)
@@ -1334,6 +1372,13 @@ func (r *FleetRepository) GetPartnerOrderSummary(orgID string, filter *model.Par
 }
 
 func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.OrderDetailResponse, error) {
+	customerCityExpr := "COALESCE(c.customer_city, '')"
+	if r.driver == "postgres" || r.driver == "pgx" {
+		customerCityExpr = "COALESCE(c.customer_city::text, '')"
+	} else if r.driver == "mysql" {
+		customerCityExpr = "COALESCE(CAST(c.customer_city AS CHAR), '')"
+	}
+
 	query := fmt.Sprintf(`
         SELECT 
             fo.order_id, fo.created_at, fo.price_id,
@@ -1341,13 +1386,19 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
             fp.rent_type, fp.duration, COALESCE(fp.uom, '') as duration_uom, fp.price, 
             fo.unit_qty, fo.total_amount,
             fo.pickup_location, fo.pickup_city_id, fo.start_date, fo.end_date,
-            COALESCE(foc.customer_name, '') as customer_name, COALESCE(foc.customer_phone, '') as customer_phone, COALESCE(foc.customer_email, '') as customer_email, COALESCE(foc.customer_address, '') as customer_address
+            COALESCE(c.customer_name, '') as customer_name,
+			COALESCE(c.customer_phone, '') as customer_phone,
+			COALESCE(c.customer_email, '') as customer_email,
+			COALESCE(c.customer_address, '') as customer_address,
+			%[1]s as customer_city,
+			COALESCE(fo.additional_request, '') as additional_request
         FROM fleet_orders fo
         JOIN fleets f ON fo.fleet_id = f.uuid
         JOIN fleet_prices fp ON fo.price_id = fp.uuid
-        LEFT JOIN fleet_order_customers foc ON fo.order_id = foc.order_id
+		LEFT JOIN customer_orders co ON co.order_id = fo.order_id AND co.organization_id = f.organization_id
+		LEFT JOIN customers c ON c.customer_id = co.customer_id AND c.organization_id = f.organization_id
         WHERE fo.order_id = %s AND f.organization_id = %s
-    `, r.getPlaceholder(1), r.getPlaceholder(2))
+    `, customerCityExpr, r.getPlaceholder(1), r.getPlaceholder(2))
 
 	var res model.OrderDetailResponse
 	var createdAt time.Time
@@ -1360,7 +1411,8 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 		&res.RentType, &res.Duration, &res.DurationUom, &res.Price,
 		&res.Quantity, &res.TotalAmount,
 		&res.Pickup.PickupLocation, &pickupCityID, &startDate, &endDate,
-		&res.Customer.CustomerName, &res.Customer.CustomerPhone, &res.Customer.CustomerEmail, &res.Customer.CustomerAddress,
+		&res.Customer.CustomerName, &res.Customer.CustomerPhone, &res.Customer.CustomerEmail, &res.Customer.CustomerAddress, &res.Customer.CustomerCity,
+		&res.AdditionalRequest,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -1371,8 +1423,8 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 	}
 	res.OrderDate = createdAt.Format("2006-01-02 15:04:05")
 	res.Pickup.PickupCity = pickupCityID
-	res.Pickup.StartDate = startDate.Format("2006-01-02")
-	res.Pickup.EndDate = endDate.Format("2006-01-02")
+	res.Pickup.StartDate = startDate.Format("2006-01-02 15:04")
+	res.Pickup.EndDate = endDate.Format("2006-01-02 15:04")
 
 	// Destinations
 	destQuery := fmt.Sprintf(`SELECT city_id, location FROM fleet_order_destinations WHERE order_id = %s`, r.getPlaceholder(1))
@@ -1386,6 +1438,39 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 				d.City = cID
 				res.Destination = append(res.Destination, d)
 			}
+		}
+	}
+
+	if len(res.Destination) > 0 {
+		res.Itinerary = make([]model.FleetOrderItineraryItem, 0, len(res.Destination))
+		for i := range res.Destination {
+			res.Itinerary = append(res.Itinerary, model.FleetOrderItineraryItem{
+				Day:         i + 1,
+				CityID:      res.Destination[i].City,
+				Destination: res.Destination[i].Location,
+			})
+		}
+	}
+
+	cityExpr := "city_id"
+	if r.driver == "postgres" || r.driver == "pgx" {
+		cityExpr = "city_id::text"
+	} else if r.driver == "mysql" {
+		cityExpr = "CAST(city_id AS CHAR)"
+	}
+	itQuery := fmt.Sprintf(`SELECT day_num, %s as city_id, location FROM fleet_order_itinerary WHERE order_id = %s AND organization_id = %s ORDER BY day_num`, cityExpr, r.getPlaceholder(1), r.getPlaceholder(2))
+	iRows, itErr := r.db.Query(itQuery, orderID, orgID)
+	if itErr == nil {
+		defer iRows.Close()
+		items := make([]model.FleetOrderItineraryItem, 0)
+		for iRows.Next() {
+			var it model.FleetOrderItineraryItem
+			if err := iRows.Scan(&it.Day, &it.CityID, &it.Destination); err == nil {
+				items = append(items, it)
+			}
+		}
+		if len(items) > 0 {
+			res.Itinerary = items
 		}
 	}
 

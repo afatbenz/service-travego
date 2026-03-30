@@ -12,12 +12,13 @@ type FleetOrderCreateRequest struct {
 	PickupLocation  string                    `json:"pickup_location"`
 	Quantity        int                       `json:"quantity"`
 	FleetQty        int                       `json:"fleet_qty"`
-	PriceID         string                    `json:"price_id"`
-	Price           float64                   `json:"price"`
-	DiscountAmount  float64                   `json:"discount_amount"`
-	DpAmount        float64                   `json:"dp_amount"`
-	Addons          []FleetOrderAddonItem     `json:"addons"`
-	Itinerary       []FleetOrderItineraryItem `json:"itinerary"`
+	PriceID           string                    `json:"price_id"`
+	Price             float64                   `json:"price"`
+	DiscountAmount    float64                   `json:"discount_amount"`
+	DpAmount          float64                   `json:"dp_amount"`
+	AdditionalRequest string                    `json:"additional_request"`
+	Addons            []FleetOrderAddonItem     `json:"addons"`
+	Itinerary         []FleetOrderItineraryItem `json:"itinerary"`
 }
 
 type FleetOrderAddonItem struct {
@@ -29,5 +30,6 @@ type FleetOrderAddonItem struct {
 type FleetOrderItineraryItem struct {
 	Day         int    `json:"day"`
 	CityID      string `json:"city_id"`
+	CityLabel   string `json:"city_label"`
 	Destination string `json:"destination"`
 }

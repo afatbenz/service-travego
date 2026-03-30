@@ -46,8 +46,9 @@ type CreateOrderRequest struct {
 	PickupLocation   string             `json:"pickup_location" validate:"required"`
 	Destinations     []OrderDestination `json:"destinations"`
 	Qty              int                `json:"qty" validate:"required,min=1"`
-	Addons           []string           `json:"addons"`
-	OrganizationID   string             `json:"-"`
+	Addons            []string           `json:"addons"`
+	AdditionalRequest string             `json:"additional_request"`
+	OrganizationID    string             `json:"-"`
 	OrganizationCode string             `json:"-"`
 	OrderID          string             `json:"-"`
 	TotalAmount      float64            `json:"-"`
@@ -105,10 +106,12 @@ type OrderDetailResponse struct {
 	TotalAmount   float64             `json:"total_amount"`
 	Pickup        OrderDetailPickup   `json:"pickup"`
 	Destination   []OrderDetailDest   `json:"destination"`
+	Itinerary     []FleetOrderItineraryItem `json:"itinerary"`
 	Addon         []OrderDetailAddon  `json:"addon"`
 	Customer      OrderDetailCustomer `json:"customer"`
 	Payment       []PaymentDetail     `json:"payment"`
 	PaymentStatus string              `json:"payment_status"`
+	AdditionalRequest string          `json:"additional_request"`
 	Token         string              `json:"token"`
 	PriceID       string              `json:"-"`
 }
@@ -130,6 +133,7 @@ type PaymentDetail struct {
 
 type PartnerOrderListItem struct {
 	OrderID       string        `json:"order_id"`
+	TransactionID string        `json:"transaction_id"`
 	FleetName     string        `json:"fleet_name"`
 	CustomerName  string        `json:"customer_name"`
 	CustomerPhone string        `json:"customer_phone"`
@@ -171,18 +175,22 @@ type OrderDetailCustomer struct {
 	CustomerPhone   string `json:"customer_phone"`
 	CustomerEmail   string `json:"customer_email"`
 	CustomerAddress string `json:"customer_address"`
+	CustomerCity    string `json:"customer_city"`
+	CityLabel       string `json:"city_label"`
 }
 
 type OrderDetailPickup struct {
 	PickupLocation string `json:"pickup_location"`
 	PickupCity     string `json:"pickup_city"`
+	CityLabel      string `json:"city_label"`
 	StartDate      string `json:"start_date"`
 	EndDate        string `json:"end_date"`
 }
 
 type OrderDetailDest struct {
-	City     string `json:"city"`
-	Location string `json:"location"`
+	City      string `json:"city"`
+	CityLabel string `json:"city_label"`
+	Location  string `json:"location"`
 }
 
 type OrderDetailAddon struct {
