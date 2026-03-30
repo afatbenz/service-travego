@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"service-travego/configs"
+	"service-travego/helper"
 	"service-travego/model"
 	"service-travego/repository"
 	"strconv"
@@ -228,7 +229,16 @@ func (s *FleetService) GetServiceFleetDetail(fleetID string) (*model.ServiceFlee
 }
 
 func (s *FleetService) GetPartnerOrderList(orgID string, filter *model.PartnerOrderListFilter) ([]model.PartnerOrderListItem, error) {
-	return s.repo.GetPartnerOrderList(orgID, filter)
+	items, err := s.repo.GetPartnerOrderList(orgID, filter)
+	if err != nil {
+		return nil, err
+	}
+	for i := range items {
+		if token, err := helper.EncryptString(items[i].OrderID); err == nil {
+			items[i].TransactionID = token
+		}
+	}
+	return items, nil
 }
 
 func (s *FleetService) GetPartnerOrdersWithSummary(orgID string, filter *model.PartnerOrderListFilter) (*model.PartnerOrderListResponse, error) {
@@ -239,6 +249,11 @@ func (s *FleetService) GetPartnerOrdersWithSummary(orgID string, filter *model.P
 			msg = fmt.Sprintf("%s: %v", msg, err)
 		}
 		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, msg)
+	}
+	for i := range items {
+		if token, err := helper.EncryptString(items[i].OrderID); err == nil {
+			items[i].TransactionID = token
+		}
 	}
 	summary, err := s.repo.GetPartnerOrderSummary(orgID, filter)
 	if err != nil {
@@ -255,7 +270,46 @@ func (s *FleetService) GetPartnerOrdersWithSummary(orgID string, filter *model.P
 }
 
 func (s *FleetService) GetPartnerOrderDetail(orderID, orgID string) (*model.OrderDetailResponse, error) {
-	return s.repo.GetPartnerOrderDetail(orderID, orgID)
+	res, err := s.repo.GetPartnerOrderDetail(orderID, orgID)
+	if err != nil {
+		return nil, err
+	}
+	res.RentTypeLabel = configs.RentType(res.RentType).String()
+	s.ensureCitiesLoaded()
+
+	// Map Customer City
+	if res.Customer.CustomerCity != "" {
+		if name, ok := s.citiesName[res.Customer.CustomerCity]; ok && name != "" {
+			res.Customer.CityLabel = name
+		}
+	}
+
+	// Map Pickup City
+	if res.Pickup.PickupCity != "" {
+		if name, ok := s.citiesName[res.Pickup.PickupCity]; ok && name != "" {
+			res.Pickup.CityLabel = name
+		}
+	}
+
+	// Map Destination City
+	for i := range res.Destination {
+		if res.Destination[i].City != "" {
+			if name, ok := s.citiesName[res.Destination[i].City]; ok && name != "" {
+				res.Destination[i].CityLabel = name
+			}
+		}
+	}
+
+	// Map Itinerary City
+	for i := range res.Itinerary {
+		if res.Itinerary[i].CityID != "" {
+			if name, ok := s.citiesName[res.Itinerary[i].CityID]; ok && name != "" {
+				res.Itinerary[i].CityLabel = name
+			}
+		}
+	}
+
+	return res, nil
 }
 
 func (s *FleetService) GetFleetAddonList(orgID, fleetID string) ([]model.FleetAddonListItem, error) {
@@ -402,7 +456,7 @@ func (s *FleetService) CreatePartnerOrder(orgID, userID string, req *model.Fleet
 	timePart := time.Now().Format("06020115")
 	orderID := fmt.Sprintf("%s%s%d-FRT", truncatedCode, timePart, count+1)
 
-	if err := s.repo.CreatePartnerOrder(orderID, req.FleetID, startDate, endDate, req.PickupCityID, pickupLoc, qty, req.PriceID, totalAmount, req.CustomerID, orgID, userID, req.Itinerary, req.Addons); err != nil {
+	if err := s.repo.CreatePartnerOrder(orderID, req.FleetID, startDate, endDate, req.PickupCityID, pickupLoc, qty, req.PriceID, totalAmount, req.CustomerID, orgID, userID, req.Itinerary, req.Addons, req.AdditionalRequest); err != nil {
 		return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create order")
 	}
 	return orderID, nil

@@ -305,13 +305,13 @@ func (s *OrderService) GetOrderDetail(encryptedOrderID, organizationID string) (
 
 	// Pickup City
 	if name, ok := s.citiesName[res.Pickup.PickupCity]; ok {
-		res.Pickup.PickupCity = name
+		res.Pickup.CityLabel = name
 	}
 
 	// Destination Cities
 	for i := range res.Destination {
 		if name, ok := s.citiesName[res.Destination[i].City]; ok {
-			res.Destination[i].City = name
+			res.Destination[i].CityLabel = name
 		}
 	}
 
@@ -339,13 +339,13 @@ func (s *OrderService) FindOrderDetail(orderID, organizationID string) (*model.O
 
 	// Pickup City
 	if name, ok := s.citiesName[res.Pickup.PickupCity]; ok {
-		res.Pickup.PickupCity = name
+		res.Pickup.CityLabel = name
 	}
 
 	// Destination Cities
 	for i := range res.Destination {
 		if name, ok := s.citiesName[res.Destination[i].City]; ok {
-			res.Destination[i].City = name
+			res.Destination[i].CityLabel = name
 		}
 	}
 
