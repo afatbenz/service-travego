@@ -15,7 +15,6 @@ type FleetOrderCreateRequest struct {
 	PriceID           string                    `json:"price_id"`
 	Price             float64                   `json:"price"`
 	DiscountAmount    float64                   `json:"discount_amount"`
-	DpAmount          float64                   `json:"dp_amount"`
 	AdditionalRequest string                    `json:"additional_request"`
 	Addons            []FleetOrderAddonItem     `json:"addons"`
 	Itinerary         []FleetOrderItineraryItem `json:"itinerary"`
