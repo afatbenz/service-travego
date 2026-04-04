@@ -422,9 +422,6 @@ func (h *FleetHandler) CreatePartnerOrder(c *fiber.Ctx) error {
 		if v, ok := m["discount_amount"]; ok {
 			req.DiscountAmount = float64(toInt(v))
 		}
-		if v, ok := m["dp_amount"]; ok {
-			req.DpAmount = float64(toInt(v))
-		}
 		if v, ok := m["additional_request"].(string); ok {
 			req.AdditionalRequest = v
 		}
