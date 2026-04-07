@@ -166,8 +166,4 @@ func (r *UserRepository) Update(user *model.User) (*model.User, error) {
 }
 
 // Delete soft deletes user
-func (r *UserRepository) Delete(id string) error {
-	query := fmt.Sprintf("UPDATE users SET deleted_at = %s WHERE user_id = %s", r.getPlaceholder(1), r.getPlaceholder(2))
-	_, err := database.Exec(r.db, query, time.Now(), id)
-	return err
-}
+// Implementation is in user_repository_uuid.go

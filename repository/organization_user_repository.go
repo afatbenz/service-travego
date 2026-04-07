@@ -111,7 +111,7 @@ func (r *OrganizationUserRepository) UpdateOrganizationUserRole(userID, organiza
 		WHERE user_id = %s AND organization_id = %s
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))
 
-	_, err := r.db.Exec(query, roleUser, time.Now(), userID, organizationID)
+	_, err := database.Exec(r.db, query, role, time.Now(), userID, organizationID)
 	return err
 }
 
