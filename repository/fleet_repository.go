@@ -1073,12 +1073,7 @@ func (r *FleetRepository) CreateOrderPayment(payment *model.FleetOrderPayment, h
 		return err
 	}
 
-	// Update Order Payment Status if needed (e.g. PendingVerification)
-	// Usually handled by logic, but maybe update order table?
-	// fleet_orders has payment_status.
-	// 2 = PendingVerification?
-	// The service seems to handle status logic.
-
+	// Update Order Payment Status
 	return tx.Commit()
 }
 
@@ -1089,7 +1084,7 @@ func (r *FleetRepository) UpdateFleetOrderPaymentStatus(orderID, organizationID 
 		WHERE order_id = %s AND organization_id = %s AND status = %s
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))
 
-	_, err := r.db.Exec(query, newStatus, orderID, organizationID, oldStatus)
+	_, err := database.Exec(r.db, query, newStatus, orderID, organizationID, oldStatus)
 	return err
 }
 
@@ -1115,7 +1110,7 @@ func (r *FleetRepository) FindOrderDetail(orderID, organizationID string) (*mode
 	var pickupCityID string
 	var startDate, endDate time.Time
 
-	err := r.db.QueryRow(query, orderID, organizationID).Scan(
+	err := database.QueryRow(r.db, query, orderID, organizationID).Scan(
 		&res.OrderID, &createdAt, &res.PriceID,
 		&res.FleetName,
 		&res.RentType, &res.Duration, &res.DurationUom, &res.Price,
@@ -1135,7 +1130,7 @@ func (r *FleetRepository) FindOrderDetail(orderID, organizationID string) (*mode
 
 	// Destinations
 	destQuery := fmt.Sprintf(`SELECT city_id, location FROM fleet_order_destinations WHERE order_id = %s`, r.getPlaceholder(1))
-	dRows, err := r.db.Query(destQuery, orderID)
+	dRows, err := database.Query(r.db, destQuery, orderID)
 	if err == nil {
 		defer dRows.Close()
 		for dRows.Next() {
@@ -1155,7 +1150,7 @@ func (r *FleetRepository) FindOrderDetail(orderID, organizationID string) (*mode
         JOIN fleet_addon fa ON foa.addon_id = fa.uuid 
         WHERE foa.order_id = %s
     `, r.getPlaceholder(1))
-	aRows, err := r.db.Query(addonQuery, orderID)
+	aRows, err := database.Query(r.db, addonQuery, orderID)
 	if err != nil {
 		return nil, err
 	}
@@ -1180,7 +1175,7 @@ func (r *FleetRepository) FindOrderDetail(orderID, organizationID string) (*mode
 		ORDER BY op.created_at DESC
 	`, r.getPlaceholder(1))
 
-	pRows, err := r.db.Query(paymentQuery, orderID)
+	pRows, err := database.Query(r.db, paymentQuery, orderID)
 	if err == nil {
 		defer pRows.Close()
 		var allStatus1 bool = true
@@ -1665,10 +1660,8 @@ func (r *FleetRepository) GetFleetDetailMeta(orgID, fleetID string) (*model.Flee
 	}
 
 	var meta model.FleetDetailMeta
-	// Note: using explicit fields to avoid confusion
-	// Need to handle nulls if necessary, but assuming fields are not null for now or struct handles them.
-	// Check struct definition: CreatedAt is string, DB likely timestamp.
-	// If DB is timestamp, Scan into time.Time then format.
+	// Note: using explicit fields
+	// Handle potential nulls
 	var createdAt time.Time
 	var updatedAt sql.NullTime
 	var updatedBy sql.NullString

@@ -219,7 +219,7 @@ func (r *UserRepository) FindByEmail(email string) (*model.User, error) {
 }
 
 // Delete soft deletes user
-func (r *UserRepository) Delete(id string) error {
+func (r *UserRepository) Delete(userID string) error {
 	query := fmt.Sprintf(`
 		UPDATE users
 		SET deleted_at = %s
@@ -227,7 +227,7 @@ func (r *UserRepository) Delete(id string) error {
 	`, r.getPlaceholder(1), r.getPlaceholder(2))
 
 	now := time.Now()
-	result, err := database.Exec(r.db, query, now, id)
+	result, err := database.Exec(r.db, query, now, userID)
 	if err != nil {
 		return err
 	}

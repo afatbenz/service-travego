@@ -165,7 +165,7 @@ func (r *UserRepository) VerifyUser(userID string) error {
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))
 
 	now := time.Now()
-	result, err := r.db.Exec(query, true, now, now, id)
+	result, err := database.Exec(r.db, query, true, now, now, userID)
 	if err != nil {
 		return err
 	}
