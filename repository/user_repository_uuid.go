@@ -4,11 +4,12 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"service-travego/database"
 	"service-travego/model"
 	"time"
 )
 
-// CreateWithUUID creates a new user with UUID (updated method)
+// Create creates new user
 func (r *UserRepository) Create(user *model.User) (*model.User, error) {
 	now := time.Now()
 	user.CreatedAt = now
@@ -22,7 +23,8 @@ func (r *UserRepository) Create(user *model.User) (*model.User, error) {
         `, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
 			r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10))
 
-		err := r.db.QueryRow(
+		err := database.QueryRow(
+			r.db,
 			query,
 			user.UserID,
 			user.Username,
@@ -46,7 +48,8 @@ func (r *UserRepository) Create(user *model.User) (*model.User, error) {
         `, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
 			r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10))
 
-		_, err := r.db.Exec(
+		_, err := database.Exec(
+			r.db,
 			query,
 			user.UserID,
 			user.Username,
@@ -67,7 +70,7 @@ func (r *UserRepository) Create(user *model.User) (*model.User, error) {
 	return user, nil
 }
 
-// FindByID retrieves a user by ID (UUID) from database
+// FindByID retrieves user
 func (r *UserRepository) FindByID(id string) (*model.User, error) {
 	query := fmt.Sprintf(`
         SELECT user_id, username, fullname, email, password, phone, address, city, province, postal_code,
@@ -81,7 +84,7 @@ func (r *UserRepository) FindByID(id string) (*model.User, error) {
 	var fullname, address, city, province, postalCode, npwp, gender sql.NullString
 	var isAdmin sql.NullBool
 
-	err := r.db.QueryRow(query, id).Scan(
+	err := database.QueryRow(r.db, query, id).Scan(
 		&user.UserID,
 		&user.Username,
 		&fullname,
@@ -142,8 +145,7 @@ func (r *UserRepository) FindByID(id string) (*model.User, error) {
 	return &user, nil
 }
 
-// FindByEmail retrieves a user by email from database (updated for UUID)
-// Email comparison is case-insensitive using LOWER() function
+// FindByEmail retrieves user
 func (r *UserRepository) FindByEmail(email string) (*model.User, error) {
 	query := fmt.Sprintf(`
         SELECT user_id, username, fullname, email, password, phone, address, city, province, postal_code,
@@ -157,7 +159,7 @@ func (r *UserRepository) FindByEmail(email string) (*model.User, error) {
 	var fullname, address, city, province, postalCode, npwp, gender sql.NullString
 	var isAdmin sql.NullBool
 
-	err := r.db.QueryRow(query, email).Scan(
+	err := database.QueryRow(r.db, query, email).Scan(
 		&user.UserID,
 		&user.Username,
 		&fullname,
@@ -216,7 +218,7 @@ func (r *UserRepository) FindByEmail(email string) (*model.User, error) {
 	return &user, nil
 }
 
-// Delete soft deletes a user from database (UUID)
+// Delete soft deletes user
 func (r *UserRepository) Delete(id string) error {
 	query := fmt.Sprintf(`
 		UPDATE users
@@ -225,7 +227,7 @@ func (r *UserRepository) Delete(id string) error {
 	`, r.getPlaceholder(1), r.getPlaceholder(2))
 
 	now := time.Now()
-	result, err := r.db.Exec(query, now, id)
+	result, err := database.Exec(r.db, query, now, id)
 	if err != nil {
 		return err
 	}

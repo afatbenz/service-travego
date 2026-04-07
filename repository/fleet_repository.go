@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"service-travego/configs"
+	"service-travego/database"
 	"service-travego/model"
 	"strings"
 	"time"
@@ -72,7 +73,7 @@ func (r *FleetRepository) ListFleets(req *model.ListFleetRequest) ([]model.Fleet
 		query = query + " WHERE " + strings.Join(where, " AND ")
 	}
 
-	rows, err := r.db.Query(query, args...)
+	rows, err := database.Query(r.db, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +102,7 @@ func (r *FleetRepository) CreateFleet(req *model.CreateFleetRequest) (string, er
 		r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12))
 
 	// Status default 1 (Active/Draft?)
-	_, err := r.db.Exec(query, id, req.OrganizationID, req.FleetType, req.FleetName, req.Capacity, req.Description,
+	_, err := database.Exec(r.db, query, id, req.OrganizationID, req.FleetType, req.FleetName, req.Capacity, req.Description,
 		req.Engine, req.Body, true, now, req.CreatedBy, 1)
 
 	if err != nil {
@@ -114,7 +115,7 @@ func (r *FleetRepository) CreateFleet(req *model.CreateFleetRequest) (string, er
 			r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
 		for _, fac := range req.Facilities {
 			fID := uuid2()
-			_, err := r.db.Exec(fQuery, fID, id, fac)
+			_, err := database.Exec(r.db, fQuery, fID, id, fac)
 			if err != nil {
 				return "", err
 			}
@@ -127,7 +128,7 @@ func (r *FleetRepository) CreateFleet(req *model.CreateFleetRequest) (string, er
 			r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))
 		for _, p := range req.Pickup {
 			pID := uuid2()
-			_, err := r.db.Exec(pQuery, pID, id, req.OrganizationID, p.CityID)
+			_, err := database.Exec(r.db, pQuery, pID, id, req.OrganizationID, p.CityID)
 			if err != nil {
 				return "", err
 			}
@@ -140,7 +141,7 @@ func (r *FleetRepository) CreateFleet(req *model.CreateFleetRequest) (string, er
 			r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6))
 		for _, a := range req.Addon {
 			aID := uuid2()
-			_, err := r.db.Exec(aQuery, aID, id, req.OrganizationID, a.AddonName, a.AddonDesc, a.AddonPrice)
+			_, err := database.Exec(r.db, aQuery, aID, id, req.OrganizationID, a.AddonName, a.AddonDesc, a.AddonPrice)
 			if err != nil {
 				return "", err
 			}
@@ -153,7 +154,7 @@ func (r *FleetRepository) CreateFleet(req *model.CreateFleetRequest) (string, er
 			r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9))
 		for _, pr := range req.Pricing {
 			prID := uuid2()
-			_, err := r.db.Exec(prQuery, prID, id, req.OrganizationID, pr.Duration, pr.RentType, pr.Price, pr.DiscAmount, pr.DiscPrice, pr.Uom)
+			_, err := database.Exec(r.db, prQuery, prID, id, req.OrganizationID, pr.Duration, pr.RentType, pr.Price, pr.DiscAmount, pr.DiscPrice, pr.Uom)
 			if err != nil {
 				return "", err
 			}
@@ -166,7 +167,7 @@ func (r *FleetRepository) CreateFleet(req *model.CreateFleetRequest) (string, er
 			r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
 		for _, img := range req.Images {
 			iID := uuid2()
-			_, err := r.db.Exec(iQuery, iID, id, img.PathFile)
+			_, err := database.Exec(r.db, iQuery, iID, id, img.PathFile)
 			if err != nil {
 				return "", err
 			}
@@ -201,7 +202,8 @@ func (r *FleetRepository) UpdateFleet(req *model.UpdateFleetRequest) error {
 		r.getPlaceholder(13),
 	)
 
-	res, err := tx.Exec(
+	res, err := database.TxExec(
+		tx,
 		updateFleetQuery,
 		req.FleetType,
 		req.FleetName,
@@ -231,14 +233,14 @@ func (r *FleetRepository) UpdateFleet(req *model.UpdateFleetRequest) error {
 			if it.UUID == "" {
 				newID := uuid2()
 				insertQuery := fmt.Sprintf("INSERT INTO fleet_facilities (uuid, fleet_id, facility) VALUES (%s, %s, %s)", r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
-				if _, err := tx.Exec(insertQuery, newID, req.FleetID, it.Facility); err != nil {
+				if _, err := database.TxExec(tx, insertQuery, newID, req.FleetID, it.Facility); err != nil {
 					return err
 				}
 				keepIDs = append(keepIDs, newID)
 				continue
 			}
 			updateQuery := fmt.Sprintf("UPDATE fleet_facilities SET facility = %s WHERE uuid = %s AND fleet_id = %s", r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
-			if _, err := tx.Exec(updateQuery, it.Facility, it.UUID, req.FleetID); err != nil {
+			if _, err := database.TxExec(tx, updateQuery, it.Facility, it.UUID, req.FleetID); err != nil {
 				return err
 			}
 			keepIDs = append(keepIDs, it.UUID)
@@ -246,7 +248,7 @@ func (r *FleetRepository) UpdateFleet(req *model.UpdateFleetRequest) error {
 
 		if len(keepIDs) == 0 {
 			delQuery := fmt.Sprintf("DELETE FROM fleet_facilities WHERE fleet_id = %s", r.getPlaceholder(1))
-			if _, err := tx.Exec(delQuery, req.FleetID); err != nil {
+			if _, err := database.TxExec(tx, delQuery, req.FleetID); err != nil {
 				return err
 			}
 		} else {
@@ -258,7 +260,7 @@ func (r *FleetRepository) UpdateFleet(req *model.UpdateFleetRequest) error {
 				args = append(args, id)
 			}
 			delQuery := fmt.Sprintf("DELETE FROM fleet_facilities WHERE fleet_id = %s AND uuid NOT IN (%s)", r.getPlaceholder(1), strings.Join(in, ","))
-			if _, err := tx.Exec(delQuery, args...); err != nil {
+			if _, err := database.TxExec(tx, delQuery, args...); err != nil {
 				return err
 			}
 		}
@@ -270,14 +272,14 @@ func (r *FleetRepository) UpdateFleet(req *model.UpdateFleetRequest) error {
 			if it.UUID == "" {
 				newID := uuid2()
 				insertQuery := fmt.Sprintf("INSERT INTO fleet_pickup (uuid, fleet_id, organization_id, city_id) VALUES (%s, %s, %s, %s)", r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))
-				if _, err := tx.Exec(insertQuery, newID, req.FleetID, req.OrganizationID, it.CityID); err != nil {
+				if _, err := database.TxExec(tx, insertQuery, newID, req.FleetID, req.OrganizationID, it.CityID); err != nil {
 					return err
 				}
 				keepIDs = append(keepIDs, newID)
 				continue
 			}
 			updateQuery := fmt.Sprintf("UPDATE fleet_pickup SET city_id = %s WHERE uuid = %s AND fleet_id = %s AND organization_id = %s", r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))
-			if _, err := tx.Exec(updateQuery, it.CityID, it.UUID, req.FleetID, req.OrganizationID); err != nil {
+			if _, err := database.TxExec(tx, updateQuery, it.CityID, it.UUID, req.FleetID, req.OrganizationID); err != nil {
 				return err
 			}
 			keepIDs = append(keepIDs, it.UUID)
@@ -285,7 +287,7 @@ func (r *FleetRepository) UpdateFleet(req *model.UpdateFleetRequest) error {
 
 		if len(keepIDs) == 0 {
 			delQuery := fmt.Sprintf("DELETE FROM fleet_pickup WHERE fleet_id = %s AND organization_id = %s", r.getPlaceholder(1), r.getPlaceholder(2))
-			if _, err := tx.Exec(delQuery, req.FleetID, req.OrganizationID); err != nil {
+			if _, err := database.TxExec(tx, delQuery, req.FleetID, req.OrganizationID); err != nil {
 				return err
 			}
 		} else {
@@ -297,7 +299,7 @@ func (r *FleetRepository) UpdateFleet(req *model.UpdateFleetRequest) error {
 				args = append(args, id)
 			}
 			delQuery := fmt.Sprintf("DELETE FROM fleet_pickup WHERE fleet_id = %s AND organization_id = %s AND uuid NOT IN (%s)", r.getPlaceholder(1), r.getPlaceholder(2), strings.Join(in, ","))
-			if _, err := tx.Exec(delQuery, args...); err != nil {
+			if _, err := database.TxExec(tx, delQuery, args...); err != nil {
 				return err
 			}
 		}
@@ -310,7 +312,7 @@ func (r *FleetRepository) UpdateFleet(req *model.UpdateFleetRequest) error {
 				newID := uuid2()
 				insertQuery := fmt.Sprintf("INSERT INTO fleet_addon (uuid, fleet_id, organization_id, addon_name, addon_desc, addon_price) VALUES (%s, %s, %s, %s, %s, %s)",
 					r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6))
-				if _, err := tx.Exec(insertQuery, newID, req.FleetID, req.OrganizationID, it.AddonName, it.AddonDesc, it.AddonPrice); err != nil {
+				if _, err := database.TxExec(tx, insertQuery, newID, req.FleetID, req.OrganizationID, it.AddonName, it.AddonDesc, it.AddonPrice); err != nil {
 					return err
 				}
 				keepIDs = append(keepIDs, newID)
@@ -318,7 +320,7 @@ func (r *FleetRepository) UpdateFleet(req *model.UpdateFleetRequest) error {
 			}
 			updateQuery := fmt.Sprintf("UPDATE fleet_addon SET addon_name = %s, addon_desc = %s, addon_price = %s WHERE uuid = %s AND fleet_id = %s AND organization_id = %s",
 				r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6))
-			if _, err := tx.Exec(updateQuery, it.AddonName, it.AddonDesc, it.AddonPrice, it.UUID, req.FleetID, req.OrganizationID); err != nil {
+			if _, err := database.TxExec(tx, updateQuery, it.AddonName, it.AddonDesc, it.AddonPrice, it.UUID, req.FleetID, req.OrganizationID); err != nil {
 				return err
 			}
 			keepIDs = append(keepIDs, it.UUID)
@@ -326,7 +328,7 @@ func (r *FleetRepository) UpdateFleet(req *model.UpdateFleetRequest) error {
 
 		if len(keepIDs) == 0 {
 			delQuery := fmt.Sprintf("DELETE FROM fleet_addon WHERE fleet_id = %s AND organization_id = %s", r.getPlaceholder(1), r.getPlaceholder(2))
-			if _, err := tx.Exec(delQuery, req.FleetID, req.OrganizationID); err != nil {
+			if _, err := database.TxExec(tx, delQuery, req.FleetID, req.OrganizationID); err != nil {
 				return err
 			}
 		} else {
@@ -338,7 +340,7 @@ func (r *FleetRepository) UpdateFleet(req *model.UpdateFleetRequest) error {
 				args = append(args, id)
 			}
 			delQuery := fmt.Sprintf("DELETE FROM fleet_addon WHERE fleet_id = %s AND organization_id = %s AND uuid NOT IN (%s)", r.getPlaceholder(1), r.getPlaceholder(2), strings.Join(in, ","))
-			if _, err := tx.Exec(delQuery, args...); err != nil {
+			if _, err := database.TxExec(tx, delQuery, args...); err != nil {
 				return err
 			}
 		}
@@ -351,7 +353,7 @@ func (r *FleetRepository) UpdateFleet(req *model.UpdateFleetRequest) error {
 				newID := uuid2()
 				insertQuery := fmt.Sprintf("INSERT INTO fleet_prices (uuid, fleet_id, organization_id, duration, rent_type, price, disc_amount, disc_price, uom) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
 					r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9))
-				if _, err := tx.Exec(insertQuery, newID, req.FleetID, req.OrganizationID, it.Duration, it.RentType, it.Price, it.DiscAmount, it.DiscPrice, it.Uom); err != nil {
+				if _, err := database.TxExec(tx, insertQuery, newID, req.FleetID, req.OrganizationID, it.Duration, it.RentType, it.Price, it.DiscAmount, it.DiscPrice, it.Uom); err != nil {
 					return err
 				}
 				keepIDs = append(keepIDs, newID)
@@ -359,7 +361,7 @@ func (r *FleetRepository) UpdateFleet(req *model.UpdateFleetRequest) error {
 			}
 			updateQuery := fmt.Sprintf("UPDATE fleet_prices SET duration = %s, rent_type = %s, price = %s, disc_amount = %s, disc_price = %s, uom = %s WHERE uuid = %s AND fleet_id = %s AND organization_id = %s",
 				r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9))
-			if _, err := tx.Exec(updateQuery, it.Duration, it.RentType, it.Price, it.DiscAmount, it.DiscPrice, it.Uom, it.UUID, req.FleetID, req.OrganizationID); err != nil {
+			if _, err := database.TxExec(tx, updateQuery, it.Duration, it.RentType, it.Price, it.DiscAmount, it.DiscPrice, it.Uom, it.UUID, req.FleetID, req.OrganizationID); err != nil {
 				return err
 			}
 			keepIDs = append(keepIDs, it.UUID)
@@ -367,7 +369,7 @@ func (r *FleetRepository) UpdateFleet(req *model.UpdateFleetRequest) error {
 
 		if len(keepIDs) == 0 {
 			delQuery := fmt.Sprintf("DELETE FROM fleet_prices WHERE fleet_id = %s AND organization_id = %s", r.getPlaceholder(1), r.getPlaceholder(2))
-			if _, err := tx.Exec(delQuery, req.FleetID, req.OrganizationID); err != nil {
+			if _, err := database.TxExec(tx, delQuery, req.FleetID, req.OrganizationID); err != nil {
 				return err
 			}
 		} else {
@@ -379,7 +381,7 @@ func (r *FleetRepository) UpdateFleet(req *model.UpdateFleetRequest) error {
 				args = append(args, id)
 			}
 			delQuery := fmt.Sprintf("DELETE FROM fleet_prices WHERE fleet_id = %s AND organization_id = %s AND uuid NOT IN (%s)", r.getPlaceholder(1), r.getPlaceholder(2), strings.Join(in, ","))
-			if _, err := tx.Exec(delQuery, args...); err != nil {
+			if _, err := database.TxExec(tx, delQuery, args...); err != nil {
 				return err
 			}
 		}
@@ -391,14 +393,14 @@ func (r *FleetRepository) UpdateFleet(req *model.UpdateFleetRequest) error {
 			if it.UUID == "" {
 				newID := uuid2()
 				insertQuery := fmt.Sprintf("INSERT INTO fleet_images (uuid, fleet_id, path_file) VALUES (%s, %s, %s)", r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
-				if _, err := tx.Exec(insertQuery, newID, req.FleetID, it.PathFile); err != nil {
+				if _, err := database.TxExec(tx, insertQuery, newID, req.FleetID, it.PathFile); err != nil {
 					return err
 				}
 				keepIDs = append(keepIDs, newID)
 				continue
 			}
 			updateQuery := fmt.Sprintf("UPDATE fleet_images SET path_file = %s WHERE uuid = %s AND fleet_id = %s", r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
-			if _, err := tx.Exec(updateQuery, it.PathFile, it.UUID, req.FleetID); err != nil {
+			if _, err := database.TxExec(tx, updateQuery, it.PathFile, it.UUID, req.FleetID); err != nil {
 				return err
 			}
 			keepIDs = append(keepIDs, it.UUID)
@@ -406,7 +408,7 @@ func (r *FleetRepository) UpdateFleet(req *model.UpdateFleetRequest) error {
 
 		if len(keepIDs) == 0 {
 			delQuery := fmt.Sprintf("DELETE FROM fleet_images WHERE fleet_id = %s", r.getPlaceholder(1))
-			if _, err := tx.Exec(delQuery, req.FleetID); err != nil {
+			if _, err := database.TxExec(tx, delQuery, req.FleetID); err != nil {
 				return err
 			}
 		} else {
@@ -418,7 +420,7 @@ func (r *FleetRepository) UpdateFleet(req *model.UpdateFleetRequest) error {
 				args = append(args, id)
 			}
 			delQuery := fmt.Sprintf("DELETE FROM fleet_images WHERE fleet_id = %s AND uuid NOT IN (%s)", r.getPlaceholder(1), strings.Join(in, ","))
-			if _, err := tx.Exec(delQuery, args...); err != nil {
+			if _, err := database.TxExec(tx, delQuery, args...); err != nil {
 				return err
 			}
 		}
@@ -437,7 +439,7 @@ func (r *FleetRepository) GetFleetDetail(id, orgID string) (*model.FleetDetailRe
 
 	var res model.FleetDetailResponse
 	res.Meta.FleetID = id
-	err := r.db.QueryRow(query, id, orgID).Scan(
+	err := database.QueryRow(r.db, query, id, orgID).Scan(
 		&res.Meta.FleetName, &res.Meta.FleetType, &res.Meta.Capacity, &res.Meta.Engine,
 		&res.Meta.Body, &res.Meta.Description, &res.Meta.Active, &res.Meta.Status, &res.Meta.Thumbnail,
 	)
@@ -465,7 +467,7 @@ func (r *FleetRepository) GetFleetDetail(id, orgID string) (*model.FleetDetailRe
 
 func (r *FleetRepository) GetFleetFacilities(fleetID string) ([]string, error) {
 	query := fmt.Sprintf("SELECT facility FROM fleet_facilities WHERE fleet_id = %s", r.getPlaceholder(1))
-	rows, err := r.db.Query(query, fleetID)
+	rows, err := database.Query(r.db, query, fleetID)
 	if err != nil {
 		return nil, err
 	}
@@ -495,7 +497,7 @@ func (r *FleetRepository) GetFleetPricing(orgID, fleetID string) ([]model.FleetP
 		query = fmt.Sprintf(query, r.getPlaceholder(1))
 	}
 
-	rows, err := r.db.Query(query, args...)
+	rows, err := database.Query(r.db, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -538,19 +540,19 @@ func (r *FleetRepository) CreateOrder(req *model.CreateOrderRequest) error {
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
 		r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), configs.PaymentStatusWaitingPayment, r.getPlaceholder(11), r.getPlaceholder(12))
 
-	_, _ = tx.Exec("SAVEPOINT sp_orders")
-	_, err = tx.Exec(orderQueryFull, orderID, req.FleetID, req.StartDate, req.EndDate, req.PickupCityID, req.PickupLocation, req.Qty, req.PriceID, now, totalAmount, req.OrganizationID, req.AdditionalRequest)
+	_, _ = database.TxExec(tx, "SAVEPOINT sp_orders")
+	_, err = database.TxExec(tx, orderQueryFull, orderID, req.FleetID, req.StartDate, req.EndDate, req.PickupCityID, req.PickupLocation, req.Qty, req.PriceID, now, totalAmount, req.OrganizationID, req.AdditionalRequest)
 	if err != nil {
 		errMsg := strings.ToLower(err.Error())
 		if strings.Contains(errMsg, "unknown column") || strings.Contains(errMsg, "does not exist") {
-			_, _ = tx.Exec("ROLLBACK TO SAVEPOINT sp_orders")
+			_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_orders")
 			orderQueryLegacy := fmt.Sprintf(`
 				INSERT INTO fleet_orders (order_id, fleet_id, start_date, end_date, pickup_city_id, pickup_location, unit_qty, price_id, created_at, total_amount, status, payment_status, organization_id)
 				VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 2, %d, %s)
 			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
 				r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), configs.PaymentStatusWaitingPayment, r.getPlaceholder(11))
 
-			_, err = tx.Exec(orderQueryLegacy, orderID, req.FleetID, req.StartDate, req.EndDate, req.PickupCityID, req.PickupLocation, req.Qty, req.PriceID, now, totalAmount, req.OrganizationID)
+			_, err = database.TxExec(tx, orderQueryLegacy, orderID, req.FleetID, req.StartDate, req.EndDate, req.PickupCityID, req.PickupLocation, req.Qty, req.PriceID, now, totalAmount, req.OrganizationID)
 			if err != nil {
 				fmt.Println("error create orders legacy", err)
 				return err
@@ -560,7 +562,7 @@ func (r *FleetRepository) CreateOrder(req *model.CreateOrderRequest) error {
 			return err
 		}
 	}
-	_, _ = tx.Exec("RELEASE SAVEPOINT sp_orders")
+	_, _ = database.TxExec(tx, "RELEASE SAVEPOINT sp_orders")
 
 	// 2. Insert fleet_orders_customers
 	custID := uuid2()
@@ -569,7 +571,7 @@ func (r *FleetRepository) CreateOrder(req *model.CreateOrderRequest) error {
 		VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8))
 
-	_, err = tx.Exec(custQuery, custID, orderID, req.Fullname, req.Phone, req.Email, req.Address, now, req.OrganizationID)
+	_, err = database.TxExec(tx, custQuery, custID, orderID, req.Fullname, req.Phone, req.Email, req.Address, now, req.OrganizationID)
 	if err != nil {
 		fmt.Println("error create customer orders", err)
 		return err
@@ -583,7 +585,7 @@ func (r *FleetRepository) CreateOrder(req *model.CreateOrderRequest) error {
 		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))
 		for _, addonID := range req.Addons {
 			id := uuid2()
-			res, err := tx.Exec(addonQuery, id, orderID, now, addonID)
+			res, err := database.TxExec(tx, addonQuery, id, orderID, now, addonID)
 			if err != nil {
 				fmt.Println("error create addon orders", err)
 				return err
@@ -603,7 +605,7 @@ func (r *FleetRepository) CreateOrder(req *model.CreateOrderRequest) error {
 		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5))
 		for _, dest := range req.Destinations {
 			id := uuid2()
-			_, err := tx.Exec(destQuery, id, orderID, dest.CityID, dest.Location, now)
+			_, err = database.TxExec(tx, destQuery, id, orderID, dest.CityID, dest.Location, now)
 			if err != nil {
 				fmt.Println("error create dest orders", err)
 				return err
@@ -638,31 +640,31 @@ func (r *FleetRepository) CreatePartnerOrder(orderID, fleetID, startDate, endDat
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
 		r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), configs.PaymentStatusWaitingPayment, r.getPlaceholder(11), r.getPlaceholder(12), r.getPlaceholder(13))
 
-	_, _ = tx.Exec("SAVEPOINT sp_orders")
-	_, err = tx.Exec(insertWithCreatedBy, orderID, fleetID, startDate, endDate, pickupCityID, pickupLocation, qty, priceID, now, totalAmount, orgID, createdBy, additionalRequest)
+	_, _ = database.TxExec(tx, "SAVEPOINT sp_orders")
+	_, err = database.TxExec(tx, insertWithCreatedBy, orderID, fleetID, startDate, endDate, pickupCityID, pickupLocation, qty, priceID, now, totalAmount, orgID, createdBy, additionalRequest)
 	if err != nil {
 		errMsg := strings.ToLower(err.Error())
 		if strings.Contains(errMsg, "unknown column") || strings.Contains(errMsg, "does not exist") {
-			_, _ = tx.Exec("ROLLBACK TO SAVEPOINT sp_orders")
+			_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_orders")
 			insertWithoutCreatedBy := fmt.Sprintf(`
 				INSERT INTO fleet_orders (order_id, fleet_id, start_date, end_date, pickup_city_id, pickup_location, unit_qty, price_id, created_at, total_amount, status, payment_status, organization_id, additional_request)
 				VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 2, %d, %s, %s)
 			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
 				r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), configs.PaymentStatusWaitingPayment, r.getPlaceholder(11), r.getPlaceholder(12))
 
-			_, _ = tx.Exec("SAVEPOINT sp_orders_2")
-			_, err = tx.Exec(insertWithoutCreatedBy, orderID, fleetID, startDate, endDate, pickupCityID, pickupLocation, qty, priceID, now, totalAmount, orgID, additionalRequest)
+			_, _ = database.TxExec(tx, "SAVEPOINT sp_orders_2")
+			_, err = database.TxExec(tx, insertWithoutCreatedBy, orderID, fleetID, startDate, endDate, pickupCityID, pickupLocation, qty, priceID, now, totalAmount, orgID, additionalRequest)
 			if err != nil {
 				errMsg2 := strings.ToLower(err.Error())
 				if strings.Contains(errMsg2, "additional_request") {
-					// Fallback to even simpler if additional_request is missing too
-					_, _ = tx.Exec("ROLLBACK TO SAVEPOINT sp_orders_2")
+					// Fallback if additional_request missing
+					_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_orders_2")
 					insertLegacy := fmt.Sprintf(`
 						INSERT INTO fleet_orders (order_id, fleet_id, start_date, end_date, pickup_city_id, pickup_location, unit_qty, price_id, created_at, total_amount, status, payment_status, organization_id)
 						VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 2, %d, %s)
 					`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
 						r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), configs.PaymentStatusWaitingPayment, r.getPlaceholder(11))
-					_, err = tx.Exec(insertLegacy, orderID, fleetID, startDate, endDate, pickupCityID, pickupLocation, qty, priceID, now, totalAmount, orgID)
+					_, err = database.TxExec(tx, insertLegacy, orderID, fleetID, startDate, endDate, pickupCityID, pickupLocation, qty, priceID, now, totalAmount, orgID)
 					if err != nil {
 						return fmt.Errorf("insert fleet_orders legacy: %w", err)
 					}
@@ -670,19 +672,19 @@ func (r *FleetRepository) CreatePartnerOrder(orderID, fleetID, startDate, endDat
 					return fmt.Errorf("insert fleet_orders without created_by: %w", err)
 				}
 			}
-			_, _ = tx.Exec("RELEASE SAVEPOINT sp_orders_2")
+			_, _ = database.TxExec(tx, "RELEASE SAVEPOINT sp_orders_2")
 		} else {
 			return fmt.Errorf("insert fleet_orders full: %w", err)
 		}
 	}
-	_, _ = tx.Exec("RELEASE SAVEPOINT sp_orders")
+	_, _ = database.TxExec(tx, "RELEASE SAVEPOINT sp_orders")
 
 	custOrderWithCreatedBy := fmt.Sprintf(`
 		INSERT INTO customer_orders (order_id, customer_id, order_type, created_at, created_by, organization_id)
 		VALUES (%s, %s, 1, %s, %s, %s)
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5))
-	_, _ = tx.Exec("SAVEPOINT sp_custorders")
-	_, err = tx.Exec(custOrderWithCreatedBy, orderID, customerID, now, createdBy, orgID)
+	_, _ = database.TxExec(tx, "SAVEPOINT sp_custorders")
+	_, err = database.TxExec(tx, custOrderWithCreatedBy, orderID, customerID, now, createdBy, orgID)
 	if err != nil {
 		errMsg := strings.ToLower(err.Error())
 		if strings.Contains(errMsg, "unknown column") || strings.Contains(errMsg, "does not exist") {
@@ -690,8 +692,8 @@ func (r *FleetRepository) CreatePartnerOrder(orderID, fleetID, startDate, endDat
 				INSERT INTO customer_orders (order_id, customer_id, order_type, created_at, organization_id)
 				VALUES (%s, %s, 1, %s, %s)
 			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))
-			_, _ = tx.Exec("ROLLBACK TO SAVEPOINT sp_custorders")
-			_, err = tx.Exec(custOrderWithoutCreatedBy, orderID, customerID, now, orgID)
+			_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_custorders")
+			_, err = database.TxExec(tx, custOrderWithoutCreatedBy, orderID, customerID, now, orgID)
 			if err != nil {
 				return fmt.Errorf("insert customer_orders: %w", err)
 			}
@@ -699,7 +701,7 @@ func (r *FleetRepository) CreatePartnerOrder(orderID, fleetID, startDate, endDat
 			return fmt.Errorf("insert customer_orders: %w", err)
 		}
 	}
-	_, _ = tx.Exec("RELEASE SAVEPOINT sp_custorders")
+	_, _ = database.TxExec(tx, "RELEASE SAVEPOINT sp_custorders")
 
 	if len(itinerary) > 0 {
 		mode := 0
@@ -719,26 +721,26 @@ func (r *FleetRepository) CreatePartnerOrder(orderID, fleetID, startDate, endDat
 		for _, it := range itinerary {
 			id := uuid2()
 			for {
-				_, _ = tx.Exec("SAVEPOINT sp_it")
+				_, _ = database.TxExec(tx, "SAVEPOINT sp_it")
 				if mode == 0 {
-					_, err = tx.Exec(itineraryWithCreatedBy, id, orderID, it.Day, it.CityID, it.Destination, orgID, now, createdBy)
+					_, err = database.TxExec(tx, itineraryWithCreatedBy, id, orderID, it.Day, it.CityID, it.Destination, orgID, now, createdBy)
 				} else if mode == 1 {
-					_, err = tx.Exec(itineraryWithoutCreatedBy, id, orderID, it.Day, it.CityID, it.Destination, orgID, now)
+					_, err = database.TxExec(tx, itineraryWithoutCreatedBy, id, orderID, it.Day, it.CityID, it.Destination, orgID, now)
 				} else {
-					_, err = tx.Exec(destQuery, id, orderID, it.CityID, it.Destination, now)
+					_, err = database.TxExec(tx, destQuery, id, orderID, it.CityID, it.Destination, now)
 				}
 				if err == nil {
-					_, _ = tx.Exec("RELEASE SAVEPOINT sp_it")
+					_, _ = database.TxExec(tx, "RELEASE SAVEPOINT sp_it")
 					break
 				}
 				errMsg := strings.ToLower(err.Error())
 				if mode == 0 && (strings.Contains(errMsg, "unknown column") || strings.Contains(errMsg, "does not exist")) {
-					_, _ = tx.Exec("ROLLBACK TO SAVEPOINT sp_it")
+					_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_it")
 					mode = 1
 					continue
 				}
 				if mode != 2 && (strings.Contains(errMsg, "doesn't exist") || strings.Contains(errMsg, "does not exist") || strings.Contains(errMsg, "relation") || strings.Contains(errMsg, "unknown table")) {
-					_, _ = tx.Exec("ROLLBACK TO SAVEPOINT sp_it")
+					_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_it")
 					mode = 2
 					continue
 				}
@@ -773,26 +775,26 @@ func (r *FleetRepository) CreatePartnerOrder(orderID, fleetID, startDate, endDat
 			id := uuid2()
 			var res sql.Result
 			for {
-				_, _ = tx.Exec("SAVEPOINT sp_addon")
+				_, _ = database.TxExec(tx, "SAVEPOINT sp_addon")
 				if mode == 0 {
-					res, err = tx.Exec(addonWithCreatedBy, id, orderID, orgID, addonQty, now, createdBy, a.AddonID)
+					res, err = database.TxExec(tx, addonWithCreatedBy, id, orderID, orgID, addonQty, now, createdBy, a.AddonID)
 				} else if mode == 1 {
-					res, err = tx.Exec(addonWithoutCreatedBy, id, orderID, orgID, addonQty, now, a.AddonID)
+					res, err = database.TxExec(tx, addonWithoutCreatedBy, id, orderID, orgID, addonQty, now, a.AddonID)
 				} else {
-					res, err = tx.Exec(addonLegacy, id, orderID, now, a.AddonID)
+					res, err = database.TxExec(tx, addonLegacy, id, orderID, now, a.AddonID)
 				}
 				if err == nil {
-					_, _ = tx.Exec("RELEASE SAVEPOINT sp_addon")
+					_, _ = database.TxExec(tx, "RELEASE SAVEPOINT sp_addon")
 					break
 				}
 				errMsg := strings.ToLower(err.Error())
 				if mode == 0 && (strings.Contains(errMsg, "unknown column") || strings.Contains(errMsg, "does not exist")) {
-					_, _ = tx.Exec("ROLLBACK TO SAVEPOINT sp_addon")
+					_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_addon")
 					mode = 1
 					continue
 				}
 				if mode == 1 && (strings.Contains(errMsg, "unknown column") || strings.Contains(errMsg, "does not exist")) {
-					_, _ = tx.Exec("ROLLBACK TO SAVEPOINT sp_addon")
+					_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_addon")
 					mode = 2
 					continue
 				}
@@ -823,7 +825,7 @@ func (r *FleetRepository) GetFleetOrderSummary(fleetID, priceID string) (*model.
 
 	res := &model.OrderFleetSummaryResponse{}
 
-	err := r.db.QueryRow(query, fleetID, priceID).Scan(
+	err := database.QueryRow(r.db, query, fleetID, priceID).Scan(
 		&res.FleetName, &res.Capacity, &res.Engine, &res.Body, &res.Description, &res.Active, &res.Thumbnail,
 		&res.Duration, &res.RentType, &res.Price, &res.Uom,
 	)
@@ -833,7 +835,7 @@ func (r *FleetRepository) GetFleetOrderSummary(fleetID, priceID string) (*model.
 
 	// Facilities
 	fQuery := fmt.Sprintf("SELECT facility FROM fleet_facilities WHERE fleet_id = %s", r.getPlaceholder(1))
-	rows, err := r.db.Query(fQuery, fleetID)
+	rows, err := database.Query(r.db, fQuery, fleetID)
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
@@ -846,7 +848,7 @@ func (r *FleetRepository) GetFleetOrderSummary(fleetID, priceID string) (*model.
 
 	// Pickup Points
 	pQuery := fmt.Sprintf("SELECT city_id FROM fleet_pickup WHERE fleet_id = %s", r.getPlaceholder(1))
-	pRows, err := r.db.Query(pQuery, fleetID)
+	pRows, err := database.Query(r.db, pQuery, fleetID)
 	if err == nil {
 		defer pRows.Close()
 		for pRows.Next() {
@@ -867,7 +869,7 @@ func (r *FleetRepository) GetFleetPrices(orgID, fleetID string) ([]model.FleetPr
 		WHERE fleet_id = %s ORDER BY price
 	`, r.getPlaceholder(1))
 
-	rows, err := r.db.Query(query, fleetID)
+	rows, err := database.Query(r.db, query, fleetID)
 	if err != nil {
 		return nil, err
 	}
@@ -898,7 +900,7 @@ func (r *FleetRepository) GetFleetPriceListByRentType(fleetID string, rentType i
 		ORDER BY price
 	`, r.getPlaceholder(1), r.getPlaceholder(2))
 
-	rows, err := r.db.Query(query, fleetID, rentType)
+	rows, err := database.Query(r.db, query, fleetID, rentType)
 	if err != nil {
 		return nil, err
 	}
@@ -915,12 +917,8 @@ func (r *FleetRepository) GetFleetPriceListByRentType(fleetID string, rentType i
 	return items, nil
 }
 
-// GetCities from DB if needed? No, currently reading from JSON in Service.
-// But fleet_pickup uses city_id (int).
-// The user asked to fix GetFleetPickup TODO.
-// If cities are in JSON, we can't join in SQL.
-// So we just return IDs and let Service map them.
-
+// GetCities returns city IDs
+// Map cities in Service layer
 func (r *FleetRepository) GetFleetPickup(orgID, fleetID string) ([]model.FleetPickupItem, error) {
 	query := `
         SELECT uuid, city_id, '' as city_name 
@@ -936,7 +934,7 @@ func (r *FleetRepository) GetFleetPickup(orgID, fleetID string) ([]model.FleetPi
 		query = fmt.Sprintf(query, r.getPlaceholder(1))
 	}
 
-	rows, err := r.db.Query(query, args...)
+	rows, err := database.Query(r.db, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -973,7 +971,7 @@ func (r *FleetRepository) GetOrderList(req *model.GetOrderListRequest) ([]model.
 	query += fmt.Sprintf(" ORDER BY fo.created_at DESC LIMIT %s OFFSET %s", r.getPlaceholder(len(args)+1), r.getPlaceholder(len(args)+2))
 	args = append(args, req.Limit, offset)
 
-	rows, err := r.db.Query(query, args...)
+	rows, err := database.Query(r.db, query, args...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -997,21 +995,20 @@ func (r *FleetRepository) GetOrderList(req *model.GetOrderListRequest) ([]model.
 		countArgs = append(countArgs, req.Status)
 	}
 	var total int
-	r.db.QueryRow(countQuery, countArgs...).Scan(&total)
+	database.QueryRow(r.db, countQuery, countArgs...).Scan(&total)
 
 	return items, total, nil
 }
 
 func (r *FleetRepository) GetOrderDetail(orderID, priceID, organizationID string) (*model.OrderDetailResponse, error) {
-	// Reusing FindOrderDetail logic but adding priceID check if needed
-	// For now just call FindOrderDetail as priceID is inside order table
+	// Reusing FindOrderDetail logic
 	return r.FindOrderDetail(orderID, organizationID)
 }
 
 func (r *FleetRepository) GetFleetOrderTotalAmount(orderID, priceID, organizationID string) (float64, error) {
 	query := fmt.Sprintf("SELECT total_amount FROM fleet_orders WHERE order_id = %s AND organization_id = %s", r.getPlaceholder(1), r.getPlaceholder(2))
 	var amount float64
-	err := r.db.QueryRow(query, orderID, organizationID).Scan(&amount)
+	err := database.QueryRow(r.db, query, orderID, organizationID).Scan(&amount)
 	return amount, err
 }
 
@@ -1023,7 +1020,7 @@ func (r *FleetRepository) GetFleetOrderPaymentsByOrderID(orderID, organizationID
 		ORDER BY created_at ASC
 	`, r.getPlaceholder(1), r.getPlaceholder(2))
 
-	rows, err := r.db.Query(query, orderID, organizationID)
+	rows, err := database.Query(r.db, query, orderID, organizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -1505,7 +1502,7 @@ func (r *FleetRepository) GetFleetAddon(orgID, fleetID string) ([]model.FleetAdd
 		query = fmt.Sprintf(query, r.getPlaceholder(1))
 	}
 
-	rows, err := r.db.Query(query, args...)
+	rows, err := database.Query(r.db, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1522,7 +1519,7 @@ func (r *FleetRepository) GetFleetAddon(orgID, fleetID string) ([]model.FleetAdd
 
 func (r *FleetRepository) GetFleetImages(fleetID string) ([]model.FleetImageItem, error) {
 	query := fmt.Sprintf("SELECT uuid, path_file FROM fleet_images WHERE fleet_id = %s", r.getPlaceholder(1))
-	rows, err := r.db.Query(query, fleetID)
+	rows, err := database.Query(r.db, query, fleetID)
 	if err != nil {
 		return nil, err
 	}
@@ -1561,7 +1558,7 @@ func (r *FleetRepository) GetServiceFleets(page, perPage int) ([]model.ServiceFl
         LIMIT %d OFFSET %d
     `, groupConcat, perPage, offset)
 
-	rows, err := r.db.Query(query)
+	rows, err := database.Query(r.db, query)
 	if err != nil {
 		return nil, err
 	}
@@ -1603,7 +1600,7 @@ func (r *FleetRepository) GetAvailableCities(orgID string) ([]int, error) {
 		GROUP BY city_id
 	`, r.getPlaceholder(1))
 
-	rows, err := r.db.Query(query, orgID)
+	rows, err := database.Query(r.db, query, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -1622,7 +1619,7 @@ func (r *FleetRepository) GetAvailableCities(orgID string) ([]int, error) {
 func (r *FleetRepository) GetFleetOrgID(fleetID string) (string, error) {
 	query := fmt.Sprintf("SELECT organization_id FROM fleets WHERE uuid = %s", r.getPlaceholder(1))
 	var orgID string
-	err := r.db.QueryRow(query, fleetID).Scan(&orgID)
+	err := database.QueryRow(r.db, query, fleetID).Scan(&orgID)
 	return orgID, err
 }
 
@@ -1682,7 +1679,7 @@ func (r *FleetRepository) GetFleetDetailMeta(orgID, fleetID string) (*model.Flee
 	var transmission sql.NullString
 	// FleetDetailMeta: CreatedAt string `json:"created_at"`
 
-	err := r.db.QueryRow(query, args...).Scan(
+	err := database.QueryRow(r.db, query, args...).Scan(
 		&meta.FleetID,
 		&fleetType,
 		&fleetTypeLabel,
@@ -1733,7 +1730,7 @@ func (r *FleetRepository) GetPriceByID(priceID string) (float64, int, error) {
 	query := fmt.Sprintf("SELECT price, rent_type FROM fleet_prices WHERE uuid = %s", r.getPlaceholder(1))
 	var price float64
 	var rentType int
-	err := r.db.QueryRow(query, priceID).Scan(&price, &rentType)
+	err := database.QueryRow(r.db, query, priceID).Scan(&price, &rentType)
 	return price, rentType, err
 }
 
@@ -1765,7 +1762,7 @@ func (r *FleetRepository) GetAddonPrices(addonIDs []string) (map[string]float64,
 		args[i] = id
 	}
 	query := fmt.Sprintf("SELECT uuid, addon_price FROM fleet_addon WHERE uuid IN (%s)", strings.Join(placeholders, ","))
-	rows, err := r.db.Query(query, args...)
+	rows, err := database.Query(r.db, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1802,21 +1799,21 @@ func (r *FleetRepository) GetAddonPriceSum(addonIDs []string) (float64, error) {
 	}
 	query := fmt.Sprintf("SELECT COALESCE(SUM(addon_price), 0) FROM fleet_addon WHERE uuid IN (%s)", strings.Join(placeholders, ","))
 	var total float64
-	err := r.db.QueryRow(query, args...).Scan(&total)
+	err := database.QueryRow(r.db, query, args...).Scan(&total)
 	return total, err
 }
 
 func (r *FleetRepository) GetOrderCountByOrgID(orgID string) (int, error) {
 	query := fmt.Sprintf("SELECT COUNT(*) FROM fleet_orders WHERE organization_id = %s", r.getPlaceholder(1))
 	var count int
-	err := r.db.QueryRow(query, orgID).Scan(&count)
+	err := database.QueryRow(r.db, query, orgID).Scan(&count)
 	return count, err
 }
 
 func (r *FleetRepository) GetOrganizationCodeByOrgID(orgID string) (string, error) {
 	query := fmt.Sprintf("SELECT organization_code FROM organizations WHERE organization_id = %s", r.getPlaceholder(1))
 	var code string
-	err := r.db.QueryRow(query, orgID).Scan(&code)
+	err := database.QueryRow(r.db, query, orgID).Scan(&code)
 	return code, err
 }
 

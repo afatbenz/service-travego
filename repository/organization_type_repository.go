@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"fmt"
+	"service-travego/database"
 	"service-travego/model"
 )
 
@@ -18,7 +19,7 @@ func NewOrganizationTypeRepository(db *sql.DB, driver string) *OrganizationTypeR
 	}
 }
 
-// getPlaceholder returns the appropriate placeholder for the database driver
+// getPlaceholder returns query placeholder
 func (r *OrganizationTypeRepository) getPlaceholder(pos int) string {
 	if r.driver == "mysql" {
 		return "?"
@@ -26,7 +27,7 @@ func (r *OrganizationTypeRepository) getPlaceholder(pos int) string {
 	return fmt.Sprintf("$%d", pos)
 }
 
-// FindAll retrieves all organization types ordered by name ascending
+// FindAll retrieves organization types
 func (r *OrganizationTypeRepository) FindAll() ([]model.OrganizationType, error) {
 	query := `
         SELECT id, name
@@ -34,7 +35,7 @@ func (r *OrganizationTypeRepository) FindAll() ([]model.OrganizationType, error)
         ORDER BY name ASC
     `
 
-	rows, err := r.db.Query(query)
+	rows, err := database.Query(r.db, query)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +57,7 @@ func (r *OrganizationTypeRepository) FindAll() ([]model.OrganizationType, error)
 	return orgTypes, nil
 }
 
-// FindByID retrieves an organization type by id
+// FindByID retrieves org type
 func (r *OrganizationTypeRepository) FindByID(id int) (*model.OrganizationType, error) {
 	query := fmt.Sprintf(`
         SELECT id, name
@@ -65,7 +66,7 @@ func (r *OrganizationTypeRepository) FindByID(id int) (*model.OrganizationType, 
     `, r.getPlaceholder(1))
 
 	var orgType model.OrganizationType
-	err := r.db.QueryRow(query, id).Scan(&orgType.ID, &orgType.Name)
+	err := database.QueryRow(r.db, query, id).Scan(&orgType.ID, &orgType.Name)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, sql.ErrNoRows

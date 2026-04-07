@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"fmt"
+	"service-travego/database"
 	"service-travego/model"
 	"time"
 )
@@ -19,7 +20,7 @@ func NewUserRepository(db *sql.DB, driver string) *UserRepository {
 	}
 }
 
-// getPlaceholder returns the appropriate placeholder for the database driver
+// getPlaceholder returns query placeholder
 func (r *UserRepository) getPlaceholder(pos int) string {
 	if r.driver == "mysql" {
 		return "?"
@@ -27,7 +28,7 @@ func (r *UserRepository) getPlaceholder(pos int) string {
 	return fmt.Sprintf("$%d", pos)
 }
 
-// FindAll retrieves all users from database
+// FindAll retrieves users
 func (r *UserRepository) FindAll() ([]model.User, error) {
 	query := `
 		SELECT user_id, fullname, email, password, phone, address, created_at, updated_at, deleted_at
@@ -36,7 +37,7 @@ func (r *UserRepository) FindAll() ([]model.User, error) {
 		ORDER BY created_at DESC
 	`
 
-	rows, err := r.db.Query(query)
+	rows, err := database.Query(r.db, query)
 	if err != nil {
 		return nil, err
 	}
@@ -83,34 +84,43 @@ func (r *UserRepository) FindAll() ([]model.User, error) {
 	return users, nil
 }
 
-// FindByID retrieves a user by ID (UUID) from database
+// FindByID retrieves user
 // Implementation is in user_repository_uuid.go
 
-// FindByEmail retrieves a user by email from database (UUID with all fields)
+// FindByEmail retrieves user
 // Implementation is in user_repository_uuid.go
 
-// Create inserts a new user into database with UUID
+// Create inserts user
 // Implementation is in user_repository_uuid.go
 
-// Update updates an existing user in database
+// Update updates user
 func (r *UserRepository) Update(user *model.User) (*model.User, error) {
 	user.UpdatedAt = time.Now()
 
 	if r.driver == "postgres" {
 		query := fmt.Sprintf(`
-			UPDATE users
-			SET fullname = %s, email = %s, phone = %s, address = %s, updated_at = %s
-			WHERE user_id = %s AND deleted_at IS NULL
-			RETURNING created_at
-		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
-			r.getPlaceholder(5), r.getPlaceholder(6))
+            UPDATE users
+            SET fullname = %s, email = %s, phone = %s, address = %s, city = %s, province = %s, postal_code = %s, 
+                npwp = %s, gender = %s, date_of_birth = %s, updated_at = %s
+            WHERE user_id = %s
+            RETURNING created_at
+        `, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
+			r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8),
+			r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12))
 
-		err := r.db.QueryRow(
+		err := database.QueryRow(
+			r.db,
 			query,
 			user.Name,
 			user.Email,
 			user.Phone,
 			user.Address,
+			user.City,
+			user.Province,
+			user.PostalCode,
+			user.NPWP,
+			user.Gender,
+			user.DateOfBirth,
 			user.UpdatedAt,
 			user.UserID,
 		).Scan(&user.CreatedAt)
@@ -123,36 +133,30 @@ func (r *UserRepository) Update(user *model.User) (*model.User, error) {
 		}
 	} else {
 		query := fmt.Sprintf(`
-			UPDATE users
-			SET fullname = %s, email = %s, phone = %s, address = %s, updated_at = %s
-			WHERE user_id = %s AND deleted_at IS NULL
-		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
-			r.getPlaceholder(5), r.getPlaceholder(6))
+            UPDATE users
+            SET fullname = %s, email = %s, phone = %s, address = %s, city = %s, province = %s, postal_code = %s,
+                npwp = %s, gender = %s, date_of_birth = %s, updated_at = %s
+            WHERE user_id = %s
+        `, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
+			r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8),
+			r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12))
 
-		result, err := r.db.Exec(
+		_, err := database.Exec(
+			r.db,
 			query,
 			user.Name,
 			user.Email,
 			user.Phone,
 			user.Address,
+			user.City,
+			user.Province,
+			user.PostalCode,
+			user.NPWP,
+			user.Gender,
+			user.DateOfBirth,
 			user.UpdatedAt,
 			user.UserID,
 		)
-		if err != nil {
-			return nil, err
-		}
-
-		rowsAffected, err := result.RowsAffected()
-		if err != nil {
-			return nil, err
-		}
-
-		if rowsAffected == 0 {
-			return nil, sql.ErrNoRows
-		}
-
-		// For MySQL, we need to fetch the created_at separately
-		err = r.db.QueryRow(fmt.Sprintf("SELECT created_at FROM users WHERE user_id = %s", r.getPlaceholder(1)), user.UserID).Scan(&user.CreatedAt)
 		if err != nil {
 			return nil, err
 		}
@@ -161,5 +165,9 @@ func (r *UserRepository) Update(user *model.User) (*model.User, error) {
 	return user, nil
 }
 
-// Delete soft deletes a user from database (UUID)
-// Implementation is in user_repository_uuid.go
+// Delete soft deletes user
+func (r *UserRepository) Delete(id string) error {
+	query := fmt.Sprintf("UPDATE users SET deleted_at = %s WHERE user_id = %s", r.getPlaceholder(1), r.getPlaceholder(2))
+	_, err := database.Exec(r.db, query, time.Now(), id)
+	return err
+}

@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"fmt"
+	"service-travego/database"
 	"service-travego/model"
 	"time"
 )
@@ -19,7 +20,7 @@ func NewOrganizationUserRepository(db *sql.DB, driver string) *OrganizationUserR
 	}
 }
 
-// getPlaceholder returns the appropriate placeholder for the database driver
+// getPlaceholder returns query placeholder
 func (r *OrganizationUserRepository) getPlaceholder(pos int) string {
 	if r.driver == "mysql" {
 		return "?"
@@ -27,8 +28,7 @@ func (r *OrganizationUserRepository) getPlaceholder(pos int) string {
 	return fmt.Sprintf("$%d", pos)
 }
 
-// GetOrganizationAndRoleByUserID retrieves organization_id and organization_role for a user
-// Returns organization_id and organization_role from organization_users table where user_id matches and is_active = true
+// GetOrganizationAndRoleByUserID retrieves organization_id
 func (r *OrganizationUserRepository) GetOrganizationAndRoleByUserID(userID string) (organizationID string, roleUser int, err error) {
 	query := fmt.Sprintf(`
 		SELECT organization_id, organization_role
@@ -37,7 +37,7 @@ func (r *OrganizationUserRepository) GetOrganizationAndRoleByUserID(userID strin
 		LIMIT 1
 	`, r.getPlaceholder(1))
 
-	err = r.db.QueryRow(query, userID).Scan(&organizationID, &roleUser)
+	err = database.QueryRow(r.db, query, userID).Scan(&organizationID, &roleUser)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return "", 0, sql.ErrNoRows
@@ -48,7 +48,7 @@ func (r *OrganizationUserRepository) GetOrganizationAndRoleByUserID(userID strin
 	return organizationID, roleUser, nil
 }
 
-// CheckUserInOrganization checks if a user exists in organization_users for a given organization_id
+// CheckUserInOrganization checks user existence
 func (r *OrganizationUserRepository) CheckUserInOrganization(userID, organizationID string) (bool, error) {
 	query := fmt.Sprintf(`
 		SELECT COUNT(*) 
@@ -57,7 +57,7 @@ func (r *OrganizationUserRepository) CheckUserInOrganization(userID, organizatio
 	`, r.getPlaceholder(1), r.getPlaceholder(2))
 
 	var count int
-	err := r.db.QueryRow(query, userID, organizationID).Scan(&count)
+	err := database.QueryRow(r.db, query, userID, organizationID).Scan(&count)
 	if err != nil {
 		return false, err
 	}
@@ -65,9 +65,9 @@ func (r *OrganizationUserRepository) CheckUserInOrganization(userID, organizatio
 	return count > 0, nil
 }
 
-// CreateOrganizationUser inserts a new organization_user record
+// CreateOrganizationUser inserts new record
 func (r *OrganizationUserRepository) CreateOrganizationUser(orgUser *model.OrganizationUser) error {
-    query := fmt.Sprintf(`
+	query := fmt.Sprintf(`
         INSERT INTO organization_users (
             uuid, user_id, organization_id, organization_role, is_active, created_at, created_by, updated_at, updated_by
         )
@@ -75,35 +75,36 @@ func (r *OrganizationUserRepository) CreateOrganizationUser(orgUser *model.Organ
         FROM users u, organizations o
         WHERE u.user_id = %s AND o.organization_id = %s
     `,
-        r.getPlaceholder(1), // uuid
-        r.getPlaceholder(4), // organization_role
-        r.getPlaceholder(5), // is_active
-        r.getPlaceholder(6), // created_at
-        r.getPlaceholder(7), // created_by
-        r.getPlaceholder(8), // updated_at
-        r.getPlaceholder(9), // updated_by
-        r.getPlaceholder(2), // filter users.user_id
-        r.getPlaceholder(3), // filter organizations.organization_id
-    )
+		r.getPlaceholder(1), // uuid
+		r.getPlaceholder(4),
+		r.getPlaceholder(5),
+		r.getPlaceholder(6),
+		r.getPlaceholder(7),
+		r.getPlaceholder(8),
+		r.getPlaceholder(9),
+		r.getPlaceholder(2),
+		r.getPlaceholder(3),
+	)
 
-    _, err := r.db.Exec(
-        query,
-        orgUser.UUID,
-        orgUser.OrganizationRole,
-        orgUser.IsActive,
-        orgUser.CreatedAt,
-        orgUser.CreatedBy,
-        orgUser.UpdatedAt,
-        orgUser.UpdatedBy,
-        orgUser.UserID,
-        orgUser.OrganizationID,
-    )
+	_, err := database.Exec(
+		r.db,
+		query,
+		orgUser.UUID,
+		orgUser.OrganizationRole,
+		orgUser.IsActive,
+		orgUser.CreatedAt,
+		orgUser.CreatedBy,
+		orgUser.UpdatedAt,
+		orgUser.UpdatedBy,
+		orgUser.UserID,
+		orgUser.OrganizationID,
+	)
 
-    return err
+	return err
 }
 
-// UpdateOrganizationUserRole updates the organization_role for an existing organization_user
-func (r *OrganizationUserRepository) UpdateOrganizationUserRole(userID, organizationID string, roleUser int) error {
+// UpdateOrganizationUserRole updates role
+func (r *OrganizationUserRepository) UpdateOrganizationUserRole(userID, organizationID string, role int) error {
 	query := fmt.Sprintf(`
 		UPDATE organization_users
 		SET organization_role = %s, updated_at = %s
@@ -114,7 +115,7 @@ func (r *OrganizationUserRepository) UpdateOrganizationUserRole(userID, organiza
 	return err
 }
 
-// GetUsersByOrganizationID retrieves all users in an organization
+// GetUsersByOrganizationID retrieves users
 func (r *OrganizationUserRepository) GetUsersByOrganizationID(organizationID string) ([]model.OrganizationUser, error) {
 	query := fmt.Sprintf(`
 		SELECT uuid, user_id, organization_id, organization_role, is_active, created_at, created_by, updated_at, updated_by
@@ -122,7 +123,7 @@ func (r *OrganizationUserRepository) GetUsersByOrganizationID(organizationID str
 		WHERE organization_id = %s
 	`, r.getPlaceholder(1))
 
-	rows, err := r.db.Query(query, organizationID)
+	rows, err := database.Query(r.db, query, organizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -155,8 +156,7 @@ func (r *OrganizationUserRepository) GetUsersByOrganizationID(organizationID str
 	return orgUsers, nil
 }
 
-// GetOrganizationWithJoinDateByUserID retrieves organization data with join date (created_at from organization_users)
-// Returns organization_code, organization_name, company_name, join_date (created_at), and organization_role
+// GetOrganizationWithJoinDateByUserID retrieves data
 func (r *OrganizationUserRepository) GetOrganizationWithJoinDateByUserID(userID string) (organizationCode, organizationName, companyName string, joinDate time.Time, organizationRole int, err error) {
 	query := fmt.Sprintf(`
 		SELECT o.organization_code, o.organization_name, o.company_name, ou.created_at, ou.organization_role
@@ -167,7 +167,7 @@ func (r *OrganizationUserRepository) GetOrganizationWithJoinDateByUserID(userID 
 		LIMIT 1
 	`, r.getPlaceholder(1))
 
-	err = r.db.QueryRow(query, userID).Scan(&organizationCode, &organizationName, &companyName, &joinDate, &organizationRole)
+	err = database.QueryRow(r.db, query, userID).Scan(&organizationCode, &organizationName, &companyName, &joinDate, &organizationRole)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return "", "", "", time.Time{}, 0, sql.ErrNoRows
@@ -178,7 +178,7 @@ func (r *OrganizationUserRepository) GetOrganizationWithJoinDateByUserID(userID 
 	return organizationCode, organizationName, companyName, joinDate, organizationRole, nil
 }
 
-// GetRoleByUserIDAndOrgID retrieves organization role for a user in a specific organization
+// GetRoleByUserIDAndOrgID retrieves role
 func (r *OrganizationUserRepository) GetRoleByUserIDAndOrgID(userID, organizationID string) (int, error) {
 	query := fmt.Sprintf(`
 		SELECT organization_role
@@ -187,7 +187,7 @@ func (r *OrganizationUserRepository) GetRoleByUserIDAndOrgID(userID, organizatio
 	`, r.getPlaceholder(1), r.getPlaceholder(2))
 
 	var role int
-	err := r.db.QueryRow(query, userID, organizationID).Scan(&role)
+	err := database.QueryRow(r.db, query, userID, organizationID).Scan(&role)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return 0, sql.ErrNoRows

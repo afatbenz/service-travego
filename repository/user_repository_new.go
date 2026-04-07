@@ -3,13 +3,14 @@ package repository
 import (
 	"database/sql"
 	"fmt"
+	"service-travego/database"
 	"service-travego/model"
 	"time"
 )
 
-// This file contains additional methods for UUID support
+// UUID support methods
 
-// FindByUsername retrieves a user by username from database
+// FindByUsername retrieves user
 func (r *UserRepository) FindByUsername(username string) (*model.User, error) {
 	query := fmt.Sprintf(`
         SELECT user_id, username, fullname, email, password, phone, address, city, province, postal_code, 
@@ -23,7 +24,7 @@ func (r *UserRepository) FindByUsername(username string) (*model.User, error) {
 	var fullname, address, city, province, postalCode, npwp, gender sql.NullString
 	var isAdmin sql.NullBool
 
-	err := r.db.QueryRow(query, username).Scan(
+	err := database.QueryRow(r.db, query, username).Scan(
 		&user.UserID,
 		&user.Username,
 		&fullname,
@@ -82,7 +83,7 @@ func (r *UserRepository) FindByUsername(username string) (*model.User, error) {
 	return &user, nil
 }
 
-// FindByPhone retrieves a user by phone number from database
+// FindByPhone retrieves user
 func (r *UserRepository) FindByPhone(phone string) (*model.User, error) {
 	query := fmt.Sprintf(`
         SELECT user_id, username, fullname, email, password, phone, address, city, province, postal_code,
@@ -96,7 +97,7 @@ func (r *UserRepository) FindByPhone(phone string) (*model.User, error) {
 	var fullname, address, city, province, postalCode, npwp, gender sql.NullString
 	var isAdmin sql.NullBool
 
-	err := r.db.QueryRow(query, phone).Scan(
+	err := database.QueryRow(r.db, query, phone).Scan(
 		&user.UserID,
 		&user.Username,
 		&fullname,
@@ -155,8 +156,8 @@ func (r *UserRepository) FindByPhone(phone string) (*model.User, error) {
 	return &user, nil
 }
 
-// VerifyUser sets is_verified to true for a user
-func (r *UserRepository) VerifyUser(id string) error {
+// VerifyUser sets verified
+func (r *UserRepository) VerifyUser(userID string) error {
 	query := fmt.Sprintf(`
 		UPDATE users
 		SET is_verified = %s, verified_at = %s, updated_at = %s
