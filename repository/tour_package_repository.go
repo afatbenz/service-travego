@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"service-travego/database"
 	"service-travego/model"
 	"strings"
 	"time"
@@ -52,16 +53,16 @@ func (r *TourPackageRepository) GetTourPackagesByOrgID(orgID string) ([]model.To
 		GROUP BY tp.uuid, tp.package_name, tp.thumbnail, tp.package_description, tp.status, tp.active
 	`
 
-	// Adjust query placeholder
+	// Set query placeholder
 	query = fmt.Sprintf(query, r.getPlaceholder(1))
 
-	rows, err := r.db.Query(query, orgID)
+	rows, err := database.Query(r.db, query, orgID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	items := []model.TourPackageListItem{} // Initialize as empty slice
+	items := []model.TourPackageListItem{} // Initialize empty slice
 	for rows.Next() {
 		var item model.TourPackageListItem
 
@@ -136,7 +137,7 @@ func (r *TourPackageRepository) CreateTourPackage(ctx context.Context, req *mode
 		query += `(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	}
 
-	_, err = tx.ExecContext(ctx, query,
+	_, err = database.TxExecContext(ctx, tx, query,
 		packageID,
 		req.PackageName,
 		req.PackageType,
@@ -146,7 +147,7 @@ func (r *TourPackageRepository) CreateTourPackage(ctx context.Context, req *mode
 		orgID,
 		userID,
 		now,
-		1, // Status default 1
+		1, // Default status 1
 	)
 	if err != nil {
 		log.Printf("[ERROR] CreateTourPackage failed - Path: %s, Error: %v", ctx.Value("path"), err)
@@ -162,14 +163,8 @@ func (r *TourPackageRepository) CreateTourPackage(ctx context.Context, req *mode
 			addonQuery += `(?, ?, ?, ?, ?, ?, ?)`
 		}
 
-		stmt, err := tx.PrepareContext(ctx, addonQuery)
-		if err != nil {
-			return err
-		}
-		defer stmt.Close()
-
 		for _, addon := range req.Addons {
-			_, err = stmt.ExecContext(ctx, uuid.New().String(), packageID, orgID, addon.Description, addon.Price, now, userID)
+			_, err = database.TxExecContext(ctx, tx, addonQuery, uuid.New().String(), packageID, orgID, addon.Description, addon.Price, now, userID)
 			if err != nil {
 				return err
 			}
@@ -185,14 +180,8 @@ func (r *TourPackageRepository) CreateTourPackage(ctx context.Context, req *mode
 			facilityQuery += `(?, ?, ?, ?, ?, ?)`
 		}
 
-		stmt, err := tx.PrepareContext(ctx, facilityQuery)
-		if err != nil {
-			return err
-		}
-		defer stmt.Close()
-
 		for _, facility := range req.Facilities {
-			_, err = stmt.ExecContext(ctx, uuid.New().String(), packageID, orgID, facility, now, userID)
+			_, err = database.TxExecContext(ctx, tx, facilityQuery, uuid.New().String(), packageID, orgID, facility, now, userID)
 			if err != nil {
 				return err
 			}
@@ -208,19 +197,13 @@ func (r *TourPackageRepository) CreateTourPackage(ctx context.Context, req *mode
 			itinQuery += `(?, ?, ?, ?, ?, ?, ?, ?, ?)`
 		}
 
-		stmt, err := tx.PrepareContext(ctx, itinQuery)
-		if err != nil {
-			return err
-		}
-		defer stmt.Close()
-
 		for _, day := range req.Itineraries {
 			for _, act := range day.Activities {
 				activityTime := act.Time
 				if activityTime == "" {
 					activityTime = "00:00:00"
 				}
-				_, err = stmt.ExecContext(ctx, uuid.New().String(), packageID, orgID, activityTime, act.Description, act.Location, act.City.ID, now, userID)
+				_, err = database.TxExecContext(ctx, tx, itinQuery, uuid.New().String(), packageID, orgID, activityTime, act.Description, act.Location, act.City.ID, now, userID)
 				if err != nil {
 					return err
 				}
@@ -237,14 +220,8 @@ func (r *TourPackageRepository) CreateTourPackage(ctx context.Context, req *mode
 			pickupQuery += `(?, ?, ?, ?, ?, ?)`
 		}
 
-		stmt, err := tx.PrepareContext(ctx, pickupQuery)
-		if err != nil {
-			return err
-		}
-		defer stmt.Close()
-
 		for _, area := range req.PickupAreas {
-			_, err = stmt.ExecContext(ctx, uuid.New().String(), packageID, orgID, area.ID, now, userID)
+			_, err = database.TxExecContext(ctx, tx, pickupQuery, uuid.New().String(), packageID, orgID, area.ID, now, userID)
 			if err != nil {
 				return err
 			}
@@ -260,14 +237,8 @@ func (r *TourPackageRepository) CreateTourPackage(ctx context.Context, req *mode
 			priceQuery += `(?, ?, ?, ?, ?, ?, ?, ?)`
 		}
 
-		stmt, err := tx.PrepareContext(ctx, priceQuery)
-		if err != nil {
-			return err
-		}
-		defer stmt.Close()
-
 		for _, price := range req.Pricing {
-			_, err = stmt.ExecContext(ctx, uuid.New().String(), packageID, orgID, price.MinPax, price.MaxPax, price.Price, now, userID)
+			_, err = database.TxExecContext(ctx, tx, priceQuery, uuid.New().String(), packageID, orgID, price.MinPax, price.MaxPax, price.Price, now, userID)
 			if err != nil {
 				return err
 			}
@@ -283,14 +254,8 @@ func (r *TourPackageRepository) CreateTourPackage(ctx context.Context, req *mode
 			imageQuery += `(?, ?, ?, ?, ?, ?)`
 		}
 
-		stmt, err := tx.PrepareContext(ctx, imageQuery)
-		if err != nil {
-			return err
-		}
-		defer stmt.Close()
-
 		for _, img := range req.Images {
-			_, err = stmt.ExecContext(ctx, uuid.New().String(), packageID, orgID, img, now, userID)
+			_, err = database.TxExecContext(ctx, tx, imageQuery, uuid.New().String(), packageID, orgID, img, now, userID)
 			if err != nil {
 				return err
 			}
@@ -323,8 +288,9 @@ func (r *TourPackageRepository) UpdateTourPackage(ctx context.Context, req *mode
 		r.getPlaceholder(9),
 	)
 
-	res, err := tx.ExecContext(
+	res, err := database.TxExecContext(
 		ctx,
+		tx,
 		updateQuery,
 		req.PackageName,
 		req.PackageType,
@@ -355,7 +321,7 @@ func (r *TourPackageRepository) UpdateTourPackage(ctx context.Context, req *mode
 				} else {
 					ins += `(?, ?, ?, ?, ?, ?, ?)`
 				}
-				if _, err := tx.ExecContext(ctx, ins, newID, req.PackageID, orgID, it.Description, it.Price, now, userID); err != nil {
+				if _, err := database.TxExecContext(ctx, tx, ins, newID, req.PackageID, orgID, it.Description, it.Price, now, userID); err != nil {
 					return err
 				}
 				keep = append(keep, newID)
@@ -364,7 +330,7 @@ func (r *TourPackageRepository) UpdateTourPackage(ctx context.Context, req *mode
 
 			upd := `UPDATE tour_package_addons SET description = %s, price = %s WHERE uuid = %s AND package_id = %s AND organization_id = %s`
 			upd = fmt.Sprintf(upd, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5))
-			if _, err := tx.ExecContext(ctx, upd, it.Description, it.Price, it.UUID, req.PackageID, orgID); err != nil {
+			if _, err := database.TxExecContext(ctx, tx, upd, it.Description, it.Price, it.UUID, req.PackageID, orgID); err != nil {
 				return err
 			}
 			keep = append(keep, it.UUID)
@@ -372,7 +338,7 @@ func (r *TourPackageRepository) UpdateTourPackage(ctx context.Context, req *mode
 
 		if len(keep) == 0 {
 			del := fmt.Sprintf("DELETE FROM tour_package_addons WHERE package_id = %s AND organization_id = %s", r.getPlaceholder(1), r.getPlaceholder(2))
-			if _, err := tx.ExecContext(ctx, del, req.PackageID, orgID); err != nil {
+			if _, err := database.TxExecContext(ctx, tx, del, req.PackageID, orgID); err != nil {
 				return err
 			}
 		} else {
@@ -384,7 +350,7 @@ func (r *TourPackageRepository) UpdateTourPackage(ctx context.Context, req *mode
 				args = append(args, id)
 			}
 			del := fmt.Sprintf("DELETE FROM tour_package_addons WHERE package_id = %s AND organization_id = %s AND uuid NOT IN (%s)", r.getPlaceholder(1), r.getPlaceholder(2), strings.Join(ph, ","))
-			if _, err := tx.ExecContext(ctx, del, args...); err != nil {
+			if _, err := database.TxExecContext(ctx, tx, del, args...); err != nil {
 				return err
 			}
 		}
@@ -401,7 +367,7 @@ func (r *TourPackageRepository) UpdateTourPackage(ctx context.Context, req *mode
 				} else {
 					ins += `(?, ?, ?, ?, ?, ?)`
 				}
-				if _, err := tx.ExecContext(ctx, ins, newID, req.PackageID, orgID, it.Facility, now, userID); err != nil {
+				if _, err := database.TxExecContext(ctx, tx, ins, newID, req.PackageID, orgID, it.Facility, now, userID); err != nil {
 					return err
 				}
 				keep = append(keep, newID)
@@ -409,7 +375,7 @@ func (r *TourPackageRepository) UpdateTourPackage(ctx context.Context, req *mode
 			}
 			upd := `UPDATE tour_package_facilities SET facility = %s, updated_at = %s, updated_by = %s WHERE uuid = %s AND package_id = %s AND organization_id = %s`
 			upd = fmt.Sprintf(upd, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6))
-			if _, err := tx.ExecContext(ctx, upd, it.Facility, now, userID, it.UUID, req.PackageID, orgID); err != nil {
+			if _, err := database.TxExecContext(ctx, tx, upd, it.Facility, now, userID, it.UUID, req.PackageID, orgID); err != nil {
 				return err
 			}
 			keep = append(keep, it.UUID)
@@ -417,7 +383,7 @@ func (r *TourPackageRepository) UpdateTourPackage(ctx context.Context, req *mode
 
 		if len(keep) == 0 {
 			del := fmt.Sprintf("DELETE FROM tour_package_facilities WHERE package_id = %s AND organization_id = %s", r.getPlaceholder(1), r.getPlaceholder(2))
-			if _, err := tx.ExecContext(ctx, del, req.PackageID, orgID); err != nil {
+			if _, err := database.TxExecContext(ctx, tx, del, req.PackageID, orgID); err != nil {
 				return err
 			}
 		} else {
@@ -429,7 +395,7 @@ func (r *TourPackageRepository) UpdateTourPackage(ctx context.Context, req *mode
 				args = append(args, id)
 			}
 			del := fmt.Sprintf("DELETE FROM tour_package_facilities WHERE package_id = %s AND organization_id = %s AND uuid NOT IN (%s)", r.getPlaceholder(1), r.getPlaceholder(2), strings.Join(ph, ","))
-			if _, err := tx.ExecContext(ctx, del, args...); err != nil {
+			if _, err := database.TxExecContext(ctx, tx, del, args...); err != nil {
 				return err
 			}
 		}
@@ -446,7 +412,7 @@ func (r *TourPackageRepository) UpdateTourPackage(ctx context.Context, req *mode
 				} else {
 					ins += `(?, ?, ?, ?, ?, ?)`
 				}
-				if _, err := tx.ExecContext(ctx, ins, newID, req.PackageID, orgID, it.ID, now, userID); err != nil {
+				if _, err := database.TxExecContext(ctx, tx, ins, newID, req.PackageID, orgID, it.ID, now, userID); err != nil {
 					return err
 				}
 				keep = append(keep, newID)
@@ -454,7 +420,7 @@ func (r *TourPackageRepository) UpdateTourPackage(ctx context.Context, req *mode
 			}
 			upd := `UPDATE tour_package_pickup SET city_id = %s, updated_at = %s, updated_by = %s WHERE uuid = %s AND package_id = %s AND organization_id = %s`
 			upd = fmt.Sprintf(upd, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6))
-			if _, err := tx.ExecContext(ctx, upd, it.ID, now, userID, it.UUID, req.PackageID, orgID); err != nil {
+			if _, err := database.TxExecContext(ctx, tx, upd, it.ID, now, userID, it.UUID, req.PackageID, orgID); err != nil {
 				return err
 			}
 			keep = append(keep, it.UUID)
@@ -462,7 +428,7 @@ func (r *TourPackageRepository) UpdateTourPackage(ctx context.Context, req *mode
 
 		if len(keep) == 0 {
 			del := fmt.Sprintf("DELETE FROM tour_package_pickup WHERE package_id = %s AND organization_id = %s", r.getPlaceholder(1), r.getPlaceholder(2))
-			if _, err := tx.ExecContext(ctx, del, req.PackageID, orgID); err != nil {
+			if _, err := database.TxExecContext(ctx, tx, del, req.PackageID, orgID); err != nil {
 				return err
 			}
 		} else {
@@ -474,7 +440,7 @@ func (r *TourPackageRepository) UpdateTourPackage(ctx context.Context, req *mode
 				args = append(args, id)
 			}
 			del := fmt.Sprintf("DELETE FROM tour_package_pickup WHERE package_id = %s AND organization_id = %s AND uuid NOT IN (%s)", r.getPlaceholder(1), r.getPlaceholder(2), strings.Join(ph, ","))
-			if _, err := tx.ExecContext(ctx, del, args...); err != nil {
+			if _, err := database.TxExecContext(ctx, tx, del, args...); err != nil {
 				return err
 			}
 		}
@@ -491,7 +457,7 @@ func (r *TourPackageRepository) UpdateTourPackage(ctx context.Context, req *mode
 				} else {
 					ins += `(?, ?, ?, ?, ?, ?, ?, ?)`
 				}
-				if _, err := tx.ExecContext(ctx, ins, newID, req.PackageID, orgID, it.MinPax, it.MaxPax, it.Price, now, userID); err != nil {
+				if _, err := database.TxExecContext(ctx, tx, ins, newID, req.PackageID, orgID, it.MinPax, it.MaxPax, it.Price, now, userID); err != nil {
 					return err
 				}
 				keep = append(keep, newID)
@@ -499,7 +465,7 @@ func (r *TourPackageRepository) UpdateTourPackage(ctx context.Context, req *mode
 			}
 			upd := `UPDATE tour_package_prices SET min_pax = %s, max_pax = %s, price = %s, updated_at = %s, updated_by = %s WHERE uuid = %s AND package_id = %s AND organization_id = %s`
 			upd = fmt.Sprintf(upd, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8))
-			if _, err := tx.ExecContext(ctx, upd, it.MinPax, it.MaxPax, it.Price, now, userID, it.UUID, req.PackageID, orgID); err != nil {
+			if _, err := database.TxExecContext(ctx, tx, upd, it.MinPax, it.MaxPax, it.Price, now, userID, it.UUID, req.PackageID, orgID); err != nil {
 				return err
 			}
 			keep = append(keep, it.UUID)
@@ -507,7 +473,7 @@ func (r *TourPackageRepository) UpdateTourPackage(ctx context.Context, req *mode
 
 		if len(keep) == 0 {
 			del := fmt.Sprintf("DELETE FROM tour_package_prices WHERE package_id = %s AND organization_id = %s", r.getPlaceholder(1), r.getPlaceholder(2))
-			if _, err := tx.ExecContext(ctx, del, req.PackageID, orgID); err != nil {
+			if _, err := database.TxExecContext(ctx, tx, del, req.PackageID, orgID); err != nil {
 				return err
 			}
 		} else {
@@ -519,7 +485,7 @@ func (r *TourPackageRepository) UpdateTourPackage(ctx context.Context, req *mode
 				args = append(args, id)
 			}
 			del := fmt.Sprintf("DELETE FROM tour_package_prices WHERE package_id = %s AND organization_id = %s AND uuid NOT IN (%s)", r.getPlaceholder(1), r.getPlaceholder(2), strings.Join(ph, ","))
-			if _, err := tx.ExecContext(ctx, del, args...); err != nil {
+			if _, err := database.TxExecContext(ctx, tx, del, args...); err != nil {
 				return err
 			}
 		}
@@ -536,7 +502,7 @@ func (r *TourPackageRepository) UpdateTourPackage(ctx context.Context, req *mode
 				} else {
 					ins += `(?, ?, ?, ?, ?, ?)`
 				}
-				if _, err := tx.ExecContext(ctx, ins, newID, req.PackageID, orgID, it.ImagePath, now, userID); err != nil {
+				if _, err := database.TxExecContext(ctx, tx, ins, newID, req.PackageID, orgID, it.ImagePath, now, userID); err != nil {
 					return err
 				}
 				keep = append(keep, newID)
@@ -544,7 +510,7 @@ func (r *TourPackageRepository) UpdateTourPackage(ctx context.Context, req *mode
 			}
 			upd := `UPDATE tour_package_images SET image_path = %s WHERE uuid = %s AND package_id = %s AND organization_id = %s`
 			upd = fmt.Sprintf(upd, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))
-			if _, err := tx.ExecContext(ctx, upd, it.ImagePath, it.UUID, req.PackageID, orgID); err != nil {
+			if _, err := database.TxExecContext(ctx, tx, upd, it.ImagePath, it.UUID, req.PackageID, orgID); err != nil {
 				return err
 			}
 			keep = append(keep, it.UUID)
@@ -552,7 +518,7 @@ func (r *TourPackageRepository) UpdateTourPackage(ctx context.Context, req *mode
 
 		if len(keep) == 0 {
 			del := fmt.Sprintf("DELETE FROM tour_package_images WHERE package_id = %s AND organization_id = %s", r.getPlaceholder(1), r.getPlaceholder(2))
-			if _, err := tx.ExecContext(ctx, del, req.PackageID, orgID); err != nil {
+			if _, err := database.TxExecContext(ctx, tx, del, req.PackageID, orgID); err != nil {
 				return err
 			}
 		} else {
@@ -564,7 +530,7 @@ func (r *TourPackageRepository) UpdateTourPackage(ctx context.Context, req *mode
 				args = append(args, id)
 			}
 			del := fmt.Sprintf("DELETE FROM tour_package_images WHERE package_id = %s AND organization_id = %s AND uuid NOT IN (%s)", r.getPlaceholder(1), r.getPlaceholder(2), strings.Join(ph, ","))
-			if _, err := tx.ExecContext(ctx, del, args...); err != nil {
+			if _, err := database.TxExecContext(ctx, tx, del, args...); err != nil {
 				return err
 			}
 		}
@@ -587,7 +553,7 @@ func (r *TourPackageRepository) UpdateTourPackage(ctx context.Context, req *mode
 					} else {
 						ins += `(?, ?, ?, ?, ?, ?, ?, ?, ?)`
 					}
-					if _, err := tx.ExecContext(ctx, ins, newID, req.PackageID, orgID, activityTime, act.Description, act.Location, act.City.ID, now, userID); err != nil {
+					if _, err := database.TxExecContext(ctx, tx, ins, newID, req.PackageID, orgID, activityTime, act.Description, act.Location, act.City.ID, now, userID); err != nil {
 						return err
 					}
 					keep = append(keep, newID)
@@ -596,7 +562,7 @@ func (r *TourPackageRepository) UpdateTourPackage(ctx context.Context, req *mode
 
 				upd := `UPDATE tour_package_itineraries SET day = %s, activity = %s, location = %s, city_id = %s, updated_at = %s, updated_by = %s WHERE uuid = %s AND package_id = %s AND organization_id = %s`
 				upd = fmt.Sprintf(upd, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9))
-				if _, err := tx.ExecContext(ctx, upd, activityTime, act.Description, act.Location, act.City.ID, now, userID, act.UUID, req.PackageID, orgID); err != nil {
+				if _, err := database.TxExecContext(ctx, tx, upd, activityTime, act.Description, act.Location, act.City.ID, now, userID, act.UUID, req.PackageID, orgID); err != nil {
 					return err
 				}
 				keep = append(keep, act.UUID)
@@ -605,7 +571,7 @@ func (r *TourPackageRepository) UpdateTourPackage(ctx context.Context, req *mode
 
 		if len(keep) == 0 {
 			del := fmt.Sprintf("DELETE FROM tour_package_itineraries WHERE package_id = %s AND organization_id = %s", r.getPlaceholder(1), r.getPlaceholder(2))
-			if _, err := tx.ExecContext(ctx, del, req.PackageID, orgID); err != nil {
+			if _, err := database.TxExecContext(ctx, tx, del, req.PackageID, orgID); err != nil {
 				return err
 			}
 		} else {
@@ -617,7 +583,7 @@ func (r *TourPackageRepository) UpdateTourPackage(ctx context.Context, req *mode
 				args = append(args, id)
 			}
 			del := fmt.Sprintf("DELETE FROM tour_package_itineraries WHERE package_id = %s AND organization_id = %s AND uuid NOT IN (%s)", r.getPlaceholder(1), r.getPlaceholder(2), strings.Join(ph, ","))
-			if _, err := tx.ExecContext(ctx, del, args...); err != nil {
+			if _, err := database.TxExecContext(ctx, tx, del, args...); err != nil {
 				return err
 			}
 		}
@@ -659,7 +625,7 @@ func (r *TourPackageRepository) GetTourPackageDetail(ctx context.Context, orgID,
 		status        sql.NullInt64
 	)
 
-	err := r.db.QueryRowContext(ctx, metaQuery, packageID, orgID).Scan(
+	err := database.QueryRowContext(ctx, r.db, metaQuery, packageID, orgID).Scan(
 		&metaPackageID,
 		&packageName,
 		&packageType,
@@ -695,7 +661,7 @@ func (r *TourPackageRepository) GetTourPackageDetail(ctx context.Context, orgID,
 		ORDER BY date_start ASC
 	`
 	scheduleQuery = fmt.Sprintf(scheduleQuery, r.getPlaceholder(1), r.getPlaceholder(2))
-	scheduleRows, err := r.db.QueryContext(ctx, scheduleQuery, packageID, orgID)
+	scheduleRows, err := database.QueryContext(ctx, r.db, scheduleQuery, packageID, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -718,7 +684,7 @@ func (r *TourPackageRepository) GetTourPackageDetail(ctx context.Context, orgID,
 		ORDER BY min_pax ASC, max_pax ASC
 	`
 	priceQuery = fmt.Sprintf(priceQuery, r.getPlaceholder(1), r.getPlaceholder(2))
-	priceRows, err := r.db.QueryContext(ctx, priceQuery, packageID, orgID)
+	priceRows, err := database.QueryContext(ctx, r.db, priceQuery, packageID, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -743,7 +709,7 @@ func (r *TourPackageRepository) GetTourPackageDetail(ctx context.Context, orgID,
 		ORDER BY city_id ASC
 	`
 	pickupQuery = fmt.Sprintf(pickupQuery, r.getPlaceholder(1), r.getPlaceholder(2))
-	pickupRows, err := r.db.QueryContext(ctx, pickupQuery, packageID, orgID)
+	pickupRows, err := database.QueryContext(ctx, r.db, pickupQuery, packageID, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -763,7 +729,7 @@ func (r *TourPackageRepository) GetTourPackageDetail(ctx context.Context, orgID,
 		ORDER BY created_at ASC
 	`
 	imageQuery = fmt.Sprintf(imageQuery, r.getPlaceholder(1), r.getPlaceholder(2))
-	imageRows, err := r.db.QueryContext(ctx, imageQuery, packageID, orgID)
+	imageRows, err := database.QueryContext(ctx, r.db, imageQuery, packageID, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -785,7 +751,7 @@ func (r *TourPackageRepository) GetTourPackageDetail(ctx context.Context, orgID,
 		ORDER BY created_at ASC
 	`
 	itinQuery = fmt.Sprintf(itinQuery, r.getPlaceholder(1), r.getPlaceholder(2))
-	itinRows, err := r.db.QueryContext(ctx, itinQuery, packageID, orgID)
+	itinRows, err := database.QueryContext(ctx, r.db, itinQuery, packageID, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -815,7 +781,7 @@ func (r *TourPackageRepository) GetTourPackageDetail(ctx context.Context, orgID,
 		ORDER BY created_at ASC
 	`
 	facilityQuery = fmt.Sprintf(facilityQuery, r.getPlaceholder(1), r.getPlaceholder(2))
-	facilityRows, err := r.db.QueryContext(ctx, facilityQuery, packageID, orgID)
+	facilityRows, err := database.QueryContext(ctx, r.db, facilityQuery, packageID, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -837,7 +803,7 @@ func (r *TourPackageRepository) GetTourPackageDetail(ctx context.Context, orgID,
 		ORDER BY city_id ASC
 	`
 	destQuery = fmt.Sprintf(destQuery, r.getPlaceholder(1), r.getPlaceholder(2))
-	destRows, err := r.db.QueryContext(ctx, destQuery, packageID, orgID)
+	destRows, err := database.QueryContext(ctx, r.db, destQuery, packageID, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -861,7 +827,7 @@ func (r *TourPackageRepository) GetTourPackageDetail(ctx context.Context, orgID,
 		ORDER BY created_at ASC
 	`
 	addonQuery = fmt.Sprintf(addonQuery, r.getPlaceholder(1), r.getPlaceholder(2))
-	addonRows, err := r.db.QueryContext(ctx, addonQuery, packageID, orgID)
+	addonRows, err := database.QueryContext(ctx, r.db, addonQuery, packageID, orgID)
 	if err != nil {
 		return nil, err
 	}

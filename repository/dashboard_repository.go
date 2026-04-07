@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"math"
+	"service-travego/database"
 	"service-travego/model"
 	"time"
 )
@@ -74,7 +75,7 @@ func (r *DashboardRepository) getOrdersSummary(orgID string) (*model.DashboardOr
 		WHERE organization_id = %s
 	`, r.getPlaceholder(1))
 
-	err := r.db.QueryRow(queryTotal, orgID).Scan(&totalOrders)
+	err := database.QueryRow(r.db, queryTotal, orgID).Scan(&totalOrders)
 	if err != nil {
 		return nil, err
 	}
@@ -99,13 +100,13 @@ func (r *DashboardRepository) getOrdersSummary(orgID string) (*model.DashboardOr
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
 
 	// Current Month
-	err = r.db.QueryRow(queryMonth, orgID, startOfMonth, startOfNextMonth).Scan(&currentMonthCount)
+	err = database.QueryRow(r.db, queryMonth, orgID, startOfMonth, startOfNextMonth).Scan(&currentMonthCount)
 	if err != nil {
 		return nil, err
 	}
 
 	// Last Month
-	err = r.db.QueryRow(queryMonth, orgID, startOfLastMonth, startOfMonth).Scan(&lastMonthCount)
+	err = database.QueryRow(r.db, queryMonth, orgID, startOfLastMonth, startOfMonth).Scan(&lastMonthCount)
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +147,7 @@ func (r *DashboardRepository) getTransactionMetrics(orgID string) (*model.Dashbo
 		FROM customer_orders
 		WHERE organization_id = %s AND created_at >= %s AND created_at <= %s
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
-	if err := r.db.QueryRow(qTotal, orgID, from, now).Scan(&total); err != nil {
+	if err := database.QueryRow(r.db, qTotal, orgID, from, now).Scan(&total); err != nil {
 		return nil, err
 	}
 
@@ -163,10 +164,10 @@ func (r *DashboardRepository) getTransactionMetrics(orgID string) (*model.Dashbo
 		WHERE organization_id = %s AND created_at >= %s AND created_at < %s
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
 
-	if err := r.db.QueryRow(qMonth, orgID, startOfMonth, startOfNextMonth).Scan(&currentMonthCount); err != nil {
+	if err := database.QueryRow(r.db, qMonth, orgID, startOfMonth, startOfNextMonth).Scan(&currentMonthCount); err != nil {
 		return nil, err
 	}
-	if err := r.db.QueryRow(qMonth, orgID, startOfLastMonth, startOfMonth).Scan(&lastMonthCount); err != nil {
+	if err := database.QueryRow(r.db, qMonth, orgID, startOfLastMonth, startOfMonth).Scan(&lastMonthCount); err != nil {
 		return nil, err
 	}
 
@@ -195,7 +196,7 @@ func (r *DashboardRepository) getCustomerMetrics(orgID string) (*model.Dashboard
 		FROM customers
 		WHERE organization_id = %s AND created_at >= %s AND created_at <= %s
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
-	if err := r.db.QueryRow(qTotal, orgID, from, now).Scan(&total); err != nil {
+	if err := database.QueryRow(r.db, qTotal, orgID, from, now).Scan(&total); err != nil {
 		return nil, err
 	}
 
@@ -212,10 +213,10 @@ func (r *DashboardRepository) getCustomerMetrics(orgID string) (*model.Dashboard
 		WHERE organization_id = %s AND created_at >= %s AND created_at < %s
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
 
-	if err := r.db.QueryRow(qMonth, orgID, startOfMonth, startOfNextMonth).Scan(&currentMonthCount); err != nil {
+	if err := database.QueryRow(r.db, qMonth, orgID, startOfMonth, startOfNextMonth).Scan(&currentMonthCount); err != nil {
 		return nil, err
 	}
-	if err := r.db.QueryRow(qMonth, orgID, startOfLastMonth, startOfMonth).Scan(&lastMonthCount); err != nil {
+	if err := database.QueryRow(r.db, qMonth, orgID, startOfLastMonth, startOfMonth).Scan(&lastMonthCount); err != nil {
 		return nil, err
 	}
 

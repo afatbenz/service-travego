@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"fmt"
+	"service-travego/database"
 	"service-travego/model"
 )
 
@@ -18,7 +19,7 @@ func NewContentRepository(db *sql.DB, driver string) *ContentRepository {
 	}
 }
 
-// getPlaceholder returns the appropriate placeholder for the database driver
+// getPlaceholder returns query placeholder
 func (r *ContentRepository) getPlaceholder(pos int) string {
 	if r.driver == "mysql" {
 		return "?"
@@ -35,7 +36,7 @@ func (r *ContentRepository) FindByTagAndOrgID(sectionTag, orgID string) (*model.
     `, r.getPlaceholder(1), r.getPlaceholder(2))
 
 	var content model.Content
-	err := r.db.QueryRow(query, sectionTag, orgID).Scan(
+	err := database.QueryRow(r.db, query, sectionTag, orgID).Scan(
 		&content.UUID,
 		&content.SectionTag,
 		&content.Parent,
@@ -66,7 +67,7 @@ func (r *ContentRepository) FindByTagParentAndOrgID(sectionTag, parent, orgID st
     `, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
 
 	var content model.Content
-	err := r.db.QueryRow(query, sectionTag, parent, orgID).Scan(
+	err := database.QueryRow(r.db, query, sectionTag, parent, orgID).Scan(
 		&content.UUID,
 		&content.SectionTag,
 		&content.Parent,
@@ -100,7 +101,7 @@ func (r *ContentRepository) Create(content *model.Content) error {
 		r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11),
 	)
 
-	_, err := r.db.Exec(query,
+	_, err := database.Exec(r.db, query,
 		content.UUID,
 		content.SectionTag,
 		content.Parent,
@@ -128,7 +129,7 @@ func (r *ContentRepository) Update(content *model.Content) error {
 		r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8),
 	)
 
-	_, err := r.db.Exec(query,
+	_, err := database.Exec(r.db, query,
 		content.Content,
 		content.Type,
 		content.IsActive,
@@ -142,7 +143,7 @@ func (r *ContentRepository) Update(content *model.Content) error {
 	return err
 }
 
-// FindByParentAndOrgID retrieves content by parent and organization
+// FindByParentAndOrgID retrieves content
 func (r *ContentRepository) FindByParentAndOrgID(parent, orgID string) ([]model.Content, error) {
 	query := fmt.Sprintf(`
         SELECT uuid, section_tag, parent, type, is_active, content
@@ -150,7 +151,7 @@ func (r *ContentRepository) FindByParentAndOrgID(parent, orgID string) ([]model.
         WHERE parent = %s AND organization_id = %s
     `, r.getPlaceholder(1), r.getPlaceholder(2))
 
-	rows, err := r.db.Query(query, parent, orgID)
+	rows, err := database.Query(r.db, query, parent, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +169,7 @@ func (r *ContentRepository) FindByParentAndOrgID(parent, orgID string) ([]model.
 	return contents, nil
 }
 
-// FindAllByOrgID retrieves all content for an organization
+// FindAllByOrgID retrieves all content
 func (r *ContentRepository) FindAllByOrgID(orgID string) ([]model.Content, error) {
 	query := fmt.Sprintf(`
         SELECT uuid, section_tag, parent, type, is_active, content
@@ -176,7 +177,7 @@ func (r *ContentRepository) FindAllByOrgID(orgID string) ([]model.Content, error
         WHERE organization_id = %s
     `, r.getPlaceholder(1))
 
-	rows, err := r.db.Query(query, orgID)
+	rows, err := database.Query(r.db, query, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -202,7 +203,7 @@ func (r *ContentRepository) FindAllByOrgID(orgID string) ([]model.Content, error
 	return contents, nil
 }
 
-// FindByUUIDAndTagAndOrgID checks if content exists by uuid, section_tag and organization_id
+// FindByUUIDAndTagAndOrgID checks content
 func (r *ContentRepository) FindByUUIDAndTagAndOrgID(uuid, sectionTag, orgID string) (*model.Content, error) {
 	query := fmt.Sprintf(`
         SELECT uuid, section_tag, parent, type, is_active, content, organization_id, created_at, created_by, updated_at, updated_by
@@ -210,29 +211,17 @@ func (r *ContentRepository) FindByUUIDAndTagAndOrgID(uuid, sectionTag, orgID str
         WHERE uuid = %s AND section_tag = %s AND organization_id = %s
     `, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
 
-	var content model.Content
-	err := r.db.QueryRow(query, uuid, sectionTag, orgID).Scan(
-		&content.UUID,
-		&content.SectionTag,
-		&content.Parent,
-		&content.Type,
-		&content.IsActive,
-		&content.Content,
-		&content.OrganizationID,
-		&content.CreatedAt,
-		&content.CreatedBy,
-		&content.UpdatedAt,
-		&content.UpdatedBy,
+	var c model.Content
+	err := database.QueryRow(r.db, query, uuid, sectionTag, orgID).Scan(
+		&c.UUID, &c.SectionTag, &c.Parent, &c.Type, &c.IsActive, &c.Content, &c.OrganizationID, &c.CreatedAt, &c.CreatedBy, &c.UpdatedAt, &c.UpdatedBy,
 	)
-
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, nil
+			return nil, sql.ErrNoRows
 		}
 		return nil, err
 	}
-
-	return &content, nil
+	return &c, nil
 }
 
 func (r *ContentRepository) InsertContentListItems(items []model.ContentListItem) error {
@@ -246,7 +235,7 @@ func (r *ContentRepository) InsertContentListItems(items []model.ContentListItem
         `,
 			r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7),
 		)
-		_, err := r.db.Exec(query, it.UUID, it.ContentID, it.Label, it.Icon, it.SubLabel, it.CreatedAt, it.UpdatedAt)
+		_, err := database.Exec(r.db, query, it.UUID, it.ContentID, it.Label, it.Icon, it.SubLabel, it.CreatedAt, it.UpdatedAt)
 		if err != nil {
 			return err
 		}
@@ -262,7 +251,7 @@ func (r *ContentRepository) UpdateContentListItemByUUID(uuid, label, icon, subLa
     `,
 		r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
 	)
-	_, err := r.db.Exec(query, label, icon, subLabel, updatedAt, uuid)
+	_, err := database.Exec(r.db, query, label, icon, subLabel, updatedAt, uuid)
 	return err
 }
 
@@ -273,7 +262,7 @@ func (r *ContentRepository) FindContentListByContentID(contentID string) ([]mode
         WHERE content_id = %s
         ORDER BY created_at ASC
     `, r.getPlaceholder(1))
-	rows, err := r.db.Query(query, contentID)
+	rows, err := database.Query(r.db, query, contentID)
 	if err != nil {
 		return nil, err
 	}
@@ -309,7 +298,7 @@ func (r *ContentRepository) DeleteContentByUUID(uuid, orgID string) error {
         DELETE FROM content
         WHERE uuid = %s AND organization_id = %s
     `, r.getPlaceholder(1), r.getPlaceholder(2))
-	result, err := r.db.Exec(query, uuid, orgID)
+	result, err := database.Exec(r.db, query, uuid, orgID)
 	if err != nil {
 		return err
 	}

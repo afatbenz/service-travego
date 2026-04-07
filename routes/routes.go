@@ -2,6 +2,7 @@ package routes
 
 import (
 	"service-travego/configs"
+	"service-travego/database"
 	"service-travego/helper"
 
 	"github.com/gofiber/fiber/v2"
@@ -10,7 +11,7 @@ import (
 // SetupRoutes configures all routes for the application
 func SetupRoutes(app *fiber.App, cfg *configs.Config) {
 	// Initialize database
-	db, err := helper.InitDatabase(cfg)
+	db, err := database.InitDatabase(cfg)
 	if err != nil {
 		panic("Failed to connect to database: " + err.Error())
 	}

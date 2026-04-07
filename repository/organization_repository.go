@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"service-travego/database"
 	"service-travego/model"
 	"strings"
 	"time"
@@ -23,31 +24,31 @@ func NewOrganizationRepository(db *sql.DB, driver string) *OrganizationRepositor
 	}
 }
 
-// getAssetURL returns the full URL for an asset path
+// getAssetURL returns asset URL
 func (r *OrganizationRepository) getAssetURL(path string) string {
 	if path == "" {
 		return path
 	}
 
-	// Only process paths that start with /assets
+	// Only process assets
 	if !strings.HasPrefix(path, "/assets") {
 		return path
 	}
 
-	// Get APP_HOST from environment
+	// Get host from env
 	appHost := os.Getenv("APP_HOST")
 	if appHost == "" {
 		return path
 	}
 
-	// Remove trailing slash from APP_HOST if present
+	// Trim trailing slash
 	appHost = strings.TrimSuffix(appHost, "/")
 
 	// Return full URL
 	return appHost + path
 }
 
-// getPlaceholder returns the appropriate placeholder for the database driver
+// getPlaceholder returns query placeholder
 func (r *OrganizationRepository) getPlaceholder(pos int) string {
 	if r.driver == "mysql" {
 		return "?"
@@ -55,7 +56,7 @@ func (r *OrganizationRepository) getPlaceholder(pos int) string {
 	return fmt.Sprintf("$%d", pos)
 }
 
-// FindByID retrieves an organization by ID from database
+// FindByID retrieves organization
 func (r *OrganizationRepository) FindByID(id string) (*model.Organization, error) {
 	query := fmt.Sprintf(`
         SELECT organization_id, organization_code, organization_name, company_name, address, city, province,
@@ -69,7 +70,7 @@ func (r *OrganizationRepository) FindByID(id string) (*model.Organization, error
 	var postalCode sql.NullString
 	var domainURL sql.NullString
 	var logo sql.NullString
-	err := r.db.QueryRow(query, id).Scan(
+	err := database.QueryRow(r.db, query, id).Scan(
 		&org.ID,
 		&org.OrganizationCode,
 		&org.OrganizationName,
@@ -113,7 +114,7 @@ func (r *OrganizationRepository) FindByID(id string) (*model.Organization, error
 	return &org, nil
 }
 
-// FindByCode retrieves an organization by code from database
+// FindByCode retrieves organization
 func (r *OrganizationRepository) FindByCode(code string) (*model.Organization, error) {
 	query := fmt.Sprintf(`
         SELECT organization_id, organization_code, organization_name, company_name, address, city, province,
@@ -123,7 +124,7 @@ func (r *OrganizationRepository) FindByCode(code string) (*model.Organization, e
     `, r.getPlaceholder(1))
 
 	var org model.Organization
-	err := r.db.QueryRow(query, code).Scan(
+	err := database.QueryRow(r.db, query, code).Scan(
 		&org.ID,
 		&org.OrganizationCode,
 		&org.OrganizationName,
@@ -146,7 +147,7 @@ func (r *OrganizationRepository) FindByCode(code string) (*model.Organization, e
 	return &org, nil
 }
 
-// FindByUsername retrieves all organizations by username from database
+// FindByUsername retrieves organizations
 func (r *OrganizationRepository) FindByUsername(username string) ([]model.Organization, error) {
 	query := fmt.Sprintf(`
 		SELECT organization_id, organization_code, organization_name, company_name, address, city, province,
@@ -156,7 +157,7 @@ func (r *OrganizationRepository) FindByUsername(username string) ([]model.Organi
 		ORDER BY created_at DESC
 	`, r.getPlaceholder(1))
 
-	rows, err := r.db.Query(query, username)
+	rows, err := database.Query(r.db, query, username)
 	if err != nil {
 		return nil, err
 	}
@@ -208,7 +209,7 @@ func (r *OrganizationRepository) FindByUsername(username string) ([]model.Organi
 	return orgs, nil
 }
 
-// Create inserts a new organization into database
+// Create inserts organization
 func (r *OrganizationRepository) Create(org *model.Organization) (*model.Organization, error) {
 	now := time.Now()
 	org.CreatedAt = now
@@ -234,8 +235,9 @@ func (r *OrganizationRepository) Create(org *model.Organization) (*model.Organiz
 			r.getPlaceholder(13),
 		)
 
-		err := r.db.QueryRow(
-			query,
+		err := database.QueryRow(
+		r.db,
+		query,
 			org.ID,
 			org.OrganizationCode,
 			org.OrganizationName,
@@ -275,7 +277,8 @@ func (r *OrganizationRepository) Create(org *model.Organization) (*model.Organiz
 			r.getPlaceholder(13),
 		)
 
-		_, err := r.db.Exec(
+		_, err := database.Exec(
+			r.db,
 			query,
 			org.ID,
 			org.OrganizationCode,
@@ -301,7 +304,7 @@ func (r *OrganizationRepository) Create(org *model.Organization) (*model.Organiz
 	return org, nil
 }
 
-// GetBankAccountByID retrieves a bank account by ID and organization ID
+// GetBankAccountByID retrieves bank account
 func (r *OrganizationRepository) GetBankAccountByID(bankAccountID, organizationID string) (*model.OrganizationBankAccountResponse, error) {
 	query := fmt.Sprintf(`
 		SELECT 
@@ -323,7 +326,7 @@ func (r *OrganizationRepository) GetBankAccountByID(bankAccountID, organizationI
 	var merchantID, merchantNMID, merchantMCC, merchantAddress, merchantCity, merchantPostalCode sql.NullString
 	var accountType sql.NullInt32
 
-	err := r.db.QueryRow(query, bankAccountID, organizationID).Scan(
+	err := database.QueryRow(r.db, query, bankAccountID, organizationID).Scan(
 		&acc.BankAccountID,
 		&acc.BankCode,
 		&acc.AccountNumber,
@@ -380,7 +383,7 @@ func (r *OrganizationRepository) GetBankAccountByID(bankAccountID, organizationI
 	return &acc, nil
 }
 
-// GetBankAccounts retrieves bank accounts for an organization
+// GetBankAccounts retrieves bank accounts
 func (r *OrganizationRepository) GetBankAccounts(organizationID string) ([]model.OrganizationBankAccountResponse, error) {
 	query := fmt.Sprintf(`
 		SELECT 
@@ -399,7 +402,7 @@ func (r *OrganizationRepository) GetBankAccounts(organizationID string) ([]model
 		ORDER BY oba.created_at DESC
 	`, r.getPlaceholder(1))
 
-	rows, err := r.db.Query(query, organizationID)
+	rows, err := database.Query(r.db, query, organizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -468,7 +471,7 @@ func (r *OrganizationRepository) GetBankAccounts(organizationID string) ([]model
 	return accounts, nil
 }
 
-// CreateBankAccount inserts a new bank account into database
+// CreateBankAccount inserts bank account
 func (r *OrganizationRepository) CreateBankAccount(req *model.CreateOrganizationBankAccountRequest, organizationID, createdBy, createdProxy, createdIP string) error {
 	bankAccountID := uuid.New().String()
 	createdAt := time.Now()
@@ -489,7 +492,7 @@ func (r *OrganizationRepository) CreateBankAccount(req *model.CreateOrganization
 		r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12), r.getPlaceholder(13), r.getPlaceholder(14), r.getPlaceholder(15),
 	)
 
-	// Helper to handle empty strings as NULL
+	// toNullString helper
 	toNullString := func(s string) sql.NullString {
 		return sql.NullString{
 			String: s,
@@ -497,11 +500,11 @@ func (r *OrganizationRepository) CreateBankAccount(req *model.CreateOrganization
 		}
 	}
 
-	// Helper to handle empty strings as NULL for potential integer columns
+	// toNullString helper
 	// Since we don't know for sure which one is integer, we can try to pass NULL if empty
 	// Note: sql.NullString with Valid=false passes NULL, which is compatible with Integer columns in Postgres (if nullable)
 
-	_, err := r.db.Exec(query,
+	_, err := database.Exec(r.db, query,
 		bankAccountID,
 		req.BankCode,
 		req.AccountNumber,
@@ -522,7 +525,7 @@ func (r *OrganizationRepository) CreateBankAccount(req *model.CreateOrganization
 	return err
 }
 
-// Update updates an existing organization in database
+// Update updates organization
 func (r *OrganizationRepository) Update(org *model.Organization) (*model.Organization, error) {
 	org.UpdatedAt = time.Now()
 
@@ -537,7 +540,8 @@ func (r *OrganizationRepository) Update(org *model.Organization) (*model.Organiz
 			r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8),
 			r.getPlaceholder(9))
 
-		err := r.db.QueryRow(
+		err := database.QueryRow(
+			r.db,
 			query,
 			org.OrganizationName,
 			org.CompanyName,
@@ -566,7 +570,8 @@ func (r *OrganizationRepository) Update(org *model.Organization) (*model.Organiz
 			r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8),
 			r.getPlaceholder(9))
 
-		_, err := r.db.Exec(
+		_, err := database.Exec(
+			r.db,
 			query,
 			org.OrganizationName,
 			org.CompanyName,
@@ -586,7 +591,7 @@ func (r *OrganizationRepository) Update(org *model.Organization) (*model.Organiz
 	return org, nil
 }
 
-// UpdateByIDAndCode updates organization fields with mandatory and optional values, matching by organization_id and organization_code
+// UpdateByIDAndCode updates organization
 func (r *OrganizationRepository) UpdateByIDAndCode(orgID, orgCode string, name, company, phone, address, email string, province, city *string, npwpNumber, postalCode *string, organizationType *int) error {
 	updatedAt := time.Now()
 
@@ -633,7 +638,7 @@ func (r *OrganizationRepository) UpdateByIDAndCode(orgID, orgCode string, name, 
 
 	args = append(args, orgID, orgCode)
 
-	res, err := r.db.Exec(query, args...)
+	res, err := database.Exec(r.db, query, args...)
 	if err != nil {
 		return err
 	}
@@ -647,11 +652,11 @@ func (r *OrganizationRepository) UpdateByIDAndCode(orgID, orgCode string, name, 
 	return nil
 }
 
-// GetDomainURL retrieves the domain_url for an organization
+// GetDomainURL retrieves domain_url
 func (r *OrganizationRepository) GetDomainURL(orgID string) (string, error) {
 	query := fmt.Sprintf("SELECT domain_url FROM organizations WHERE organization_id = %s", r.getPlaceholder(1))
 	var domainURL sql.NullString
-	err := r.db.QueryRow(query, orgID).Scan(&domainURL)
+	err := database.QueryRow(r.db, query, orgID).Scan(&domainURL)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return "", nil
@@ -664,22 +669,22 @@ func (r *OrganizationRepository) GetDomainURL(orgID string) (string, error) {
 	return "", nil
 }
 
-// UpdateDomainURL updates the domain_url for an organization
+// UpdateDomainURL updates domain_url
 func (r *OrganizationRepository) UpdateDomainURL(orgID string, domainURL string) error {
 	query := fmt.Sprintf("UPDATE organizations SET domain_url = %s, updated_at = %s WHERE organization_id = %s", r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
-	_, err := r.db.Exec(query, domainURL, time.Now(), orgID)
+	_, err := database.Exec(r.db, query, domainURL, time.Now(), orgID)
 	return err
 }
 
-// UpdateLogo updates the logo path for an organization
+// UpdateLogo updates logo path
 func (r *OrganizationRepository) UpdateLogo(orgID string, logoPath string) error {
 	query := fmt.Sprintf("UPDATE organizations SET logo = %s, updated_at = %s WHERE organization_id = %s",
 		r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
-	_, err := r.db.Exec(query, logoPath, time.Now(), orgID)
+	_, err := database.Exec(r.db, query, logoPath, time.Now(), orgID)
 	return err
 }
 
-// UpdateBankAccount updates an existing bank account for an organization
+// UpdateBankAccount updates bank account
 func (r *OrganizationRepository) UpdateBankAccount(bankAccountID, organizationID string, active *bool, accountNumber, accountName, updatedProxy, updatedIP string) error {
 	var query string
 	var args []interface{}
@@ -694,7 +699,7 @@ func (r *OrganizationRepository) UpdateBankAccount(bankAccountID, organizationID
 		args = append(args, accountNumber, accountName, time.Now(), updatedProxy, updatedIP, bankAccountID, organizationID)
 	}
 
-	result, err := r.db.Exec(query, args...)
+	result, err := database.Exec(r.db, query, args...)
 	if err != nil {
 		return err
 	}
@@ -711,7 +716,7 @@ func (r *OrganizationRepository) UpdateBankAccount(bankAccountID, organizationID
 	return nil
 }
 
-// GetPaymentMethods retrieves active payment methods for an organization
+// GetPaymentMethods retrieves payment methods
 func (r *OrganizationRepository) GetPaymentMethods(organizationID string) (*model.PaymentMethodGroupedResponse, error) {
 	query := fmt.Sprintf(`
 		SELECT 
@@ -726,7 +731,7 @@ func (r *OrganizationRepository) GetPaymentMethods(organizationID string) (*mode
 		WHERE oba.organization_id = %s AND oba.status = 1 AND oba.active = true
 	`, r.getPlaceholder(1))
 
-	rows, err := r.db.Query(query, organizationID)
+	rows, err := database.Query(r.db, query, organizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -768,8 +773,7 @@ func (r *OrganizationRepository) GetPaymentMethods(organizationID string) (*mode
 	return response, nil
 }
 
-// CheckBankAccountExists checks if a bank account already exists for the organization and bank code
-// Returns the bank name if it exists, otherwise empty string
+// CheckBankAccountExists checks bank account
 func (r *OrganizationRepository) CheckBankAccountExists(organizationID, bankCode string) (string, error) {
 	query := fmt.Sprintf(`
 		SELECT bl.name 
@@ -779,7 +783,7 @@ func (r *OrganizationRepository) CheckBankAccountExists(organizationID, bankCode
 	`, r.getPlaceholder(1), r.getPlaceholder(2))
 
 	var bankName string
-	err := r.db.QueryRow(query, organizationID, bankCode).Scan(&bankName)
+	err := database.QueryRow(r.db, query, organizationID, bankCode).Scan(&bankName)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return "", nil
@@ -789,12 +793,12 @@ func (r *OrganizationRepository) CheckBankAccountExists(organizationID, bankCode
 	return bankName, nil
 }
 
-// DeleteBankAccount soft deletes a bank account (sets status to 0)
+// DeleteBankAccount soft deletes account
 func (r *OrganizationRepository) DeleteBankAccount(bankAccountID, organizationID string) error {
 	query := fmt.Sprintf("UPDATE organization_bank_accounts SET status = 0, updated_at = %s WHERE bank_account_id = %s AND organization_id = %s",
 		r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
 
-	result, err := r.db.Exec(query, time.Now(), bankAccountID, organizationID)
+	result, err := database.Exec(r.db, query, time.Now(), bankAccountID, organizationID)
 	if err != nil {
 		return err
 	}

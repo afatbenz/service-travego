@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"fmt"
+	"service-travego/database"
 	"service-travego/model"
 	"strings"
 	"time"
@@ -50,7 +51,7 @@ func (r *CustomersRepository) ListCustomers(orgID, customerName string) ([]model
 		ORDER BY customer_name
 	`
 
-	rows, err := r.db.Query(query, args...)
+	rows, err := database.Query(r.db, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +77,8 @@ func (r *CustomersRepository) CreateCustomer(orgID string, req *model.CustomerCr
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
 		r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11))
 
-	_, err := r.db.Exec(
+	_, err := database.Exec(
+		r.db,
 		query,
 		customerID,
 		orgID,
@@ -99,7 +101,7 @@ func (r *CustomersRepository) GetCustomerDetail(orgID, customerID string) (map[s
 		r.getPlaceholder(1),
 		r.getPlaceholder(2),
 	)
-	rows, err := r.db.Query(query, orgID, customerID)
+	rows, err := database.Query(r.db, query, orgID, customerID)
 	if err != nil {
 		return nil, err
 	}
@@ -199,7 +201,7 @@ func (r *CustomersRepository) UpdateCustomer(orgID, customerID string, req *mode
 	)
 	args = append(args, orgID, customerID)
 
-	res, err := r.db.Exec(query, args...)
+	res, err := database.Exec(r.db, query, args...)
 	if err != nil {
 		return err
 	}

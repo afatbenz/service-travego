@@ -2,6 +2,7 @@ package repository
 
 import (
 	"database/sql"
+	"service-travego/database"
 	"service-travego/model"
 )
 
@@ -17,7 +18,7 @@ func NewGeneralRepository(db *sql.DB, driver string) *GeneralRepository {
 	}
 }
 
-// GetBankList retrieves bank list from database
+// GetBankList retrieves bank list
 func (r *GeneralRepository) GetBankList() ([]model.Bank, error) {
 	query := `
         SELECT code, name
@@ -25,7 +26,7 @@ func (r *GeneralRepository) GetBankList() ([]model.Bank, error) {
         ORDER BY name ASC
     `
 
-	rows, err := r.db.Query(query)
+	rows, err := database.Query(r.db, query)
 	if err != nil {
 		return nil, err
 	}

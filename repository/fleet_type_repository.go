@@ -2,6 +2,7 @@ package repository
 
 import (
     "database/sql"
+    "service-travego/database"
 )
 
 type FleetTypeRepository struct {
@@ -12,9 +13,9 @@ func NewFleetTypeRepository(db *sql.DB) *FleetTypeRepository {
     return &FleetTypeRepository{db: db}
 }
 
-// FindAll returns all fleet_types rows ordered by label
+// FindAll returns all fleet_types
 func (r *FleetTypeRepository) FindAll() ([]map[string]interface{}, error) {
-    rows, err := r.db.Query("SELECT * FROM fleet_types ORDER BY label")
+    rows, err := database.Query(r.db, "SELECT * FROM fleet_types ORDER BY label")
     if err != nil {
         return nil, err
     }
