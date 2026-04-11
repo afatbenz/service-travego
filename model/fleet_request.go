@@ -63,6 +63,11 @@ type FleetListItem struct {
 	Thumbnail string `json:"thumbnail"`
 }
 
+type FleetUnitSearchItem struct {
+	FleetID   string `json:"fleet_id"`
+	FleetName string `json:"fleet_name"`
+}
+
 type FleetDetailRequest struct {
 	FleetID        string `json:"fleet_id"`
 	OrganizationID string `json:"-"`
