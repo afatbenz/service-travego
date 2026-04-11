@@ -1,0 +1,285 @@
+package repository
+
+import (
+	"database/sql"
+	"service-travego/database"
+	"service-travego/model"
+	"time"
+
+	"github.com/google/uuid"
+)
+
+type FleetUnitRepository struct {
+	db     *sql.DB
+	driver string
+}
+
+func NewFleetUnitRepository(db *sql.DB, driver string) *FleetUnitRepository {
+	return &FleetUnitRepository{db: db, driver: driver}
+}
+
+const listFleetUnitsPostgres = `
+SELECT
+	fu.unit_id,
+	COALESCE(fu.vehicle_id::text, '') AS vehicle_id,
+	fu.plate_number,
+	COALESCE(fu.fleet_id::text, '') AS fleet_id,
+	COALESCE(f.fleet_name, '') AS fleet_name,
+	COALESCE(fu.engine, '') AS engine,
+	COALESCE(fu.transmission, '') AS transmission,
+	fu.capacity,
+	fu.production_year,
+	COALESCE(fu.created_by::text, '') AS created_by,
+	fu.created_at,
+	COALESCE(fu.status, 0) AS status
+FROM fleet_units fu
+LEFT JOIN fleets f ON f.uuid::text = fu.fleet_id::text
+WHERE fu.organization_id::text = $1
+ORDER BY fu.created_at DESC
+`
+
+const listFleetUnitsMySQL = `
+SELECT
+	fu.unit_id,
+	COALESCE(fu.vehicle_id, '') AS vehicle_id,
+	fu.plate_number,
+	fu.fleet_id,
+	COALESCE(f.fleet_name, '') AS fleet_name,
+	COALESCE(fu.engine, '') AS engine,
+	COALESCE(fu.transmission, '') AS transmission,
+	fu.capacity,
+	fu.production_year,
+	COALESCE(fu.created_by, '') AS created_by,
+	fu.created_at,
+	COALESCE(fu.status, 0) AS status
+FROM fleet_units fu
+LEFT JOIN fleets f ON fu.fleet_id = f.uuid
+WHERE fu.organization_id = ?
+ORDER BY fu.created_at DESC
+`
+
+const createFleetUnitPostgres = `
+INSERT INTO fleet_units
+	(unit_id, vehicle_id, plate_number, fleet_id, engine, transmission, capacity, production_year, created_by, organization_id, created_at)
+VALUES
+	($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+`
+
+const createFleetUnitMySQL = `
+INSERT INTO fleet_units
+	(unit_id, vehicle_id, plate_number, fleet_id, engine, transmission, capacity, production_year, created_by, organization_id, created_at)
+VALUES
+	(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+const updateFleetUnitPostgres = `
+UPDATE fleet_units
+SET vehicle_id = $1,
+	plate_number = $2,
+	fleet_id = $3,
+	engine = $4,
+	transmission = $5,
+	capacity = $6,
+	production_year = $7,
+	updated_by = $8,
+	updated_at = $9
+WHERE unit_id = $10 AND organization_id = $11
+`
+
+const updateFleetUnitMySQL = `
+UPDATE fleet_units
+SET vehicle_id = ?,
+	plate_number = ?,
+	fleet_id = ?,
+	engine = ?,
+	transmission = ?,
+	capacity = ?,
+	production_year = ?,
+	updated_by = ?,
+	updated_at = ?
+WHERE unit_id = ? AND organization_id = ?
+`
+
+const detailFleetUnitPostgres = `
+SELECT
+	fu.unit_id,
+	COALESCE(fu.vehicle_id::text, '') AS vehicle_id,
+	fu.plate_number,
+	COALESCE(fu.fleet_id::text, '') AS fleet_id,
+	COALESCE(f.fleet_name, '') AS fleet_name,
+	COALESCE(fu.engine, '') AS engine,
+	COALESCE(fu.transmission, '') AS transmission,
+	fu.capacity,
+	fu.production_year,
+	COALESCE(fu.status, 0) AS status,
+	COALESCE(uc.fullname, uc.username, '') AS created_by,
+	fu.created_at,
+	COALESCE(uu.fullname, uu.username, '') AS updated_by,
+	fu.updated_at
+FROM fleet_units fu
+LEFT JOIN fleets f ON f.uuid::text = fu.fleet_id::text
+LEFT JOIN users uc ON fu.created_by = uc.user_id
+LEFT JOIN users uu ON fu.updated_by = uu.user_id
+WHERE fu.unit_id = $1 AND fu.organization_id::text = $2
+`
+
+const detailFleetUnitMySQL = `
+SELECT
+	fu.unit_id,
+	COALESCE(fu.vehicle_id, '') AS vehicle_id,
+	fu.plate_number,
+	fu.fleet_id,
+	COALESCE(f.fleet_name, '') AS fleet_name,
+	COALESCE(fu.engine, '') AS engine,
+	COALESCE(fu.transmission, '') AS transmission,
+	fu.capacity,
+	fu.production_year,
+	COALESCE(fu.status, 0) AS status,
+	COALESCE(uc.fullname, uc.username, '') AS created_by,
+	fu.created_at,
+	COALESCE(uu.fullname, uu.username, '') AS updated_by,
+	fu.updated_at
+FROM fleet_units fu
+LEFT JOIN fleets f ON fu.fleet_id = f.uuid
+LEFT JOIN users uc ON fu.created_by = uc.user_id
+LEFT JOIN users uu ON fu.updated_by = uu.user_id
+WHERE fu.unit_id = ? AND fu.organization_id = ?
+`
+
+func (r *FleetUnitRepository) List(orgID string) ([]model.FleetUnitListItem, error) {
+	query := listFleetUnitsMySQL
+	if r.driver == "postgres" || r.driver == "pgx" {
+		query = listFleetUnitsPostgres
+	}
+	rows, err := database.Query(r.db, query, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]model.FleetUnitListItem, 0)
+	for rows.Next() {
+		var it model.FleetUnitListItem
+		var createdAt time.Time
+		if err := rows.Scan(
+			&it.UnitID,
+			&it.VehicleID,
+			&it.PlateNumber,
+			&it.FleetID,
+			&it.FleetName,
+			&it.Engine,
+			&it.Transmission,
+			&it.Capacity,
+			&it.ProductionYear,
+			&it.CreatedBy,
+			&createdAt,
+			&it.Status,
+		); err != nil {
+			return nil, err
+		}
+		it.CreatedDate = createdAt.Format("2006-01-02 15:04:05")
+		items = append(items, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func (r *FleetUnitRepository) Create(req *model.FleetUnitCreateRequest) (string, error) {
+	id := uuid.New().String()
+	now := time.Now()
+	req.CreatedDate = now
+	req.UnitID = id
+
+	query := createFleetUnitMySQL
+	if r.driver == "postgres" || r.driver == "pgx" {
+		query = createFleetUnitPostgres
+	}
+	_, err := database.Exec(
+		r.db,
+		query,
+		req.UnitID,
+		req.VehicleID,
+		req.PlateNumber,
+		req.FleetID,
+		req.Engine,
+		req.Transmission,
+		req.Capacity,
+		req.ProductionYear,
+		req.CreatedBy,
+		req.OrganizationID,
+		req.CreatedDate,
+	)
+	if err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+func (r *FleetUnitRepository) Update(req *model.FleetUnitUpdateRequest) error {
+	now := time.Now()
+	req.UpdatedDate = now
+
+	query := updateFleetUnitMySQL
+	if r.driver == "postgres" || r.driver == "pgx" {
+		query = updateFleetUnitPostgres
+	}
+	res, err := database.Exec(
+		r.db,
+		query,
+		req.VehicleID,
+		req.PlateNumber,
+		req.FleetID,
+		req.Engine,
+		req.Transmission,
+		req.Capacity,
+		req.ProductionYear,
+		req.UpdatedBy,
+		req.UpdatedDate,
+		req.UnitID,
+		req.OrganizationID,
+	)
+	if err != nil {
+		return err
+	}
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (r *FleetUnitRepository) Detail(orgID, id string) (*model.FleetUnitDetailResponse, error) {
+	query := detailFleetUnitMySQL
+	if r.driver == "postgres" || r.driver == "pgx" {
+		query = detailFleetUnitPostgres
+	}
+	var res model.FleetUnitDetailResponse
+	var createdAt time.Time
+	var updatedAt sql.NullTime
+	err := database.QueryRow(r.db, query, id, orgID).Scan(
+		&res.UnitID,
+		&res.VehicleID,
+		&res.PlateNumber,
+		&res.FleetID,
+		&res.FleetName,
+		&res.Engine,
+		&res.Transmission,
+		&res.Capacity,
+		&res.ProductionYear,
+		&res.Status,
+		&res.CreatedBy,
+		&createdAt,
+		&res.UpdatedBy,
+		&updatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	res.CreatedDate = createdAt.Format("2006-01-02 15:04:05")
+	if updatedAt.Valid {
+		res.UpdatedDate = updatedAt.Time.Format("2006-01-02 15:04:05")
+	}
+	return &res, nil
+}

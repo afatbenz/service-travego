@@ -200,6 +200,9 @@ func (h *FleetHandler) UpdateFleet(c *fiber.Ctx) error {
 }
 
 func (h *FleetHandler) ListFleets(c *fiber.Ctx) error {
+	searchType := strings.ToLower(strings.TrimSpace(c.Query("search_type")))
+	searchFor := strings.TrimSpace(c.Query("search_for"))
+
 	var req model.ListFleetRequest
 	req.FleetType = c.Query("fleet_type")
 	req.FleetName = c.Query("fleet_name")
@@ -236,6 +239,16 @@ func (h *FleetHandler) ListFleets(c *fiber.Ctx) error {
 	if orgID == "" {
 		return helper.BadRequestResponse(c, "missing organization context")
 	}
+
+	if searchType == "unit" {
+		items, err := h.service.ListFleetsForUnit(orgID, searchFor)
+		if err != nil {
+			code := service.GetStatusCode(err)
+			return helper.SendErrorResponse(c, code, err.Error())
+		}
+		return helper.SuccessResponse(c, fiber.StatusOK, "Fleet list loaded", items)
+	}
+
 	req.OrganizationID = orgID
 	items, err := h.service.ListFleets(&req)
 	if err != nil {

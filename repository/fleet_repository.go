@@ -17,6 +17,34 @@ type FleetRepository struct {
 	driver string
 }
 
+const listFleetsForUnitPostgres = `
+SELECT uuid, fleet_name
+FROM fleets
+WHERE organization_id = $1
+ORDER BY fleet_name
+`
+
+const listFleetsForUnitPostgresSearch = `
+SELECT uuid, fleet_name
+FROM fleets
+WHERE organization_id = $1 AND fleet_name ILIKE '%' || $2 || '%'
+ORDER BY fleet_name
+`
+
+const listFleetsForUnitMySQL = `
+SELECT uuid, fleet_name
+FROM fleets
+WHERE organization_id = ?
+ORDER BY fleet_name
+`
+
+const listFleetsForUnitMySQLSearch = `
+SELECT uuid, fleet_name
+FROM fleets
+WHERE organization_id = ? AND fleet_name LIKE CONCAT('%', ?, '%')
+ORDER BY fleet_name
+`
+
 func NewFleetRepository(db *sql.DB, driver string) *FleetRepository {
 	return &FleetRepository{
 		db:     db,
@@ -1815,4 +1843,43 @@ func (r *FleetRepository) getPlaceholder(pos int) string {
 		return fmt.Sprintf("$%d", pos)
 	}
 	return "?"
+}
+
+func (r *FleetRepository) ListFleetsForUnit(orgID, searchFor string) ([]model.FleetUnitSearchItem, error) {
+	var query string
+	args := make([]interface{}, 0, 2)
+	args = append(args, orgID)
+
+	if r.driver == "postgres" || r.driver == "pgx" {
+		query = listFleetsForUnitPostgres
+		if strings.TrimSpace(searchFor) != "" {
+			query = listFleetsForUnitPostgresSearch
+			args = append(args, searchFor)
+		}
+	} else {
+		query = listFleetsForUnitMySQL
+		if strings.TrimSpace(searchFor) != "" {
+			query = listFleetsForUnitMySQLSearch
+			args = append(args, searchFor)
+		}
+	}
+
+	rows, err := database.Query(r.db, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]model.FleetUnitSearchItem, 0)
+	for rows.Next() {
+		var it model.FleetUnitSearchItem
+		if err := rows.Scan(&it.FleetID, &it.FleetName); err != nil {
+			return nil, err
+		}
+		items = append(items, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

@@ -470,6 +470,14 @@ func (s *FleetService) ListFleets(req *model.ListFleetRequest) ([]model.FleetLis
 	return items, nil
 }
 
+func (s *FleetService) ListFleetsForUnit(orgID, searchFor string) ([]model.FleetUnitSearchItem, error) {
+	items, err := s.repo.ListFleetsForUnit(orgID, searchFor)
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to list fleets")
+	}
+	return items, nil
+}
+
 func normalizeDateTime(v string) (string, error) {
 	s := strings.TrimSpace(v)
 	if s == "" {
