@@ -308,6 +308,33 @@ func (h *TourPackageHandler) UpdateTourPackage(c *fiber.Ctx) error {
 	return helper.SuccessResponse(c, fiber.StatusOK, "Tour package updated successfully", nil)
 }
 
+func (h *TourPackageHandler) DeleteTourPackage(c *fiber.Ctx) error {
+	packageID := c.Params("packageid")
+	if packageID == "" {
+		return helper.BadRequestResponse(c, "package_id is required")
+	}
+
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Organization not found")
+	}
+
+	userID, ok := c.Locals("user_id").(string)
+	if !ok || userID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "User not found")
+	}
+
+	if err := h.service.DeleteTourPackage(c.Context(), orgID, userID, packageID); err != nil {
+		if err == sql.ErrNoRows {
+			return helper.SendErrorResponse(c, fiber.StatusNotFound, "Tour package not found")
+		}
+		log.Printf("[ERROR] DeleteTourPackage failed - Path: %s, Error: %v", c.Path(), err)
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Tour package deleted successfully", nil)
+}
+
 func (h *TourPackageHandler) TourPackageDetail(c *fiber.Ctx) error {
 	var req model.TourPackageDetailRequest
 	if err := c.BodyParser(&req); err != nil {

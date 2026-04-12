@@ -62,6 +62,24 @@ func (s *GeneralService) GetWebMenu() (*model.WebMenu, error) {
 	return &menu, nil
 }
 
+func (s *GeneralService) GetFuelTypes() ([]model.FleetFuelType, error) {
+	file, err := os.Open("config/fleet-config.json")
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	var cfg model.FleetConfig
+	decoder := json.NewDecoder(file)
+	if err := decoder.Decode(&cfg); err != nil {
+		return nil, err
+	}
+	if cfg.FuelType == nil {
+		return []model.FleetFuelType{}, nil
+	}
+	return cfg.FuelType, nil
+}
+
 // GetBankList reads and returns bank list from database sorted by name
 func (s *GeneralService) GetBankList() ([]model.Bank, error) {
 	return s.generalRepo.GetBankList()

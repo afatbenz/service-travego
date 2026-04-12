@@ -73,6 +73,12 @@ type FleetDetailRequest struct {
 	OrganizationID string `json:"-"`
 }
 
+type FleetDeleteRequest struct {
+	FleetID        string `json:"fleet_id" validate:"required"`
+	OrganizationID string `json:"-"`
+	UpdatedBy      string `json:"-"`
+}
+
 type FleetFacilityUpsertItem struct {
 	UUID     string `json:"uuid"`
 	Facility string `json:"facility"`

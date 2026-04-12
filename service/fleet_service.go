@@ -465,7 +465,11 @@ func (s *FleetService) CreatePartnerOrder(orgID, userID string, req *model.Fleet
 func (s *FleetService) ListFleets(req *model.ListFleetRequest) ([]model.FleetListItem, error) {
 	items, err := s.repo.ListFleets(req)
 	if err != nil {
-		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to list fleets")
+		msg := "failed to list fleets"
+		if env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV"))); env != "production" && env != "prod" {
+			msg = fmt.Sprintf("%s: %v", msg, err)
+		}
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, msg)
 	}
 	return items, nil
 }
@@ -476,6 +480,19 @@ func (s *FleetService) ListFleetsForUnit(orgID, searchFor string) ([]model.Fleet
 		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to list fleets")
 	}
 	return items, nil
+}
+
+func (s *FleetService) DeleteFleet(orgID, userID, fleetID string) error {
+	if strings.TrimSpace(fleetID) == "" {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "fleet_id is required")
+	}
+	if err := s.repo.SoftDeleteFleet(orgID, userID, fleetID); err != nil {
+		if err == sql.ErrNoRows {
+			return NewServiceError(ErrNotFound, http.StatusNotFound, "fleet not found")
+		}
+		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to delete fleet")
+	}
+	return nil
 }
 
 func normalizeDateTime(v string) (string, error) {

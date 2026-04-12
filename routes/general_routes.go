@@ -31,6 +31,7 @@ func SetupGeneralRoutes(api fiber.Router, db *sql.DB, driver string) {
 	general.Get("/config", generalHandler.GetGeneralConfig)
 	general.Get("/bank-list", generalHandler.GetBankList)
 	general.Get("/web-menu", generalHandler.GetWebMenu)
+	general.Get("/fuel_type", generalHandler.GetFuelTypes)
 	general.Get("/provinces", generalHandler.GetProvinces)
 	general.Get("/cities", generalHandler.GetCities)
 	general.Get("/fleet-types", generalHandler.GetFleetTypes)
