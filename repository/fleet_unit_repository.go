@@ -66,6 +66,13 @@ VALUES
 	($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 `
 
+const createFleetUnitPostgresAndStatus = `
+INSERT INTO fleet_units
+	(unit_id, vehicle_id, plate_number, fleet_id, engine, transmission, capacity, production_year, status, created_by, organization_id, created_at)
+VALUES
+	($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+`
+
 const createFleetUnitPostgresWithUUID = `
 INSERT INTO fleet_units
 	(uuid, unit_id, vehicle_id, plate_number, fleet_id, engine, transmission, capacity, production_year, created_by, organization_id, created_at)
@@ -85,6 +92,13 @@ INSERT INTO fleet_units
 	(unit_id, vehicle_id, plate_number, fleet_id, engine, transmission, capacity, production_year, created_by, organization_id, created_at)
 VALUES
 	(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+const createFleetUnitMySQLAndStatus = `
+INSERT INTO fleet_units
+	(unit_id, vehicle_id, plate_number, fleet_id, engine, transmission, capacity, production_year, status, created_by, organization_id, created_at)
+VALUES
+	(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 const createFleetUnitMySQLWithUUIDAndStatus = `
@@ -108,6 +122,13 @@ VALUES
 	($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 `
 
+const createFleetUnitPostgresCreatedDateAndStatus = `
+INSERT INTO fleet_units
+	(unit_id, vehicle_id, plate_number, fleet_id, engine, transmission, capacity, production_year, status, created_by, organization_id, created_date)
+VALUES
+	($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+`
+
 const createFleetUnitPostgresWithUUIDCreatedDateAndStatus = `
 INSERT INTO fleet_units
 	(uuid, unit_id, vehicle_id, plate_number, fleet_id, engine, transmission, capacity, production_year, status, created_by, organization_id, created_date)
@@ -127,6 +148,13 @@ INSERT INTO fleet_units
 	(unit_id, vehicle_id, plate_number, fleet_id, engine, transmission, capacity, production_year, created_by, organization_id, created_date)
 VALUES
 	(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+const createFleetUnitMySQLCreatedDateAndStatus = `
+INSERT INTO fleet_units
+	(unit_id, vehicle_id, plate_number, fleet_id, engine, transmission, capacity, production_year, status, created_by, organization_id, created_date)
+VALUES
+	(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 const createFleetUnitMySQLWithUUIDCreatedDateAndStatus = `
@@ -278,7 +306,13 @@ func (r *FleetUnitRepository) Create(req *model.FleetUnitCreateRequest) (string,
 				errMsg = strings.ToLower(err.Error())
 			}
 			if strings.Contains(errMsg, "column") && strings.Contains(errMsg, "uuid") && strings.Contains(errMsg, "does not exist") {
-				err = tryExec(createFleetUnitPostgres, req.UnitID, req.VehicleID, req.PlateNumber, req.FleetID, req.Engine, req.Transmission, req.Capacity, req.ProductionYear, req.CreatedBy, req.OrganizationID, req.CreatedDate)
+				err = tryExec(createFleetUnitPostgresAndStatus, req.UnitID, req.VehicleID, req.PlateNumber, req.FleetID, req.Engine, req.Transmission, req.Capacity, req.ProductionYear, 1, req.CreatedBy, req.OrganizationID, req.CreatedDate)
+				if err != nil {
+					errMsg2 := strings.ToLower(err.Error())
+					if strings.Contains(errMsg2, "column") && strings.Contains(errMsg2, "status") && strings.Contains(errMsg2, "does not exist") {
+						err = tryExec(createFleetUnitPostgres, req.UnitID, req.VehicleID, req.PlateNumber, req.FleetID, req.Engine, req.Transmission, req.Capacity, req.ProductionYear, req.CreatedBy, req.OrganizationID, req.CreatedDate)
+					}
+				}
 			}
 		}
 		if err != nil {
@@ -292,7 +326,13 @@ func (r *FleetUnitRepository) Create(req *model.FleetUnitCreateRequest) (string,
 						errMsg2 = strings.ToLower(err.Error())
 					}
 					if strings.Contains(errMsg2, "column") && strings.Contains(errMsg2, "uuid") && strings.Contains(errMsg2, "does not exist") {
-						err = tryExec(createFleetUnitPostgresCreatedDate, req.UnitID, req.VehicleID, req.PlateNumber, req.FleetID, req.Engine, req.Transmission, req.Capacity, req.ProductionYear, req.CreatedBy, req.OrganizationID, req.CreatedDate)
+						err = tryExec(createFleetUnitPostgresCreatedDateAndStatus, req.UnitID, req.VehicleID, req.PlateNumber, req.FleetID, req.Engine, req.Transmission, req.Capacity, req.ProductionYear, 1, req.CreatedBy, req.OrganizationID, req.CreatedDate)
+						if err != nil {
+							errMsg3 := strings.ToLower(err.Error())
+							if strings.Contains(errMsg3, "column") && strings.Contains(errMsg3, "status") && strings.Contains(errMsg3, "does not exist") {
+								err = tryExec(createFleetUnitPostgresCreatedDate, req.UnitID, req.VehicleID, req.PlateNumber, req.FleetID, req.Engine, req.Transmission, req.Capacity, req.ProductionYear, req.CreatedBy, req.OrganizationID, req.CreatedDate)
+							}
+						}
 					}
 				}
 			}
@@ -306,7 +346,13 @@ func (r *FleetUnitRepository) Create(req *model.FleetUnitCreateRequest) (string,
 				errMsg = strings.ToLower(err.Error())
 			}
 			if strings.Contains(errMsg, "unknown column") && strings.Contains(errMsg, "uuid") {
-				err = tryExec(createFleetUnitMySQL, req.UnitID, req.VehicleID, req.PlateNumber, req.FleetID, req.Engine, req.Transmission, req.Capacity, req.ProductionYear, req.CreatedBy, req.OrganizationID, req.CreatedDate)
+				err = tryExec(createFleetUnitMySQLAndStatus, req.UnitID, req.VehicleID, req.PlateNumber, req.FleetID, req.Engine, req.Transmission, req.Capacity, req.ProductionYear, 1, req.CreatedBy, req.OrganizationID, req.CreatedDate)
+				if err != nil {
+					errMsg2 := strings.ToLower(err.Error())
+					if strings.Contains(errMsg2, "unknown column") && strings.Contains(errMsg2, "status") {
+						err = tryExec(createFleetUnitMySQL, req.UnitID, req.VehicleID, req.PlateNumber, req.FleetID, req.Engine, req.Transmission, req.Capacity, req.ProductionYear, req.CreatedBy, req.OrganizationID, req.CreatedDate)
+					}
+				}
 			}
 		}
 		if err != nil {
@@ -320,7 +366,13 @@ func (r *FleetUnitRepository) Create(req *model.FleetUnitCreateRequest) (string,
 						errMsg2 = strings.ToLower(err.Error())
 					}
 					if strings.Contains(errMsg2, "unknown column") && strings.Contains(errMsg2, "uuid") {
-						err = tryExec(createFleetUnitMySQLCreatedDate, req.UnitID, req.VehicleID, req.PlateNumber, req.FleetID, req.Engine, req.Transmission, req.Capacity, req.ProductionYear, req.CreatedBy, req.OrganizationID, req.CreatedDate)
+						err = tryExec(createFleetUnitMySQLCreatedDateAndStatus, req.UnitID, req.VehicleID, req.PlateNumber, req.FleetID, req.Engine, req.Transmission, req.Capacity, req.ProductionYear, 1, req.CreatedBy, req.OrganizationID, req.CreatedDate)
+						if err != nil {
+							errMsg3 := strings.ToLower(err.Error())
+							if strings.Contains(errMsg3, "unknown column") && strings.Contains(errMsg3, "status") {
+								err = tryExec(createFleetUnitMySQLCreatedDate, req.UnitID, req.VehicleID, req.PlateNumber, req.FleetID, req.Engine, req.Transmission, req.Capacity, req.ProductionYear, req.CreatedBy, req.OrganizationID, req.CreatedDate)
+							}
+						}
 					}
 				}
 			}
