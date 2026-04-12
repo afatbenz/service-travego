@@ -53,6 +53,14 @@ func (h *GeneralHandler) GetWebMenu(c *fiber.Ctx) error {
 	return helper.SuccessResponse(c, fiber.StatusOK, "Web menu loaded successfully", menu)
 }
 
+func (h *GeneralHandler) GetFuelTypes(c *fiber.Ctx) error {
+	list, err := h.generalService.GetFuelTypes()
+	if err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to load fuel types")
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Fuel types loaded successfully", list)
+}
+
 func (h *GeneralHandler) GetProvinces(c *fiber.Ctx) error {
 	searchText := c.Query("search", "")
 	provinces, err := h.generalService.GetProvinces(searchText)

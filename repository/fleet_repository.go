@@ -17,17 +17,29 @@ type FleetRepository struct {
 	driver string
 }
 
+const softDeleteFleetPostgres = `
+UPDATE fleets
+SET status = 0, updated_at = $1, updated_by = $2
+WHERE uuid = $3 AND organization_id::text = $4
+`
+
+const softDeleteFleetMySQL = `
+UPDATE fleets
+SET status = 0, updated_at = ?, updated_by = ?
+WHERE uuid = ? AND organization_id = ?
+`
+
 const listFleetsForUnitPostgres = `
 SELECT uuid, fleet_name
 FROM fleets
-WHERE organization_id = $1
+WHERE organization_id::text = $1
 ORDER BY fleet_name
 `
 
 const listFleetsForUnitPostgresSearch = `
 SELECT uuid, fleet_name
 FROM fleets
-WHERE organization_id = $1 AND fleet_name ILIKE '%' || $2 || '%'
+WHERE organization_id::text = $1 AND fleet_name ILIKE '%' || $2 || '%'
 ORDER BY fleet_name
 `
 
@@ -62,8 +74,13 @@ func (r *FleetRepository) ListFleets(req *model.ListFleetRequest) ([]model.Fleet
 	where := make([]string, 0, 4)
 	args := make([]interface{}, 0, 4)
 	pos := 1
+	where = append(where, "f.status > 0")
 	if req.OrganizationID != "" {
-		where = append(where, fmt.Sprintf("f.organization_id = %s", r.getPlaceholder(pos)))
+		orgExpr := fmt.Sprintf("f.organization_id = %s", r.getPlaceholder(pos))
+		if r.driver == "postgres" || r.driver == "pgx" {
+			orgExpr = fmt.Sprintf("f.organization_id::text = %s", r.getPlaceholder(pos))
+		}
+		where = append(where, orgExpr)
 		args = append(args, req.OrganizationID)
 		pos++
 	}
@@ -110,8 +127,24 @@ func (r *FleetRepository) ListFleets(req *model.ListFleetRequest) ([]model.Fleet
 	var items []model.FleetListItem
 	for rows.Next() {
 		var item model.FleetListItem
-		if err := rows.Scan(&item.FleetID, &item.FleetType, &item.FleetName, &item.Capacity, &item.Engine, &item.Body, &item.Active, &item.Status, &item.Thumbnail); err != nil {
+		var fleetType sql.NullString
+		var engine sql.NullString
+		var body sql.NullString
+		var thumbnail sql.NullString
+		if err := rows.Scan(&item.FleetID, &fleetType, &item.FleetName, &item.Capacity, &engine, &body, &item.Active, &item.Status, &thumbnail); err != nil {
 			return nil, err
+		}
+		if fleetType.Valid {
+			item.FleetType = fleetType.String
+		}
+		if engine.Valid {
+			item.Engine = engine.String
+		}
+		if body.Valid {
+			item.Body = body.String
+		}
+		if thumbnail.Valid {
+			item.Thumbnail = thumbnail.String
 		}
 		items = append(items, item)
 	}
@@ -1882,4 +1915,20 @@ func (r *FleetRepository) ListFleetsForUnit(orgID, searchFor string) ([]model.Fl
 		return nil, err
 	}
 	return items, nil
+}
+
+func (r *FleetRepository) SoftDeleteFleet(orgID, userID, fleetID string) error {
+	query := softDeleteFleetMySQL
+	if r.driver == "postgres" || r.driver == "pgx" {
+		query = softDeleteFleetPostgres
+	}
+	res, err := database.Exec(r.db, query, time.Now(), userID, fleetID, orgID)
+	if err != nil {
+		return err
+	}
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }

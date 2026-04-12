@@ -1,0 +1,24 @@
+{
+    "fuel_type": [
+        {
+            "id": "1001",
+            "label": "Bensin (RON 90, 92, 95)"
+        },
+        {
+            "id": "1002",
+            "label": "Diesel (solar / biosolar)"
+        },
+        {
+            "id": "1003",
+            "label": "Electric Vehicle"
+        },
+        {
+            "id": "1004",
+            "label": "Hybrid Vehicle"
+        },
+        {
+            "id": "1005",
+            "label": "CNG / BBG"
+        }
+    ]
+}

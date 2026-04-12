@@ -18,6 +18,18 @@ type TourPackageRepository struct {
 	driver string
 }
 
+const softDeleteTourPackagePostgres = `
+UPDATE tour_packages
+SET status = 0, updated_at = $1, updated_by = $2
+WHERE uuid = $3 AND organization_id::text = $4
+`
+
+const softDeleteTourPackageMySQL = `
+UPDATE tour_packages
+SET status = 0, updated_at = ?, updated_by = ?
+WHERE uuid = ? AND organization_id = ?
+`
+
 func NewTourPackageRepository(db *sql.DB, driver string) *TourPackageRepository {
 	return &TourPackageRepository{
 		db:     db,
@@ -30,6 +42,22 @@ func (r *TourPackageRepository) getPlaceholder(pos int) string {
 		return fmt.Sprintf("$%d", pos)
 	}
 	return "?"
+}
+
+func (r *TourPackageRepository) SoftDeleteTourPackage(ctx context.Context, orgID, userID, packageID string) error {
+	query := softDeleteTourPackageMySQL
+	if r.driver == "postgres" || r.driver == "pgx" {
+		query = softDeleteTourPackagePostgres
+	}
+	res, err := database.ExecContext(ctx, r.db, query, time.Now(), userID, packageID, orgID)
+	if err != nil {
+		return err
+	}
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (r *TourPackageRepository) GetTourPackagesByOrgID(orgID string) ([]model.TourPackageListItem, error) {

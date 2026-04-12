@@ -34,6 +34,10 @@ func (s *TourPackageService) UpdateTourPackage(ctx context.Context, req *model.U
 	return s.repo.UpdateTourPackage(ctx, req, orgID, userID)
 }
 
+func (s *TourPackageService) DeleteTourPackage(ctx context.Context, orgID, userID, packageID string) error {
+	return s.repo.SoftDeleteTourPackage(ctx, orgID, userID, packageID)
+}
+
 func (s *TourPackageService) GetTourPackageDetail(ctx context.Context, orgID, packageID string) (*model.TourPackageDetailResponse, error) {
 	res, err := s.repo.GetTourPackageDetail(ctx, orgID, packageID)
 	if err != nil {
