@@ -28,25 +28,25 @@ func (r *FleetMetaRepository) FindBodies(organizationID string, search string) (
 	if search != "" {
 		if r.driver == "mysql" {
 			query := fmt.Sprintf(`
-                SELECT body FROM fleets
-                WHERE organization_id = %s AND body LIKE CONCAT('%%', %s, '%%')
-                ORDER BY body
-            `, r.getPlaceholder(1), r.getPlaceholder(2))
+				SELECT DISTINCT body FROM fleets
+				WHERE organization_id = %s AND body IS NOT NULL AND body <> '' AND body LIKE CONCAT('%%', %s, '%%')
+				ORDER BY body
+			`, r.getPlaceholder(1), r.getPlaceholder(2))
 			rows, err = database.Query(r.db, query, organizationID, search)
 		} else {
 			query := fmt.Sprintf(`
-                SELECT body FROM fleets
-                WHERE organization_id = %s AND body LIKE '%%' || %s || '%%'
-                ORDER BY body
-            `, r.getPlaceholder(1), r.getPlaceholder(2))
+				SELECT DISTINCT body FROM fleets
+				WHERE organization_id = %s AND COALESCE(body, '') <> '' AND body LIKE '%%' || %s || '%%'
+				ORDER BY body
+			`, r.getPlaceholder(1), r.getPlaceholder(2))
 			rows, err = database.Query(r.db, query, organizationID, search)
 		}
 	} else {
 		query := fmt.Sprintf(`
-            SELECT body FROM fleets
-            WHERE organization_id = %s
-            ORDER BY body
-        `, r.getPlaceholder(1))
+			SELECT DISTINCT body FROM fleets
+			WHERE organization_id = %s AND body IS NOT NULL AND body <> ''
+			ORDER BY body
+		`, r.getPlaceholder(1))
 		rows, err = database.Query(r.db, query, organizationID)
 	}
 	if err != nil {
