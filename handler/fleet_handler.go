@@ -46,6 +46,9 @@ func (h *FleetHandler) CreateFleet(c *fiber.Ctx) error {
 		if v, ok := m["body"].(string); ok {
 			req.Body = v
 		}
+		if v, ok := m["fuel_type"].(string); ok {
+			req.FuelType = v
+		}
 		if v, ok := m["description"].(string); ok {
 			req.Description = v
 		}
@@ -143,6 +146,57 @@ func (h *FleetHandler) CreateFleet(c *fiber.Ctx) error {
 		if raw := c.Body(); len(raw) > 0 {
 			var m map[string]interface{}
 			if err := json.Unmarshal(raw, &m); err == nil {
+				if req.FuelType == "" {
+					if v, ok := m["fuel_type"].(string); ok {
+						req.FuelType = v
+					}
+				}
+				if req.Thumbnail == "" {
+					if v, ok := m["thumbnail"].(string); ok {
+						req.Thumbnail = v
+					}
+				}
+				if len(req.Pickup) == 0 {
+					if v, ok := m["pickup_point"].([]interface{}); ok {
+						req.Pickup = make([]model.FleetPickupRequest, 0, len(v))
+						for _, it := range v {
+							req.Pickup = append(req.Pickup, model.FleetPickupRequest{CityID: toInt(it)})
+						}
+					}
+				}
+				if len(req.Facilities) == 0 {
+					if v, ok := m["fascilities"].([]interface{}); ok {
+						req.Facilities = make([]string, 0, len(v))
+						for _, it := range v {
+							if s, ok := it.(string); ok {
+								req.Facilities = append(req.Facilities, s)
+							}
+						}
+					}
+				}
+				if len(req.Pricing) == 0 {
+					if v, ok := m["prices"].([]interface{}); ok {
+						req.Pricing = make([]model.FleetPriceRequest, 0, len(v))
+						for _, it := range v {
+							if mp, ok := it.(map[string]interface{}); ok {
+								pr := model.FleetPriceRequest{}
+								if dv, ok := mp["duration"]; ok {
+									pr.Duration = toInt(dv)
+								}
+								if rv, ok := mp["rent_category"]; ok {
+									pr.RentType = toInt(rv)
+								}
+								if pv, ok := mp["price"]; ok {
+									pr.Price = toInt(pv)
+								}
+								if uom, ok := mp["uom"].(string); ok {
+									pr.Uom = uom
+								}
+								req.Pricing = append(req.Pricing, pr)
+							}
+						}
+					}
+				}
 				if b, ok := m["body"].(map[string]interface{}); ok {
 					if imgs, ok := b["images"].([]interface{}); ok {
 						req.Images = make([]model.FleetImageRequest, 0, len(imgs))

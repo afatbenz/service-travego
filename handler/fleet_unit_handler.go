@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"log"
 	"service-travego/helper"
 	"service-travego/model"
 	"service-travego/service"
@@ -49,6 +50,7 @@ func (h *FleetUnitHandler) Create(c *fiber.Ctx) error {
 
 	id, err := h.service.Create(orgID, userID, &req)
 	if err != nil {
+		log.Printf("[ERROR] TransactionID: %s - CreateFleetUnit - Error: %v", helper.GetTransactionID(c), err)
 		code := service.GetStatusCode(err)
 		return helper.SendErrorResponse(c, code, err.Error())
 	}

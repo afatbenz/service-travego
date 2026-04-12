@@ -30,6 +30,7 @@ type CreateFleetRequest struct {
 	ProductionYear int                  `json:"production_year"`
 	Engine         string               `json:"engine"`
 	Body           string               `json:"body"`
+	FuelType       string               `json:"fuel_type"`
 	Description    string               `json:"description"`
 	Active         bool                 `json:"active"`
 	Pickup         []FleetPickupRequest `json:"pickup"`
@@ -58,6 +59,7 @@ type FleetListItem struct {
 	Capacity  int    `json:"capacity"`
 	Engine    string `json:"engine"`
 	Body      string `json:"body"`
+	TotalUnit int    `json:"total_unit"`
 	Active    bool   `json:"active"`
 	Status    int    `json:"status"`
 	Thumbnail string `json:"thumbnail"`
@@ -119,6 +121,7 @@ type UpdateFleetRequest struct {
 	ProductionYear int                       `json:"production_year"`
 	Engine         string                    `json:"engine"`
 	Body           string                    `json:"body"`
+	FuelType       string                    `json:"fuel_type"`
 	Description    string                    `json:"description"`
 	Active         bool                      `json:"active"`
 	Thumbnail      string                    `json:"thumbnail"`

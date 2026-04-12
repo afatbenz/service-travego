@@ -35,7 +35,11 @@ func (s *FleetUnitService) Create(orgID, userID string, req *model.FleetUnitCrea
 	req.CreatedBy = userID
 	id, err := s.repo.Create(req)
 	if err != nil {
-		return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create fleet unit")
+		msg := "failed to create fleet unit"
+		if env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV"))); env != "production" && env != "prod" {
+			msg = fmt.Sprintf("%s: %v", msg, err)
+		}
+		return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, msg)
 	}
 	return id, nil
 }

@@ -67,10 +67,15 @@ func NewFleetRepository(db *sql.DB, driver string) *FleetRepository {
 func uuid2() string { return uuid.New().String() }
 
 func (r *FleetRepository) ListFleets(req *model.ListFleetRequest) ([]model.FleetListItem, error) {
+	totalUnitExpr := "COALESCE((SELECT COUNT(*) FROM fleet_units fu WHERE fu.fleet_id = f.uuid AND fu.status = 1), 0)"
+	if r.driver == "postgres" || r.driver == "pgx" {
+		totalUnitExpr = "COALESCE((SELECT COUNT(*) FROM fleet_units fu WHERE fu.fleet_id::text = f.uuid::text AND fu.status = 1), 0)"
+	}
 	base := `
-        SELECT f.uuid AS fleet_id, ft.label AS fleet_type, f.fleet_name, f.capacity, f.engine, f.body, f.active, f.status, f.thumbnail
+        SELECT f.uuid AS fleet_id, ft.label AS fleet_type, f.fleet_name, f.capacity, f.engine, f.body, %s as total_unit, f.active, f.status, f.thumbnail
         FROM fleets f INNER JOIN fleet_types ft ON f.fleet_type = ft.id
     `
+	base = fmt.Sprintf(base, totalUnitExpr)
 	where := make([]string, 0, 4)
 	args := make([]interface{}, 0, 4)
 	pos := 1
@@ -117,6 +122,7 @@ func (r *FleetRepository) ListFleets(req *model.ListFleetRequest) ([]model.Fleet
 	if len(where) > 0 {
 		query = query + " WHERE " + strings.Join(where, " AND ")
 	}
+	query = query + " ORDER BY f.created_at DESC"
 
 	rows, err := database.Query(r.db, query, args...)
 	if err != nil {
@@ -131,7 +137,8 @@ func (r *FleetRepository) ListFleets(req *model.ListFleetRequest) ([]model.Fleet
 		var engine sql.NullString
 		var body sql.NullString
 		var thumbnail sql.NullString
-		if err := rows.Scan(&item.FleetID, &fleetType, &item.FleetName, &item.Capacity, &engine, &body, &item.Active, &item.Status, &thumbnail); err != nil {
+		var totalUnit int64
+		if err := rows.Scan(&item.FleetID, &fleetType, &item.FleetName, &item.Capacity, &engine, &body, &totalUnit, &item.Active, &item.Status, &thumbnail); err != nil {
 			return nil, err
 		}
 		if fleetType.Valid {
@@ -143,6 +150,7 @@ func (r *FleetRepository) ListFleets(req *model.ListFleetRequest) ([]model.Fleet
 		if body.Valid {
 			item.Body = body.String
 		}
+		item.TotalUnit = int(totalUnit)
 		if thumbnail.Valid {
 			item.Thumbnail = thumbnail.String
 		}
@@ -155,16 +163,31 @@ func (r *FleetRepository) CreateFleet(req *model.CreateFleetRequest) (string, er
 	id := uuid2()
 	now := time.Now()
 	query := `
-        INSERT INTO fleets (uuid, organization_id, fleet_type, fleet_name, capacity, description, engine, body, active, created_at, created_by, status)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO fleets (uuid, organization_id, fleet_type, fleet_name, capacity, production_year, engine, body, fuel_type, description, thumbnail, active, created_at, created_by, status)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     `
 	query = fmt.Sprintf(query, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
 		r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9),
-		r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12))
+		r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12), r.getPlaceholder(13), r.getPlaceholder(14), r.getPlaceholder(15))
 
 	// Status default 1 (Active/Draft?)
-	_, err := database.Exec(r.db, query, id, req.OrganizationID, req.FleetType, req.FleetName, req.Capacity, req.Description,
-		req.Engine, req.Body, true, now, req.CreatedBy, 1)
+	_, err := database.Exec(r.db, query,
+		id,
+		req.OrganizationID,
+		req.FleetType,
+		req.FleetName,
+		req.Capacity,
+		req.ProductionYear,
+		req.Engine,
+		req.Body,
+		req.FuelType,
+		req.Description,
+		req.Thumbnail,
+		req.Active,
+		now,
+		req.CreatedBy,
+		1,
+	)
 
 	if err != nil {
 		return "", err
@@ -247,7 +270,7 @@ func (r *FleetRepository) UpdateFleet(req *model.UpdateFleetRequest) error {
 
 	now := time.Now()
 	updateFleetQuery := fmt.Sprintf(
-		`UPDATE fleets SET fleet_type = %s, fleet_name = %s, capacity = %s, production_year = %s, engine = %s, body = %s, description = %s, thumbnail = %s, active = %s, updated_at = %s, updated_by = %s WHERE uuid = %s AND organization_id = %s`,
+		`UPDATE fleets SET fleet_type = %s, fleet_name = %s, capacity = %s, production_year = %s, engine = %s, body = %s, fuel_type = %s, description = %s, thumbnail = %s, active = %s, updated_at = %s, updated_by = %s WHERE uuid = %s AND organization_id = %s`,
 		r.getPlaceholder(1),
 		r.getPlaceholder(2),
 		r.getPlaceholder(3),
@@ -261,6 +284,7 @@ func (r *FleetRepository) UpdateFleet(req *model.UpdateFleetRequest) error {
 		r.getPlaceholder(11),
 		r.getPlaceholder(12),
 		r.getPlaceholder(13),
+		r.getPlaceholder(14),
 	)
 
 	res, err := database.TxExec(
@@ -272,6 +296,7 @@ func (r *FleetRepository) UpdateFleet(req *model.UpdateFleetRequest) error {
 		req.ProductionYear,
 		req.Engine,
 		req.Body,
+		req.FuelType,
 		req.Description,
 		req.Thumbnail,
 		req.Active,
