@@ -80,6 +80,24 @@ func (s *GeneralService) GetFuelTypes() ([]model.FleetFuelType, error) {
 	return cfg.FuelType, nil
 }
 
+func (s *GeneralService) GetFleetTransmissions() ([]model.FleetTransmission, error) {
+	file, err := os.Open("config/fleet-config.json")
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	var cfg model.FleetConfig
+	decoder := json.NewDecoder(file)
+	if err := decoder.Decode(&cfg); err != nil {
+		return nil, err
+	}
+	if cfg.FleetTransmission == nil {
+		return []model.FleetTransmission{}, nil
+	}
+	return cfg.FleetTransmission, nil
+}
+
 // GetBankList reads and returns bank list from database sorted by name
 func (s *GeneralService) GetBankList() ([]model.Bank, error) {
 	return s.generalRepo.GetBankList()

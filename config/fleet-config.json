@@ -20,5 +20,15 @@
             "id": "1005",
             "label": "CNG / BBG"
         }
+    ],
+    "fleet-transmission": [
+        {
+            "id": "2001",
+            "label": "Manual"
+        },
+        {
+            "id": "2002",
+            "label": "Automatic"
+        }
     ]
 }

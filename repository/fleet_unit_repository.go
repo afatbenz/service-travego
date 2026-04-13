@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"service-travego/database"
 	"service-travego/model"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,6 +18,98 @@ type FleetUnitRepository struct {
 
 func NewFleetUnitRepository(db *sql.DB, driver string) *FleetUnitRepository {
 	return &FleetUnitRepository{db: db, driver: driver}
+}
+
+func (r *FleetUnitRepository) placeholder(pos int) string {
+	if r.driver == "postgres" || r.driver == "pgx" {
+		return "$" + strconv.Itoa(pos)
+	}
+	return "?"
+}
+
+func (r *FleetUnitRepository) FindExistingVehicleIDs(orgID string, vehicleIDs []string) (map[string]struct{}, error) {
+	out := map[string]struct{}{}
+	if len(vehicleIDs) == 0 {
+		return out, nil
+	}
+
+	in := make([]string, 0, len(vehicleIDs))
+	args := make([]interface{}, 0, 1+len(vehicleIDs))
+	args = append(args, orgID)
+	for i, v := range vehicleIDs {
+		in = append(in, r.placeholder(i+2))
+		args = append(args, strings.ToUpper(strings.TrimSpace(v)))
+	}
+
+	orgExpr := "organization_id = " + r.placeholder(1)
+	vehicleExpr := "UPPER(COALESCE(vehicle_id, ''))"
+	if r.driver == "postgres" || r.driver == "pgx" {
+		orgExpr = "organization_id::text = " + r.placeholder(1)
+		vehicleExpr = "UPPER(COALESCE(vehicle_id::text, ''))"
+	}
+
+	query := "SELECT DISTINCT " + vehicleExpr + " AS vehicle_id FROM fleet_units WHERE " + orgExpr + " AND " + vehicleExpr + " IN (" + strings.Join(in, ",") + ")"
+	rows, err := database.Query(r.db, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var v sql.NullString
+		if err := rows.Scan(&v); err != nil {
+			return nil, err
+		}
+		if v.Valid && v.String != "" {
+			out[v.String] = struct{}{}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (r *FleetUnitRepository) FindExistingPlateNumbers(orgID string, plateNumbers []string) (map[string]struct{}, error) {
+	out := map[string]struct{}{}
+	if len(plateNumbers) == 0 {
+		return out, nil
+	}
+
+	in := make([]string, 0, len(plateNumbers))
+	args := make([]interface{}, 0, 1+len(plateNumbers))
+	args = append(args, orgID)
+	for i, v := range plateNumbers {
+		in = append(in, r.placeholder(i+2))
+		args = append(args, strings.ToUpper(strings.TrimSpace(v)))
+	}
+
+	orgExpr := "organization_id = " + r.placeholder(1)
+	plateExpr := "UPPER(COALESCE(plate_number, ''))"
+	if r.driver == "postgres" || r.driver == "pgx" {
+		orgExpr = "organization_id::text = " + r.placeholder(1)
+	}
+
+	query := "SELECT DISTINCT " + plateExpr + " AS plate_number FROM fleet_units WHERE " + orgExpr + " AND " + plateExpr + " IN (" + strings.Join(in, ",") + ")"
+	rows, err := database.Query(r.db, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var v sql.NullString
+		if err := rows.Scan(&v); err != nil {
+			return nil, err
+		}
+		if v.Valid && v.String != "" {
+			out[v.String] = struct{}{}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 const listFleetUnitsPostgres = `

@@ -1,10 +1,12 @@
 package handler
 
 import (
+	"encoding/json"
 	"log"
 	"service-travego/helper"
 	"service-travego/model"
 	"service-travego/service"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -31,8 +33,58 @@ func (h *FleetUnitHandler) List(c *fiber.Ctx) error {
 }
 
 func (h *FleetUnitHandler) Create(c *fiber.Ctx) error {
+	raw := c.Body()
+	if len(raw) == 0 {
+		return helper.BadRequestResponse(c, "invalid payload")
+	}
+
+	var batch model.FleetUnitBatchCreateRequest
+	if err := json.Unmarshal(raw, &batch); err == nil && len(batch.Units) > 0 {
+		if errs := helper.ValidateStruct(&batch); len(errs) > 0 {
+			return helper.SendValidationErrorResponse(c, errs)
+		}
+
+		seenVehicle := map[string]struct{}{}
+		seenPlate := map[string]struct{}{}
+		for _, u := range batch.Units {
+			vid := strings.ToUpper(strings.TrimSpace(u.VehicleID))
+			if vid != "" {
+				if _, ok := seenVehicle[vid]; ok {
+					return helper.SendErrorResponse(c, fiber.StatusBadRequest, "DUPLICATE_VEHICLE_ID")
+				}
+				seenVehicle[vid] = struct{}{}
+			}
+			pn := strings.ToUpper(strings.TrimSpace(u.PlateNumber))
+			if pn != "" {
+				if _, ok := seenPlate[pn]; ok {
+					return helper.SendErrorResponse(c, fiber.StatusBadRequest, "DUPLICATE_PLATE_NUMBER")
+				}
+				seenPlate[pn] = struct{}{}
+			}
+		}
+
+		orgID, ok := c.Locals("organization_id").(string)
+		if !ok || orgID == "" {
+			return helper.BadRequestResponse(c, "missing organization context")
+		}
+		userID, ok := c.Locals("user_id").(string)
+		if !ok || userID == "" {
+			return helper.BadRequestResponse(c, "missing user context")
+		}
+
+		ids, err := h.service.CreateBatch(orgID, userID, batch.FleetID, batch.Units)
+		if err != nil {
+			log.Printf("[ERROR] TransactionID: %s - CreateFleetUnitBatch - Error: %v", helper.GetTransactionID(c), err)
+			code := service.GetStatusCode(err)
+			return helper.SendErrorResponse(c, code, err.Error())
+		}
+		return helper.SuccessResponse(c, fiber.StatusOK, "Fleet units created", fiber.Map{
+			"unit_ids": ids,
+		})
+	}
+
 	var req model.FleetUnitCreateRequest
-	if err := c.BodyParser(&req); err != nil {
+	if err := json.Unmarshal(raw, &req); err != nil {
 		return helper.BadRequestResponse(c, "invalid payload")
 	}
 	if errs := helper.ValidateStruct(&req); len(errs) > 0 {

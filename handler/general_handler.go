@@ -61,6 +61,14 @@ func (h *GeneralHandler) GetFuelTypes(c *fiber.Ctx) error {
 	return helper.SuccessResponse(c, fiber.StatusOK, "Fuel types loaded successfully", list)
 }
 
+func (h *GeneralHandler) GetFleetTransmissions(c *fiber.Ctx) error {
+	list, err := h.generalService.GetFleetTransmissions()
+	if err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to load fleet transmissions")
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet transmissions loaded successfully", list)
+}
+
 func (h *GeneralHandler) GetProvinces(c *fiber.Ctx) error {
 	searchText := c.Query("search", "")
 	provinces, err := h.generalService.GetProvinces(searchText)
