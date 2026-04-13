@@ -32,6 +32,20 @@ type FleetUnitCreateRequest struct {
 	CreatedDate    time.Time
 }
 
+type FleetUnitCreateUnit struct {
+	VehicleID      string `json:"vehicle_id" validate:"required"`
+	PlateNumber    string `json:"plate_number" validate:"required"`
+	Engine         string `json:"engine" validate:"required"`
+	Transmission   string `json:"transmission" validate:"required"`
+	Capacity       int    `json:"capacity" validate:"required"`
+	ProductionYear int    `json:"production_year" validate:"required"`
+}
+
+type FleetUnitBatchCreateRequest struct {
+	FleetID string                `json:"fleet_id" validate:"required"`
+	Units   []FleetUnitCreateUnit `json:"units" validate:"required,dive"`
+}
+
 type FleetUnitUpdateRequest struct {
 	UnitID         string `json:"unit_id" validate:"required"`
 	VehicleID      string `json:"vehicle_id" validate:"required"`

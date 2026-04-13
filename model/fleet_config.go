@@ -5,6 +5,12 @@ type FleetFuelType struct {
 	Label string `json:"label"`
 }
 
+type FleetTransmission struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
 type FleetConfig struct {
-	FuelType []FleetFuelType `json:"fuel_type"`
+	FuelType          []FleetFuelType     `json:"fuel_type"`
+	FleetTransmission []FleetTransmission `json:"fleet-transmission"`
 }
