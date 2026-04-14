@@ -2,20 +2,70 @@ package service
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"service-travego/model"
 	"service-travego/repository"
+	"strconv"
 	"strings"
 )
 
 type FleetUnitService struct {
-	repo *repository.FleetUnitRepository
+	repo              *repository.FleetUnitRepository
+	citiesName        map[string]string
+	transmissionLabel map[string]string
 }
 
 func NewFleetUnitService(repo *repository.FleetUnitRepository) *FleetUnitService {
 	return &FleetUnitService{repo: repo}
+}
+
+func (s *FleetUnitService) ensureCitiesLoaded() {
+	if s.citiesName != nil {
+		return
+	}
+	f, err := os.Open("config/location.json")
+	if err != nil {
+		s.citiesName = map[string]string{}
+		return
+	}
+	defer f.Close()
+	var loc model.Location
+	if err := json.NewDecoder(f).Decode(&loc); err != nil {
+		s.citiesName = map[string]string{}
+		return
+	}
+	m := make(map[string]string, len(loc.Cities))
+	for _, c := range loc.Cities {
+		m[c.ID] = c.Name
+	}
+	s.citiesName = m
+}
+
+func (s *FleetUnitService) ensureTransmissionLoaded() {
+	if s.transmissionLabel != nil {
+		return
+	}
+	f, err := os.Open("config/fleet-config.json")
+	if err != nil {
+		s.transmissionLabel = map[string]string{}
+		return
+	}
+	defer f.Close()
+	var cfg model.FleetConfig
+	if err := json.NewDecoder(f).Decode(&cfg); err != nil {
+		s.transmissionLabel = map[string]string{}
+		return
+	}
+	m := make(map[string]string, len(cfg.FleetTransmission))
+	for _, it := range cfg.FleetTransmission {
+		if it.ID != "" && it.Label != "" {
+			m[it.ID] = it.Label
+		}
+	}
+	s.transmissionLabel = m
 }
 
 func (s *FleetUnitService) List(orgID string) ([]model.FleetUnitListItem, error) {
@@ -148,5 +198,34 @@ func (s *FleetUnitService) Detail(orgID, uuid string) (*model.FleetUnitDetailRes
 		}
 		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to get fleet unit detail")
 	}
+
+	s.ensureTransmissionLoaded()
+	res.TransmissionID = res.Transmission
+	if label, ok := s.transmissionLabel[strings.TrimSpace(res.Transmission)]; ok && label != "" {
+		res.Transmission = label
+	}
+
+	if strings.TrimSpace(res.FleetID) != "" {
+		cityIDs, err := s.repo.GetFleetPickupCityIDs(orgID, res.FleetID)
+		if err == nil && len(cityIDs) > 0 {
+			s.ensureCitiesLoaded()
+			out := make([]string, 0, len(cityIDs))
+			seen := map[string]struct{}{}
+			for _, id := range cityIDs {
+				key := strconv.Itoa(id)
+				name := s.citiesName[key]
+				if name == "" {
+					continue
+				}
+				if _, ok := seen[name]; ok {
+					continue
+				}
+				seen[name] = struct{}{}
+				out = append(out, name)
+			}
+			res.PickupPoint = out
+		}
+	}
+
 	return res, nil
 }
