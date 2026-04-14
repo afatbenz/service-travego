@@ -152,3 +152,24 @@ func (h *FleetUnitHandler) Detail(c *fiber.Ctx) error {
 	}
 	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet unit detail loaded", res)
 }
+
+func (h *FleetUnitHandler) OrderHistory(c *fiber.Ctx) error {
+	var req model.FleetUnitOrderHistoryRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.BadRequestResponse(c, "invalid payload")
+	}
+	if errs := helper.ValidateStruct(&req); len(errs) > 0 {
+		return helper.SendValidationErrorResponse(c, errs)
+	}
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.BadRequestResponse(c, "missing organization context")
+	}
+
+	items, err := h.service.UnitOrderHistory(orgID, strings.TrimSpace(req.UnitID), strings.TrimSpace(req.StartDate), strings.TrimSpace(req.EndDate))
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet unit order history loaded", items)
+}

@@ -346,6 +346,40 @@ LEFT JOIN users uu ON fu.updated_by = uu.user_id
 WHERE fu.unit_id = ? AND fu.organization_id = ?
 `
 
+const unitOrderHistoryPostgres = `
+SELECT
+	COALESCE(fuo.unit_order_id::text, '') AS unit_order_id,
+	COALESCE(fuo.order_id::text, '') AS order_id,
+	COALESCE(fuo.unit_id::text, '') AS unit_id,
+	COALESCE(fuo.driver_id::text, '') AS driver_id,
+	COALESCE(d.fullname, '') AS driver_name,
+	fo.start_date,
+	fo.end_date,
+	COALESCE(fo.pickup_city_id::text, '') AS pickup_city_id
+FROM fleet_unit_orders fuo
+INNER JOIN fleet_orders fo ON fuo.order_id::text = fo.order_id::text
+LEFT JOIN users d ON d.user_id::text = fuo.driver_id::text
+WHERE fo.organization_id::text = $1 AND fuo.unit_id::text = $2 AND fo.start_date >= $3 AND fo.end_date <= $4
+ORDER BY fo.start_date DESC
+`
+
+const unitOrderHistoryMySQL = `
+SELECT
+	fuo.unit_order_id,
+	fuo.order_id,
+	fuo.unit_id,
+	COALESCE(fuo.driver_id, '') AS driver_id,
+	COALESCE(d.fullname, '') AS driver_name,
+	fo.start_date,
+	fo.end_date,
+	COALESCE(CAST(fo.pickup_city_id AS CHAR), '') AS pickup_city_id
+FROM fleet_unit_orders fuo
+INNER JOIN fleet_orders fo ON fuo.order_id = fo.order_id
+LEFT JOIN users d ON d.user_id = fuo.driver_id
+WHERE fo.organization_id = ? AND fuo.unit_id = ? AND fo.start_date >= ? AND fo.end_date <= ?
+ORDER BY fo.start_date DESC
+`
+
 func (r *FleetUnitRepository) GetFleetPickupCityIDs(orgID, fleetID string) ([]int, error) {
 	orgExpr := "organization_id = " + r.placeholder(1)
 	if r.driver == "postgres" || r.driver == "pgx" {
@@ -581,4 +615,99 @@ func (r *FleetUnitRepository) Detail(orgID, id string) (*model.FleetUnitDetailRe
 		res.UpdatedDate = updatedAt.Time.Format("2006-01-02 15:04:05")
 	}
 	return &res, nil
+}
+
+func (r *FleetUnitRepository) UnitOrderHistory(orgID, unitID, startDate, endDate string) ([]model.FleetUnitOrderHistoryItem, error) {
+	query := unitOrderHistoryMySQL
+	if r.driver == "postgres" || r.driver == "pgx" {
+		query = unitOrderHistoryPostgres
+	}
+
+	rows, err := database.Query(r.db, query, orgID, unitID, startDate, endDate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]model.FleetUnitOrderHistoryItem, 0)
+	for rows.Next() {
+		var it model.FleetUnitOrderHistoryItem
+		var startDate sql.NullTime
+		var endDate sql.NullTime
+
+		if err := rows.Scan(
+			&it.UnitOrderID,
+			&it.OrderID,
+			&it.UnitID,
+			&it.DriverID,
+			&it.DriverName,
+			&startDate,
+			&endDate,
+			&it.PickupCityID,
+		); err != nil {
+			return nil, err
+		}
+		if startDate.Valid {
+			it.StartDate = startDate.Time.Format("2006-01-02")
+		}
+		if endDate.Valid {
+			it.EndDate = endDate.Time.Format("2006-01-02")
+		}
+		out = append(out, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (r *FleetUnitRepository) GetOrderDestinationCityIDs(orderIDs []string) (map[string][]string, error) {
+	out := map[string][]string{}
+	if len(orderIDs) == 0 {
+		return out, nil
+	}
+
+	in := make([]string, 0, len(orderIDs))
+	args := make([]interface{}, 0, len(orderIDs))
+	for i, id := range orderIDs {
+		in = append(in, r.placeholder(i+1))
+		args = append(args, strings.TrimSpace(id))
+	}
+
+	query := "SELECT COALESCE(order_id, '') AS order_id, COALESCE(CAST(city_id AS CHAR), '') AS city_id FROM fleet_order_destinations WHERE order_id IN (" + strings.Join(in, ",") + ")"
+	if r.driver == "postgres" || r.driver == "pgx" {
+		query = "SELECT COALESCE(order_id::text, '') AS order_id, COALESCE(city_id::text, '') AS city_id FROM fleet_order_destinations WHERE order_id::text IN (" + strings.Join(in, ",") + ")"
+	}
+
+	rows, err := database.Query(r.db, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	seen := map[string]map[string]struct{}{}
+	for rows.Next() {
+		var orderID string
+		var cityID string
+		if err := rows.Scan(&orderID, &cityID); err != nil {
+			return nil, err
+		}
+		orderID = strings.TrimSpace(orderID)
+		cityID = strings.TrimSpace(cityID)
+		if orderID == "" || cityID == "" {
+			continue
+		}
+		if _, ok := seen[orderID]; !ok {
+			seen[orderID] = map[string]struct{}{}
+		}
+		if _, ok := seen[orderID][cityID]; ok {
+			continue
+		}
+		seen[orderID][cityID] = struct{}{}
+		out[orderID] = append(out[orderID], cityID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }

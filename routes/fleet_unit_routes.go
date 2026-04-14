@@ -22,4 +22,7 @@ func SetupFleetUnitRoutes(api fiber.Router, db *sql.DB, driver string) {
 	units.Post("/create", helper.JWTAuthorizationMiddleware(), h.Create)
 	units.Post("/update", helper.JWTAuthorizationMiddleware(), h.Update)
 	units.Get("/detail/:unit_id", helper.JWTAuthorizationMiddleware(), h.Detail)
+
+	fleetUnits := api.Group("/fleet-units")
+	fleetUnits.Post("/order/history", helper.JWTAuthorizationMiddleware(), h.OrderHistory)
 }
