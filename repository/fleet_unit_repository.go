@@ -299,17 +299,21 @@ SELECT
 	fu.plate_number,
 	COALESCE(fu.fleet_id::text, '') AS fleet_id,
 	COALESCE(f.fleet_name, '') AS fleet_name,
+	COALESCE(ft.label, '') AS fleet_type,
 	COALESCE(fu.engine, '') AS engine,
 	COALESCE(fu.transmission, '') AS transmission,
 	fu.capacity,
 	fu.production_year,
 	COALESCE(fu.status, 0) AS status,
+	COALESCE(f.description, '') AS description,
+	COALESCE(f.thumbnail, '') AS thumbnail,
 	COALESCE(uc.fullname, uc.username, '') AS created_by,
 	fu.created_at,
 	COALESCE(uu.fullname, uu.username, '') AS updated_by,
 	fu.updated_at
 FROM fleet_units fu
 LEFT JOIN fleets f ON f.uuid::text = fu.fleet_id::text
+LEFT JOIN fleet_types ft ON f.fleet_type = ft.id
 LEFT JOIN users uc ON fu.created_by = uc.user_id
 LEFT JOIN users uu ON fu.updated_by = uu.user_id
 WHERE fu.unit_id = $1 AND fu.organization_id::text = $2
@@ -322,21 +326,52 @@ SELECT
 	fu.plate_number,
 	fu.fleet_id,
 	COALESCE(f.fleet_name, '') AS fleet_name,
+	COALESCE(ft.label, '') AS fleet_type,
 	COALESCE(fu.engine, '') AS engine,
 	COALESCE(fu.transmission, '') AS transmission,
 	fu.capacity,
 	fu.production_year,
 	COALESCE(fu.status, 0) AS status,
+	COALESCE(f.description, '') AS description,
+	COALESCE(f.thumbnail, '') AS thumbnail,
 	COALESCE(uc.fullname, uc.username, '') AS created_by,
 	fu.created_at,
 	COALESCE(uu.fullname, uu.username, '') AS updated_by,
 	fu.updated_at
 FROM fleet_units fu
 LEFT JOIN fleets f ON fu.fleet_id = f.uuid
+LEFT JOIN fleet_types ft ON f.fleet_type = ft.id
 LEFT JOIN users uc ON fu.created_by = uc.user_id
 LEFT JOIN users uu ON fu.updated_by = uu.user_id
 WHERE fu.unit_id = ? AND fu.organization_id = ?
 `
+
+func (r *FleetUnitRepository) GetFleetPickupCityIDs(orgID, fleetID string) ([]int, error) {
+	orgExpr := "organization_id = " + r.placeholder(1)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		orgExpr = "organization_id::text = " + r.placeholder(1)
+	}
+	query := "SELECT city_id FROM fleet_pickup WHERE fleet_id = " + r.placeholder(2) + " AND " + orgExpr
+
+	rows, err := database.Query(r.db, query, orgID, fleetID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]int, 0)
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
 
 func (r *FleetUnitRepository) List(orgID string) ([]model.FleetUnitListItem, error) {
 	query := listFleetUnitsMySQL
@@ -525,11 +560,14 @@ func (r *FleetUnitRepository) Detail(orgID, id string) (*model.FleetUnitDetailRe
 		&res.PlateNumber,
 		&res.FleetID,
 		&res.FleetName,
+		&res.FleetType,
 		&res.Engine,
 		&res.Transmission,
 		&res.Capacity,
 		&res.ProductionYear,
 		&res.Status,
+		&res.Description,
+		&res.Thumbnail,
 		&res.CreatedBy,
 		&createdAt,
 		&res.UpdatedBy,
