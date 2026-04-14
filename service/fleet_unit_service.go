@@ -229,3 +229,60 @@ func (s *FleetUnitService) Detail(orgID, uuid string) (*model.FleetUnitDetailRes
 
 	return res, nil
 }
+
+func (s *FleetUnitService) UnitOrderHistory(orgID, unitID, startDate, endDate string) ([]model.FleetUnitOrderHistoryItem, error) {
+	items, err := s.repo.UnitOrderHistory(orgID, unitID, startDate, endDate)
+	if err != nil {
+		msg := "failed to get fleet unit order history"
+		if env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV"))); env != "production" && env != "prod" {
+			msg = fmt.Sprintf("%s: %v", msg, err)
+		}
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, msg)
+	}
+
+	s.ensureCitiesLoaded()
+	orderIDs := make([]string, 0, len(items))
+	seenOrders := map[string]struct{}{}
+	for i := range items {
+		items[i].PickupCityLabel = s.citiesName[strings.TrimSpace(items[i].PickupCityID)]
+		oid := strings.TrimSpace(items[i].OrderID)
+		if oid != "" {
+			if _, ok := seenOrders[oid]; !ok {
+				seenOrders[oid] = struct{}{}
+				orderIDs = append(orderIDs, oid)
+			}
+		}
+	}
+
+	destCityIDs, err := s.repo.GetOrderDestinationCityIDs(orderIDs)
+	if err != nil {
+		msg := "failed to get fleet unit order history"
+		if env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV"))); env != "production" && env != "prod" {
+			msg = fmt.Sprintf("%s: %v", msg, err)
+		}
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, msg)
+	}
+	for i := range items {
+		cityIDs := destCityIDs[strings.TrimSpace(items[i].OrderID)]
+		if len(cityIDs) == 0 {
+			continue
+		}
+		labels := make([]string, 0, len(cityIDs))
+		seenLabel := map[string]struct{}{}
+		for _, id := range cityIDs {
+			name := s.citiesName[strings.TrimSpace(id)]
+			if name == "" {
+				continue
+			}
+			if _, ok := seenLabel[name]; ok {
+				continue
+			}
+			seenLabel[name] = struct{}{}
+			labels = append(labels, name)
+		}
+		if len(labels) > 0 {
+			items[i].Destinations = strings.Join(labels, ", ")
+		}
+	}
+	return items, nil
+}
