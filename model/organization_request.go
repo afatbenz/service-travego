@@ -64,3 +64,45 @@ type UpdateOrganizationRoleRequest struct {
 type DeleteOrganizationRoleRequest struct {
 	RoleID string `json:"role_id" validate:"required"`
 }
+
+type CreateEmployeeRequest struct {
+	EmployeeID     string  `json:"employee_id" validate:"required"`
+	NIK            string  `json:"nik"`
+	Fullname       string  `json:"fullname" validate:"required"`
+	Avatar         string  `json:"avatar"`
+	Photo          string  `json:"photo"`
+	Phone          string  `json:"phone"`
+	BirthDate      string  `json:"birth_date"`
+	DateOfBirth    string  `json:"date_of_birth"`
+	Email          string  `json:"email"`
+	Address        string  `json:"address"`
+	AddressCity    int     `json:"address_city"`
+	CityID         string  `json:"city_id"`
+	JoinDate       string  `json:"join_date"`
+	RoleID         string  `json:"role_id" validate:"required"`
+	ContractStatus *int    `json:"contract_status"`
+	ContractTypeID string  `json:"contract_type_id"`
+	ResignDate     *string `json:"resign_date"`
+}
+
+type UpdateEmployeeRequest struct {
+	UUID           string  `json:"uuid" validate:"required"`
+	EmployeeID     string  `json:"employee_id" validate:"required"`
+	NIK            string  `json:"nik"`
+	Fullname       string  `json:"fullname" validate:"required"`
+	Avatar         string  `json:"avatar"`
+	Photo          string  `json:"photo"`
+	Phone          string  `json:"phone"`
+	BirthDate      string  `json:"birth_date"`
+	DateOfBirth    string  `json:"date_of_birth"`
+	Email          string  `json:"email"`
+	Address        string  `json:"address"`
+	AddressCity    int     `json:"address_city"`
+	CityID         string  `json:"city_id"`
+	JoinDate       string  `json:"join_date"`
+	RoleID         string  `json:"role_id" validate:"required"`
+	ContractStatus *int    `json:"contract_status"`
+	ContractTypeID string  `json:"contract_type_id"`
+	ResignDate     *string `json:"resign_date"`
+	Status         *int    `json:"status"`
+}

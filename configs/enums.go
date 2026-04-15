@@ -61,6 +61,7 @@ const (
 	UploadTypePackage          UploadType = "package"
 	UploadTypeOrder            UploadType = "order"
 	UploadTypeContent          UploadType = "content"
+	UploadTypeEmployeePhoto    UploadType = "employee_photo"
 )
 
 // String returns the string representation of UploadType
@@ -71,7 +72,7 @@ func (u UploadType) String() string {
 // IsValid checks if the upload type is valid
 func (u UploadType) IsValid() bool {
 	return u == UploadTypeProfileUser || u == UploadTypeIconCompany || u == UploadTypeContentThumbnail ||
-		u == UploadTypeArmada || u == UploadTypePackage || u == UploadTypeOrder || u == UploadTypeContent
+		u == UploadTypeArmada || u == UploadTypePackage || u == UploadTypeOrder || u == UploadTypeContent || u == UploadTypeEmployeePhoto
 }
 
 // GetStoragePath returns the storage path for the upload type
@@ -91,6 +92,8 @@ func (u UploadType) GetStoragePath() string {
 		return "/assets/order"
 	case UploadTypeContent:
 		return "/assets/content"
+	case UploadTypeEmployeePhoto:
+		return "/assets/employee"
 	default:
 		return ""
 	}

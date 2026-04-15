@@ -26,3 +26,12 @@ type WebMenu struct {
 	Dashboard   []MenuItem `json:"dashboard"`
 	LandingPage []MenuItem `json:"landingPage"`
 }
+
+type CommonItem struct {
+	ID    int    `json:"id"`
+	Label string `json:"label"`
+}
+
+type CommonConfig struct {
+	ContractType []CommonItem `json:"contract-type"`
+}

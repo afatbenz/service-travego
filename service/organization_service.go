@@ -22,6 +22,7 @@ type OrganizationService struct {
 	orgTypeRepo   *repository.OrganizationTypeRepository
 	citiesName    map[string]string
 	provincesName map[string]string
+	contractTypeLabels map[int]string
 }
 
 func NewOrganizationService(orgRepo *repository.OrganizationRepository, userRepo *repository.UserRepository) *OrganizationService {

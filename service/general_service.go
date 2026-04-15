@@ -98,6 +98,24 @@ func (s *GeneralService) GetFleetTransmissions() ([]model.FleetTransmission, err
 	return cfg.FleetTransmission, nil
 }
 
+func (s *GeneralService) GetContractTypes() ([]model.CommonItem, error) {
+	file, err := os.Open("config/common.json")
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	var cfg model.CommonConfig
+	decoder := json.NewDecoder(file)
+	if err := decoder.Decode(&cfg); err != nil {
+		return nil, err
+	}
+	if cfg.ContractType == nil {
+		return []model.CommonItem{}, nil
+	}
+	return cfg.ContractType, nil
+}
+
 // GetBankList reads and returns bank list from database sorted by name
 func (s *GeneralService) GetBankList() ([]model.Bank, error) {
 	return s.generalRepo.GetBankList()
