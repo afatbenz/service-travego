@@ -32,3 +32,35 @@ type UpdateOrganizationBankAccountRequest struct {
 type DeleteOrganizationBankAccountRequest struct {
 	BankAccountID string `json:"bank_account_id" validate:"required"`
 }
+
+type CreateOrganizationDivisionRequest struct {
+	DivisionName string `json:"division_name" validate:"required"`
+	Description  string `json:"description"`
+}
+
+type UpdateOrganizationDivisionRequest struct {
+	DivisionID   string `json:"division_id" validate:"required"`
+	DivisionName string `json:"division_name" validate:"required"`
+	Description  string `json:"description"`
+}
+
+type DeleteOrganizationDivisionRequest struct {
+	DivisionID string `json:"division_id" validate:"required"`
+}
+
+type CreateOrganizationRoleRequest struct {
+	RoleName    string `json:"role_name" validate:"required"`
+	Description string `json:"description"`
+	DivisionID  string `json:"division_id" validate:"required"`
+}
+
+type UpdateOrganizationRoleRequest struct {
+	RoleID      string `json:"role_id" validate:"required"`
+	RoleName    string `json:"role_name" validate:"required"`
+	Description string `json:"description"`
+	DivisionID  string `json:"division_id" validate:"required"`
+}
+
+type DeleteOrganizationRoleRequest struct {
+	RoleID string `json:"role_id" validate:"required"`
+}
