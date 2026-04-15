@@ -77,3 +77,26 @@ type OrganizationBankAccountResponse struct {
 	Active             bool        `json:"active"`
 	BankIcon           string      `json:"bank_icon"`
 }
+
+type OrganizationDivision struct {
+	DivisionID   string `json:"division_id"`
+	DivisionName string `json:"division_name"`
+	Description  string `json:"description"`
+	Status       int    `json:"status"`
+	CreatedBy    string `json:"created_by"`
+	CreatedAt    string `json:"created_at"`
+	UpdatedBy    string `json:"updated_by"`
+	UpdatedAt    string `json:"updated_at"`
+}
+
+type OrganizationRole struct {
+	RoleID      string `json:"role_id"`
+	RoleName    string `json:"role_name"`
+	Description string `json:"description"`
+	DivisionID  string `json:"division_id"`
+	Status      int    `json:"status"`
+	CreatedBy   string `json:"created_by"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedBy   string `json:"updated_by"`
+	UpdatedAt   string `json:"updated_at"`
+}

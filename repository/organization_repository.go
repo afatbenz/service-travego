@@ -236,8 +236,8 @@ func (r *OrganizationRepository) Create(org *model.Organization) (*model.Organiz
 		)
 
 		err := database.QueryRow(
-		r.db,
-		query,
+			r.db,
+			query,
 			org.ID,
 			org.OrganizationCode,
 			org.OrganizationName,
