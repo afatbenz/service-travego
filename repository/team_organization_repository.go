@@ -89,11 +89,11 @@ func (r *OrganizationRepository) CreateDivision(organizationID, createdBy, divis
 func (r *OrganizationRepository) UpdateDivision(organizationID, updatedBy, divisionID, divisionName, description string) error {
 	now := time.Now()
 
-	orgExpr := "organization_id = " + r.getPlaceholder(5)
-	divisionExpr := "division_id = " + r.getPlaceholder(4)
+	orgExpr := "organization_id = " + r.getPlaceholder(6)
+	divisionExpr := "division_id = " + r.getPlaceholder(5)
 	if r.driver != "mysql" {
-		orgExpr = "organization_id::text = " + r.getPlaceholder(5)
-		divisionExpr = "division_id::text = " + r.getPlaceholder(4)
+		orgExpr = "organization_id::text = " + r.getPlaceholder(6)
+		divisionExpr = "division_id::text = " + r.getPlaceholder(5)
 	}
 
 	query := fmt.Sprintf(`
@@ -119,11 +119,11 @@ func (r *OrganizationRepository) UpdateDivision(organizationID, updatedBy, divis
 func (r *OrganizationRepository) DeleteDivision(organizationID, updatedBy, divisionID string) error {
 	now := time.Now()
 
-	orgExpr := "organization_id = " + r.getPlaceholder(3)
-	divisionExpr := "division_id = " + r.getPlaceholder(2)
+	orgExpr := "organization_id = " + r.getPlaceholder(4)
+	divisionExpr := "division_id = " + r.getPlaceholder(3)
 	if r.driver != "mysql" {
-		orgExpr = "organization_id::text = " + r.getPlaceholder(3)
-		divisionExpr = "division_id::text = " + r.getPlaceholder(2)
+		orgExpr = "organization_id::text = " + r.getPlaceholder(4)
+		divisionExpr = "division_id::text = " + r.getPlaceholder(3)
 	}
 
 	query := fmt.Sprintf(`
@@ -167,31 +167,35 @@ func (r *OrganizationRepository) DivisionExists(organizationID, divisionID strin
 }
 
 func (r *OrganizationRepository) ListRoles(organizationID string) ([]model.OrganizationRole, error) {
-	orgExpr := "organization_id IN (" + r.getPlaceholder(1) + "," + r.getPlaceholder(2) + "," + r.getPlaceholder(3) + ")"
-	roleIDExpr := "role_id"
-	divisionIDExpr := "division_id"
-	createdByExpr := "COALESCE(created_by, '')"
-	updatedByExpr := "COALESCE(updated_by, '')"
+	orgExpr := "r.organization_id IN (" + r.getPlaceholder(1) + "," + r.getPlaceholder(2) + "," + r.getPlaceholder(3) + ")"
+	roleIDExpr := "r.role_id"
+	divisionIDExpr := "r.division_id"
+	createdByExpr := "COALESCE(r.created_by, '')"
+	updatedByExpr := "COALESCE(r.updated_by, '')"
+	divisionNameExpr := "COALESCE(d.division_name, '')"
+	joinExpr := "d.division_id = r.division_id"
 	if r.driver != "mysql" {
-		orgExpr = "organization_id::text IN (" + r.getPlaceholder(1) + "," + r.getPlaceholder(2) + "," + r.getPlaceholder(3) + ")"
-		roleIDExpr = "role_id::text"
-		divisionIDExpr = "COALESCE(division_id::text, '')"
-		createdByExpr = "COALESCE(created_by::text, '')"
-		updatedByExpr = "COALESCE(updated_by::text, '')"
+		orgExpr = "r.organization_id::text IN (" + r.getPlaceholder(1) + "," + r.getPlaceholder(2) + "," + r.getPlaceholder(3) + ")"
+		roleIDExpr = "r.role_id::text"
+		divisionIDExpr = "COALESCE(r.division_id::text, '')"
+		createdByExpr = "COALESCE(r.created_by::text, '')"
+		updatedByExpr = "COALESCE(r.updated_by::text, '')"
+		joinExpr = "d.division_id::text = r.division_id::text"
 	} else {
-		divisionIDExpr = "COALESCE(division_id, '')"
+		divisionIDExpr = "COALESCE(r.division_id, '')"
 	}
 
 	defaultOrgID := "00000000-0000-0000-0000-000000000000"
 	legacyDefaultOrgID := "000"
 
 	query := fmt.Sprintf(`
-		SELECT %s AS role_id, role_name, COALESCE(description, '') AS description, %s AS division_id,
-		       COALESCE(status, 0) AS status, %s AS created_by, created_at, %s AS updated_by, updated_at
-		FROM organization_roles
-		WHERE %s AND COALESCE(status, 0) > 0
-		ORDER BY created_at DESC
-	`, roleIDExpr, divisionIDExpr, createdByExpr, updatedByExpr, orgExpr)
+		SELECT %s AS role_id, r.role_name, COALESCE(r.description, '') AS description, %s AS division_id, %s AS division_name,
+		       COALESCE(r.status, 0) AS status, %s AS created_by, r.created_at, %s AS updated_by, r.updated_at
+		FROM organization_roles r
+		LEFT JOIN organization_divisions d ON %s
+		WHERE %s AND COALESCE(r.status, 0) > 0
+		ORDER BY r.created_at DESC
+	`, roleIDExpr, divisionIDExpr, divisionNameExpr, createdByExpr, updatedByExpr, joinExpr, orgExpr)
 
 	rows, err := database.Query(r.db, query, organizationID, defaultOrgID, legacyDefaultOrgID)
 	if err != nil {
@@ -209,6 +213,7 @@ func (r *OrganizationRepository) ListRoles(organizationID string) ([]model.Organ
 			&it.RoleName,
 			&it.Description,
 			&it.DivisionID,
+			&it.DivisionName,
 			&it.Status,
 			&it.CreatedBy,
 			&createdAt,
@@ -251,11 +256,11 @@ func (r *OrganizationRepository) CreateRole(organizationID, createdBy, roleName,
 func (r *OrganizationRepository) UpdateRole(organizationID, updatedBy, roleID, roleName, description, divisionID string) error {
 	now := time.Now()
 
-	orgExpr := "organization_id = " + r.getPlaceholder(6)
-	roleExpr := "role_id = " + r.getPlaceholder(5)
+	orgExpr := "organization_id = " + r.getPlaceholder(7)
+	roleExpr := "role_id = " + r.getPlaceholder(6)
 	if r.driver != "mysql" {
-		orgExpr = "organization_id::text = " + r.getPlaceholder(6)
-		roleExpr = "role_id::text = " + r.getPlaceholder(5)
+		orgExpr = "organization_id::text = " + r.getPlaceholder(7)
+		roleExpr = "role_id::text = " + r.getPlaceholder(6)
 	}
 
 	query := fmt.Sprintf(`
@@ -282,11 +287,11 @@ func (r *OrganizationRepository) UpdateRole(organizationID, updatedBy, roleID, r
 func (r *OrganizationRepository) DeleteRole(organizationID, updatedBy, roleID string) error {
 	now := time.Now()
 
-	orgExpr := "organization_id = " + r.getPlaceholder(3)
-	roleExpr := "role_id = " + r.getPlaceholder(2)
+	orgExpr := "organization_id = " + r.getPlaceholder(4)
+	roleExpr := "role_id = " + r.getPlaceholder(3)
 	if r.driver != "mysql" {
-		orgExpr = "organization_id::text = " + r.getPlaceholder(3)
-		roleExpr = "role_id::text = " + r.getPlaceholder(2)
+		orgExpr = "organization_id::text = " + r.getPlaceholder(4)
+		roleExpr = "role_id::text = " + r.getPlaceholder(3)
 	}
 
 	query := fmt.Sprintf(`
@@ -306,4 +311,48 @@ func (r *OrganizationRepository) DeleteRole(organizationID, updatedBy, roleID st
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+func (r *OrganizationRepository) GetDivisionOrganizationID(divisionID string) (string, error) {
+	orgExpr := "COALESCE(organization_id, '')"
+	idExpr := "division_id = " + r.getPlaceholder(1)
+	if r.driver != "mysql" {
+		orgExpr = "COALESCE(organization_id::text, '')"
+		idExpr = "division_id::text = " + r.getPlaceholder(1)
+	}
+	query := fmt.Sprintf(`
+		SELECT %s AS organization_id
+		FROM organization_divisions
+		WHERE %s AND COALESCE(status, 0) > 0
+		LIMIT 1
+	`, orgExpr, idExpr)
+
+	var orgID string
+	err := database.QueryRow(r.db, query, divisionID).Scan(&orgID)
+	if err != nil {
+		return "", err
+	}
+	return orgID, nil
+}
+
+func (r *OrganizationRepository) GetRoleOrganizationID(roleID string) (string, error) {
+	orgExpr := "COALESCE(organization_id, '')"
+	idExpr := "role_id = " + r.getPlaceholder(1)
+	if r.driver != "mysql" {
+		orgExpr = "COALESCE(organization_id::text, '')"
+		idExpr = "role_id::text = " + r.getPlaceholder(1)
+	}
+	query := fmt.Sprintf(`
+		SELECT %s AS organization_id
+		FROM organization_roles
+		WHERE %s AND COALESCE(status, 0) > 0
+		LIMIT 1
+	`, orgExpr, idExpr)
+
+	var orgID string
+	err := database.QueryRow(r.db, query, roleID).Scan(&orgID)
+	if err != nil {
+		return "", err
+	}
+	return orgID, nil
 }

@@ -45,16 +45,28 @@ func (s *OrganizationService) CreateDivision(organizationID, userID string, req 
 }
 
 func (s *OrganizationService) UpdateDivision(organizationID, userID string, req *model.UpdateOrganizationDivisionRequest) error {
-	if isZeroOrganizationID(organizationID) {
-		return NewServiceError(ErrInvalidInput, 400, "ACTION_DENIED")
-	}
 	if strings.TrimSpace(req.DivisionID) == "" {
 		return NewServiceError(ErrInvalidInput, 400, "division_id wajib")
 	}
 	if strings.TrimSpace(req.DivisionName) == "" {
 		return NewServiceError(ErrInvalidInput, 400, "division_name wajib")
 	}
-	err := s.orgRepo.UpdateDivision(organizationID, userID, strings.TrimSpace(req.DivisionID), strings.TrimSpace(req.DivisionName), strings.TrimSpace(req.Description))
+
+	targetOrgID, err := s.orgRepo.GetDivisionOrganizationID(strings.TrimSpace(req.DivisionID))
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return NewServiceError(ErrNotFound, 404, "division not found")
+		}
+		return NewServiceError(ErrInternalServer, 500, "failed to update division")
+	}
+	if isZeroOrganizationID(targetOrgID) || isZeroOrganizationID(organizationID) {
+		return NewServiceError(ErrInvalidInput, 400, "UPDATED_ENIED")
+	}
+	if strings.TrimSpace(targetOrgID) != strings.TrimSpace(organizationID) {
+		return NewServiceError(ErrNotFound, 404, "division not found")
+	}
+
+	err = s.orgRepo.UpdateDivision(organizationID, userID, strings.TrimSpace(req.DivisionID), strings.TrimSpace(req.DivisionName), strings.TrimSpace(req.Description))
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return NewServiceError(ErrNotFound, 404, "division not found")
@@ -65,13 +77,25 @@ func (s *OrganizationService) UpdateDivision(organizationID, userID string, req 
 }
 
 func (s *OrganizationService) DeleteDivision(organizationID, userID, divisionID string) error {
-	if isZeroOrganizationID(organizationID) {
-		return NewServiceError(ErrInvalidInput, 400, "ACTION_DENIED")
-	}
 	if strings.TrimSpace(divisionID) == "" {
 		return NewServiceError(ErrInvalidInput, 400, "division_id wajib")
 	}
-	err := s.orgRepo.DeleteDivision(organizationID, userID, strings.TrimSpace(divisionID))
+
+	targetOrgID, err := s.orgRepo.GetDivisionOrganizationID(strings.TrimSpace(divisionID))
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return NewServiceError(ErrNotFound, 404, "division not found")
+		}
+		return NewServiceError(ErrInternalServer, 500, "failed to delete division")
+	}
+	if isZeroOrganizationID(targetOrgID) || isZeroOrganizationID(organizationID) {
+		return NewServiceError(ErrInvalidInput, 400, "UPDATED_ENIED")
+	}
+	if strings.TrimSpace(targetOrgID) != strings.TrimSpace(organizationID) {
+		return NewServiceError(ErrNotFound, 404, "division not found")
+	}
+
+	err = s.orgRepo.DeleteDivision(organizationID, userID, strings.TrimSpace(divisionID))
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return NewServiceError(ErrNotFound, 404, "division not found")
@@ -112,9 +136,6 @@ func (s *OrganizationService) CreateRole(organizationID, userID string, req *mod
 }
 
 func (s *OrganizationService) UpdateRole(organizationID, userID string, req *model.UpdateOrganizationRoleRequest) error {
-	if isZeroOrganizationID(organizationID) {
-		return NewServiceError(ErrInvalidInput, 400, "ACTION_DENIED")
-	}
 	if strings.TrimSpace(req.RoleID) == "" {
 		return NewServiceError(ErrInvalidInput, 400, "role_id wajib")
 	}
@@ -123,6 +144,20 @@ func (s *OrganizationService) UpdateRole(organizationID, userID string, req *mod
 	}
 	if strings.TrimSpace(req.DivisionID) == "" {
 		return NewServiceError(ErrInvalidInput, 400, "division_id wajib")
+	}
+
+	targetOrgID, err := s.orgRepo.GetRoleOrganizationID(strings.TrimSpace(req.RoleID))
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return NewServiceError(ErrNotFound, 404, "role not found")
+		}
+		return NewServiceError(ErrInternalServer, 500, "failed to update role")
+	}
+	if isZeroOrganizationID(targetOrgID) || isZeroOrganizationID(organizationID) {
+		return NewServiceError(ErrInvalidInput, 400, "UPDATED_ENIED")
+	}
+	if strings.TrimSpace(targetOrgID) != strings.TrimSpace(organizationID) {
+		return NewServiceError(ErrNotFound, 404, "role not found")
 	}
 
 	ok, err := s.orgRepo.DivisionExists(organizationID, strings.TrimSpace(req.DivisionID))
@@ -144,13 +179,25 @@ func (s *OrganizationService) UpdateRole(organizationID, userID string, req *mod
 }
 
 func (s *OrganizationService) DeleteRole(organizationID, userID, roleID string) error {
-	if isZeroOrganizationID(organizationID) {
-		return NewServiceError(ErrInvalidInput, 400, "ACTION_DENIED")
-	}
 	if strings.TrimSpace(roleID) == "" {
 		return NewServiceError(ErrInvalidInput, 400, "role_id wajib")
 	}
-	err := s.orgRepo.DeleteRole(organizationID, userID, strings.TrimSpace(roleID))
+
+	targetOrgID, err := s.orgRepo.GetRoleOrganizationID(strings.TrimSpace(roleID))
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return NewServiceError(ErrNotFound, 404, "role not found")
+		}
+		return NewServiceError(ErrInternalServer, 500, "failed to delete role")
+	}
+	if isZeroOrganizationID(targetOrgID) || isZeroOrganizationID(organizationID) {
+		return NewServiceError(ErrInvalidInput, 400, "UPDATED_ENIED")
+	}
+	if strings.TrimSpace(targetOrgID) != strings.TrimSpace(organizationID) {
+		return NewServiceError(ErrNotFound, 404, "role not found")
+	}
+
+	err = s.orgRepo.DeleteRole(organizationID, userID, strings.TrimSpace(roleID))
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return NewServiceError(ErrNotFound, 404, "role not found")

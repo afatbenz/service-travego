@@ -125,6 +125,14 @@ func (h *GeneralHandler) GetFleetEngines(c *fiber.Ctx) error {
 	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet engines loaded successfully", list)
 }
 
+func (h *GeneralHandler) GetContractTypes(c *fiber.Ctx) error {
+	list, err := h.generalService.GetContractTypes()
+	if err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to load contract types")
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Contract types loaded successfully", list)
+}
+
 func (h *GeneralHandler) GetCities(c *fiber.Ctx) error {
 	// Get query parameters (optional)
 	provinceID := c.Query("province_id", "")
