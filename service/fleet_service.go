@@ -16,8 +16,9 @@ import (
 )
 
 type FleetService struct {
-	repo       *repository.FleetRepository
-	citiesName map[string]string
+	repo                *repository.FleetRepository
+	citiesName          map[string]string
+	paymentMethodLabels map[int]string
 }
 
 func NewFleetService(repo *repository.FleetRepository) *FleetService {
@@ -310,6 +311,39 @@ func (s *FleetService) GetPartnerOrderDetail(orderID, orgID string) (*model.Orde
 	}
 
 	return res, nil
+}
+
+func (s *FleetService) GetPartnerOrderPaymentSummary(orderID, orgID string, totalAmount float64) (*model.PaymentSummary, error) {
+	row, err := s.repo.GetLatestPaymentOrder(orderID, 1, orgID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return &model.PaymentSummary{
+				PaidAmount:       0,
+				PaymentRemaining: totalAmount,
+				PaymentStatus:    "unpaid",
+			}, nil
+		}
+		return nil, err
+	}
+
+	s.ensurePaymentMethodsLoaded()
+	baseTotal := row.TotalAmount
+	if baseTotal <= 0 {
+		baseTotal = totalAmount
+	}
+	status := "pending"
+	if row.RemainingAmount == 0 {
+		status = "paid"
+	}
+	return &model.PaymentSummary{
+		PaymentAmount:      row.PaymentAmount,
+		PaymentRemaining:   row.RemainingAmount,
+		PaidAmount:         baseTotal - row.RemainingAmount,
+		PaymentMethod:      row.PaymentMethod,
+		PaymentMethodLabel: s.paymentMethodLabels[row.PaymentMethod],
+		PaymentStatus:      status,
+		PaymentDate:        row.CreatedAt.Format("2006-01-02 15:04:05"),
+	}, nil
 }
 
 func (s *FleetService) GetFleetAddonList(orgID, fleetID string) ([]model.FleetAddonListItem, error) {
@@ -605,6 +639,30 @@ func (s *FleetService) ensureCitiesLoaded() {
 		m[c.ID] = c.Name
 	}
 	s.citiesName = m
+}
+
+func (s *FleetService) ensurePaymentMethodsLoaded() {
+	if s.paymentMethodLabels != nil {
+		return
+	}
+	f, err := os.Open("config/common.json")
+	if err != nil {
+		s.paymentMethodLabels = map[int]string{}
+		return
+	}
+	defer f.Close()
+
+	var cfg model.CommonConfig
+	if err := json.NewDecoder(f).Decode(&cfg); err != nil {
+		s.paymentMethodLabels = map[int]string{}
+		return
+	}
+
+	m := make(map[int]string, len(cfg.PaymentMethod))
+	for _, it := range cfg.PaymentMethod {
+		m[it.ID] = it.Label
+	}
+	s.paymentMethodLabels = m
 }
 
 func intToString(n int) string { return strconv.Itoa(n) }

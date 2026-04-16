@@ -188,8 +188,11 @@ func (h *OrderHandler) GetServiceOrderPaymentHistory(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return helper.BadRequestResponse(c, "Invalid payload")
 	}
-	if req.OrderID == "" || req.OrderType == 0 {
+	if req.OrderID == "" {
 		return helper.BadRequestResponse(c, "Required fields missing")
+	}
+	if req.OrderType == 0 {
+		req.OrderType = 1
 	}
 
 	orgID, ok := c.Locals("organization_id").(string)
