@@ -116,6 +116,42 @@ func (s *GeneralService) GetContractTypes() ([]model.CommonItem, error) {
 	return cfg.ContractType, nil
 }
 
+func (s *GeneralService) GetPaymentStatuses() ([]model.CommonItem, error) {
+	file, err := os.Open("config/common.json")
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	var cfg model.CommonConfig
+	decoder := json.NewDecoder(file)
+	if err := decoder.Decode(&cfg); err != nil {
+		return nil, err
+	}
+	if cfg.PaymentStatus == nil {
+		return []model.CommonItem{}, nil
+	}
+	return cfg.PaymentStatus, nil
+}
+
+func (s *GeneralService) GetPaymentMethods() ([]model.CommonItem, error) {
+	file, err := os.Open("config/common.json")
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	var cfg model.CommonConfig
+	decoder := json.NewDecoder(file)
+	if err := decoder.Decode(&cfg); err != nil {
+		return nil, err
+	}
+	if cfg.PaymentMethod == nil {
+		return []model.CommonItem{}, nil
+	}
+	return cfg.PaymentMethod, nil
+}
+
 // GetBankList reads and returns bank list from database sorted by name
 func (s *GeneralService) GetBankList() ([]model.Bank, error) {
 	return s.generalRepo.GetBankList()
