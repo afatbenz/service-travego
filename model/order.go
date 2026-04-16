@@ -34,24 +34,24 @@ type PickupPoint struct {
 }
 
 type CreateOrderRequest struct {
-	FleetID          string             `json:"fleet_id" validate:"required"`
-	PriceID          string             `json:"price_id" validate:"required"`
-	Fullname         string             `json:"fullname" validate:"required"`
-	Email            string             `json:"email" validate:"required,email"`
-	Phone            string             `json:"phone" validate:"required"`
-	Address          string             `json:"address" validate:"required"`
-	StartDate        string             `json:"start_date" validate:"required"`
-	EndDate          string             `json:"end_date" validate:"required"`
-	PickupCityID     string             `json:"pickup_city_id" validate:"required"`
-	PickupLocation   string             `json:"pickup_location" validate:"required"`
-	Destinations     []OrderDestination `json:"destinations"`
-	Qty              int                `json:"qty" validate:"required,min=1"`
+	FleetID           string             `json:"fleet_id" validate:"required"`
+	PriceID           string             `json:"price_id" validate:"required"`
+	Fullname          string             `json:"fullname" validate:"required"`
+	Email             string             `json:"email" validate:"required,email"`
+	Phone             string             `json:"phone" validate:"required"`
+	Address           string             `json:"address" validate:"required"`
+	StartDate         string             `json:"start_date" validate:"required"`
+	EndDate           string             `json:"end_date" validate:"required"`
+	PickupCityID      string             `json:"pickup_city_id" validate:"required"`
+	PickupLocation    string             `json:"pickup_location" validate:"required"`
+	Destinations      []OrderDestination `json:"destinations"`
+	Qty               int                `json:"qty" validate:"required,min=1"`
 	Addons            []string           `json:"addons"`
 	AdditionalRequest string             `json:"additional_request"`
 	OrganizationID    string             `json:"-"`
-	OrganizationCode string             `json:"-"`
-	OrderID          string             `json:"-"`
-	TotalAmount      float64            `json:"-"`
+	OrganizationCode  string             `json:"-"`
+	OrderID           string             `json:"-"`
+	TotalAmount       float64            `json:"-"`
 }
 
 type OrderDestination struct {
@@ -94,26 +94,26 @@ type OrderListItem struct {
 }
 
 type OrderDetailResponse struct {
-	OrderID       string              `json:"order_id"`
-	OrderDate     string              `json:"order_date"`
-	FleetName     string              `json:"fleet_name"`
-	RentType      int                 `json:"rent_type"`
-	RentTypeLabel string              `json:"rent_type_label"`
-	Duration      int                 `json:"duration"`
-	DurationUom   string              `json:"duration_uom"`
-	Price         float64             `json:"price"`
-	Quantity      int                 `json:"quantity"`
-	TotalAmount   float64             `json:"total_amount"`
-	Pickup        OrderDetailPickup   `json:"pickup"`
-	Destination   []OrderDetailDest   `json:"destination"`
-	Itinerary     []FleetOrderItineraryItem `json:"itinerary"`
-	Addon         []OrderDetailAddon  `json:"addon"`
-	Customer      OrderDetailCustomer `json:"customer"`
-	Payment       []PaymentDetail     `json:"payment"`
-	PaymentStatus string              `json:"payment_status"`
-	AdditionalRequest string          `json:"additional_request"`
-	Token         string              `json:"token"`
-	PriceID       string              `json:"-"`
+	OrderID           string                    `json:"order_id"`
+	OrderDate         string                    `json:"order_date"`
+	FleetName         string                    `json:"fleet_name"`
+	RentType          int                       `json:"rent_type"`
+	RentTypeLabel     string                    `json:"rent_type_label"`
+	Duration          int                       `json:"duration"`
+	DurationUom       string                    `json:"duration_uom"`
+	Price             float64                   `json:"price"`
+	Quantity          int                       `json:"quantity"`
+	TotalAmount       float64                   `json:"total_amount"`
+	Pickup            OrderDetailPickup         `json:"pickup"`
+	Destination       []OrderDetailDest         `json:"destination"`
+	Itinerary         []FleetOrderItineraryItem `json:"itinerary"`
+	Addon             []OrderDetailAddon        `json:"addon"`
+	Customer          OrderDetailCustomer       `json:"customer"`
+	Payment           []PaymentDetail           `json:"payment"`
+	PaymentStatus     string                    `json:"payment_status"`
+	AdditionalRequest string                    `json:"additional_request"`
+	Token             string                    `json:"token"`
+	PriceID           string                    `json:"-"`
 }
 
 type PaymentDetail struct {
@@ -270,4 +270,33 @@ type PaymentConfirmationRequest struct {
 	OrderType      string `json:"order_type"`
 	Token          string `json:"token"`
 	OrganizationID string `json:"-"`
+}
+
+type CreateServiceOrderPaymentRequest struct {
+	OrderID        string  `json:"order_id" validate:"required"`
+	OrderType      int     `json:"order_type" validate:"required"`
+	PaymentType    int     `json:"payment_type" validate:"required"`
+	PaymentMethod  int     `json:"payment_method" validate:"required"`
+	PaymentAmount  float64 `json:"payment_amount" validate:"required"`
+	EvidenceFile   string  `json:"evidence_file"`
+	BankID         *int    `json:"bank_id"`
+	BankAccount    *int    `json:"bank_account"`
+	OrganizationID string  `json:"-"`
+	CreatedBy      string  `json:"-"`
+}
+
+type ServiceOrderPaymentCreateResult struct {
+	PaymentID       string  `json:"payment_id"`
+	OrderID         string  `json:"order_id"`
+	OrderType       int     `json:"order_type"`
+	PaymentType     int     `json:"payment_type"`
+	PaymentMethod   int     `json:"payment_method"`
+	PaymentAmount   float64 `json:"payment_amount"`
+	TotalAmount     float64 `json:"total_amount"`
+	RemainingAmount float64 `json:"remaining_amount"`
+}
+
+type ServiceOrderPaymentStats struct {
+	TotalPaid      float64
+	DownPaymentCnt int
 }

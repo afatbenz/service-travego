@@ -1323,6 +1323,94 @@ func (r *FleetRepository) UpdatePaymentEvidence(orderID, organizationID, filePat
 	return err
 }
 
+func (r *FleetRepository) GetOrderTotalAmountByType(orderType int, orderID, organizationID string) (float64, error) {
+	var query string
+	switch orderType {
+	case 1: // fleet
+		orgExpr := "organization_id = " + r.getPlaceholder(2)
+		if r.driver == "postgres" || r.driver == "pgx" {
+			orgExpr = "organization_id::text = " + r.getPlaceholder(2)
+		}
+		query = fmt.Sprintf("SELECT total_amount FROM fleet_orders WHERE order_id = %s AND %s", r.getPlaceholder(1), orgExpr)
+	case 2: // package
+		orgExpr := "organization_id = " + r.getPlaceholder(2)
+		if r.driver == "postgres" || r.driver == "pgx" {
+			orgExpr = "organization_id::text = " + r.getPlaceholder(2)
+		}
+		query = fmt.Sprintf("SELECT total_amount FROM package_orders WHERE order_id = %s AND %s", r.getPlaceholder(1), orgExpr)
+	default:
+		return 0, fmt.Errorf("invalid order_type")
+	}
+
+	var total float64
+	err := database.QueryRow(r.db, query, orderID, organizationID).Scan(&total)
+	if err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
+func (r *FleetRepository) GetServiceOrderPaymentStats(orderID, organizationID string) (*model.ServiceOrderPaymentStats, error) {
+	orgExpr := "organization_id = " + r.getPlaceholder(2)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		orgExpr = "organization_id::text = " + r.getPlaceholder(2)
+	}
+	query := fmt.Sprintf(`
+		SELECT COALESCE(SUM(payment_amount), 0) AS total_paid,
+		       COALESCE(SUM(CASE WHEN payment_type = 1001 THEN 1 ELSE 0 END), 0) AS dp_count
+		FROM fleet_order_payment
+		WHERE order_id = %s AND %s AND COALESCE(status, 0) > 0
+	`, r.getPlaceholder(1), orgExpr)
+
+	var totalPaid float64
+	var dpCount int
+	err := database.QueryRow(r.db, query, orderID, organizationID).Scan(&totalPaid, &dpCount)
+	if err != nil {
+		return nil, err
+	}
+	return &model.ServiceOrderPaymentStats{
+		TotalPaid:      totalPaid,
+		DownPaymentCnt: dpCount,
+	}, nil
+}
+
+func (r *FleetRepository) InsertServiceOrderPayment(req *model.CreateServiceOrderPaymentRequest, totalAmount, remainingAmount float64) (string, error) {
+	paymentID := uuid.New().String()
+	now := time.Now()
+
+	query := fmt.Sprintf(`
+		INSERT INTO payment_orders
+			(payment_id, order_type, order_id, organization_id, payment_type, payment_method, bank_id, bank_account, payment_amount, total_amount, remaining_amount, evidence_file, status, created_at, created_by)
+		VALUES
+			(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, %s)
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
+		r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10),
+		r.getPlaceholder(11), r.getPlaceholder(12), r.getPlaceholder(13), r.getPlaceholder(14))
+
+	_, err := database.Exec(
+		r.db,
+		query,
+		paymentID,
+		req.OrderType,
+		req.OrderID,
+		req.OrganizationID,
+		req.PaymentType,
+		req.PaymentMethod,
+		req.BankID,
+		req.BankAccount,
+		req.PaymentAmount,
+		totalAmount,
+		remainingAmount,
+		req.EvidenceFile,
+		now,
+		req.CreatedBy,
+	)
+	if err != nil {
+		return "", err
+	}
+	return paymentID, nil
+}
+
 func (r *FleetRepository) GetPartnerOrderList(orgID string, filter *model.PartnerOrderListFilter) ([]model.PartnerOrderListItem, error) {
 	base := `
         SELECT 

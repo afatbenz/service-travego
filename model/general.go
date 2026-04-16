@@ -33,5 +33,7 @@ type CommonItem struct {
 }
 
 type CommonConfig struct {
-	ContractType []CommonItem `json:"contract-type"`
+	ContractType  []CommonItem `json:"contract-type"`
+	PaymentStatus []CommonItem `json:"payment-status"`
+	PaymentMethod []CommonItem `json:"payment-method"`
 }

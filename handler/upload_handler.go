@@ -148,7 +148,7 @@ func (h *UploadHandler) UploadCommon(c *fiber.Ctx) error {
 	}
 
 	// Validate type
-	validTypes := []string{"armada", "package", "order", "content", "employee_photo"}
+	validTypes := []string{"armada", "package", "order", "content", "employee_photo", "payment"}
 	isValid := false
 	for _, vt := range validTypes {
 		if uploadType == vt {
@@ -157,7 +157,7 @@ func (h *UploadHandler) UploadCommon(c *fiber.Ctx) error {
 		}
 	}
 	if !isValid {
-		return helper.BadRequestResponse(c, "type must be one of: armada, package, order, content, employee_photo")
+		return helper.BadRequestResponse(c, "type must be one of: armada, package, order, content, employee_photo, payment")
 	}
 
 	// Support multiple files

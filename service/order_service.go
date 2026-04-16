@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"math/rand"
 	"net/http"
 	"os"
@@ -561,4 +562,90 @@ func (s *OrderService) ConfirmPayment(req *model.PaymentConfirmationRequest) err
 
 func (s *OrderService) UploadPaymentEvidence(orderID, organizationID, filePath string) error {
 	return s.fleetRepo.UpdatePaymentEvidence(orderID, organizationID, filePath)
+}
+
+func (s *OrderService) CreateServiceOrderPayment(req *model.CreateServiceOrderPaymentRequest) (*model.ServiceOrderPaymentCreateResult, error) {
+	if strings.TrimSpace(req.OrderID) == "" {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "order_id wajib")
+	}
+	if req.PaymentAmount <= 0 {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "payment_amount wajib lebih dari 0")
+	}
+	if req.OrderType != 1 && req.OrderType != 2 {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "order_type tidak valid")
+	}
+	if req.PaymentType != 1001 && req.PaymentType != 1002 && req.PaymentType != 1003 {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "payment_type tidak valid")
+	}
+	if req.PaymentMethod == 1002 { // transfer
+		if req.BankID == nil || req.BankAccount == nil {
+			return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "bank_id dan bank_account wajib diisi untuk transfer")
+		}
+	}
+	if req.PaymentMethod == 1002 || req.PaymentMethod == 1003 { // transfer / qris
+		if strings.TrimSpace(req.EvidenceFile) == "" {
+			return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "evidence_file wajib diisi untuk qris atau transfer")
+		}
+	}
+
+	totalAmount, err := s.fleetRepo.GetOrderTotalAmountByType(req.OrderType, req.OrderID, req.OrganizationID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, NewServiceError(ErrNotFound, http.StatusNotFound, "order tidak ditemukan")
+		}
+		if strings.Contains(strings.ToLower(err.Error()), "invalid order_type") {
+			return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "order_type tidak valid")
+		}
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "gagal mengambil total_amount order")
+	}
+
+	stats, err := s.fleetRepo.GetServiceOrderPaymentStats(req.OrderID, req.OrganizationID)
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "gagal mengambil histori pembayaran")
+	}
+
+	switch req.PaymentType {
+	case 1001: // Uang Muka
+		if req.PaymentAmount >= totalAmount {
+			return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "PAYMENT_AMOUNT_MAX_EXCEEDED")
+		}
+		if stats.DownPaymentCnt > 0 {
+			return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "uang muka sudah pernah dibuat")
+		}
+	case 1002: // Cicilan
+		if stats.DownPaymentCnt == 0 {
+			return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "DOWN_PAYMENT_NOT_FOUND")
+		}
+		if stats.TotalPaid+req.PaymentAmount > totalAmount {
+			return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "total cicilan melebihi total_amount")
+		}
+	case 1003: // Pelunasan
+		if math.Abs((stats.TotalPaid+req.PaymentAmount)-totalAmount) > 0.0001 {
+			return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "PAYMENT_AMOUNT_UNREACHABLE")
+		}
+	}
+
+	remaining := totalAmount - (stats.TotalPaid + req.PaymentAmount)
+	if remaining < 0 && math.Abs(remaining) < 0.0001 {
+		remaining = 0
+	}
+	if remaining < 0 {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "remaining_amount tidak valid")
+	}
+
+	paymentID, err := s.fleetRepo.InsertServiceOrderPayment(req, totalAmount, remaining)
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "gagal menyimpan payment order")
+	}
+
+	return &model.ServiceOrderPaymentCreateResult{
+		PaymentID:       paymentID,
+		OrderID:         req.OrderID,
+		OrderType:       req.OrderType,
+		PaymentType:     req.PaymentType,
+		PaymentMethod:   req.PaymentMethod,
+		PaymentAmount:   req.PaymentAmount,
+		TotalAmount:     totalAmount,
+		RemainingAmount: remaining,
+	}, nil
 }

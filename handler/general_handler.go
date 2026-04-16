@@ -133,6 +133,22 @@ func (h *GeneralHandler) GetContractTypes(c *fiber.Ctx) error {
 	return helper.SuccessResponse(c, fiber.StatusOK, "Contract types loaded successfully", list)
 }
 
+func (h *GeneralHandler) GetPaymentStatuses(c *fiber.Ctx) error {
+	list, err := h.generalService.GetPaymentStatuses()
+	if err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to load payment statuses")
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Payment statuses loaded successfully", list)
+}
+
+func (h *GeneralHandler) GetPaymentMethods(c *fiber.Ctx) error {
+	list, err := h.generalService.GetPaymentMethods()
+	if err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to load payment methods")
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Payment methods loaded successfully", list)
+}
+
 func (h *GeneralHandler) GetCities(c *fiber.Ctx) error {
 	// Get query parameters (optional)
 	provinceID := c.Query("province_id", "")

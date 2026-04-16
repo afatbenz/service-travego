@@ -154,6 +154,35 @@ func (h *OrderHandler) CreateOrderPayment(c *fiber.Ctx) error {
 	return helper.SuccessResponse(c, fiber.StatusOK, "Payment created", res)
 }
 
+func (h *OrderHandler) CreateServiceOrderPayment(c *fiber.Ctx) error {
+	var req model.CreateServiceOrderPaymentRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.BadRequestResponse(c, "Invalid payload")
+	}
+	if req.OrderID == "" || req.OrderType == 0 || req.PaymentType == 0 || req.PaymentMethod == 0 || req.PaymentAmount <= 0 {
+		return helper.BadRequestResponse(c, "Required fields missing")
+	}
+
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Organization not found")
+	}
+	req.OrganizationID = orgID
+
+	userID, ok := c.Locals("user_id").(string)
+	if !ok || userID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "User not found")
+	}
+	req.CreatedBy = userID
+
+	res, err := h.service.CreateServiceOrderPayment(&req)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Payment order created", res)
+}
+
 func (h *OrderHandler) GetPaymentMethods(c *fiber.Ctx) error {
 	orgID, ok := c.Locals("organization_id").(string)
 	if !ok || orgID == "" {

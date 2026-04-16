@@ -16,5 +16,34 @@
             "id": 1004,
             "label": "Magang / Internship"
         }
+    ],
+    "payment-status": [
+        {
+            "id": 1001,
+            "label": "Uang Muka (DP)"
+        },
+        {
+            "id": 1002,
+            "label": "Cicilan"
+        }
+        ,
+        {
+            "id": 1003,
+            "label": "Pelunasan"
+        }
+    ],
+    "payment-method": [
+        {
+            "id": 1001,
+            "label": "Cash"
+        },
+        {
+            "id": 1002,
+            "label": "Transfer"
+        },
+        {
+            "id": 1003,
+            "label": "QRIS"
+        }
     ]
 }
