@@ -21,11 +21,13 @@ import (
 )
 
 type OrderService struct {
-	fleetRepo   *repository.FleetRepository
-	contentRepo *repository.ContentRepository
-	orgRepo     *repository.OrganizationRepository
-	emailCfg    *configs.EmailConfig
-	citiesName  map[string]string
+	fleetRepo           *repository.FleetRepository
+	contentRepo         *repository.ContentRepository
+	orgRepo             *repository.OrganizationRepository
+	emailCfg            *configs.EmailConfig
+	citiesName          map[string]string
+	paymentTypeLabels   map[int]string
+	paymentMethodLabels map[int]string
 }
 
 func NewOrderService(fleetRepo *repository.FleetRepository, contentRepo *repository.ContentRepository, orgRepo *repository.OrganizationRepository, emailCfg *configs.EmailConfig) *OrderService {
@@ -241,6 +243,38 @@ func (s *OrderService) ensureCitiesLoaded() {
 		m[c.ID] = c.Name
 	}
 	s.citiesName = m
+}
+
+func (s *OrderService) ensurePaymentCommonLoaded() {
+	if s.paymentTypeLabels != nil && s.paymentMethodLabels != nil {
+		return
+	}
+
+	f, err := os.Open("config/common.json")
+	if err != nil {
+		s.paymentTypeLabels = map[int]string{}
+		s.paymentMethodLabels = map[int]string{}
+		return
+	}
+	defer f.Close()
+
+	var cfg model.CommonConfig
+	if err := json.NewDecoder(f).Decode(&cfg); err != nil {
+		s.paymentTypeLabels = map[int]string{}
+		s.paymentMethodLabels = map[int]string{}
+		return
+	}
+
+	pt := make(map[int]string, len(cfg.PaymentStatus))
+	for _, it := range cfg.PaymentStatus {
+		pt[it.ID] = it.Label
+	}
+	pm := make(map[int]string, len(cfg.PaymentMethod))
+	for _, it := range cfg.PaymentMethod {
+		pm[it.ID] = it.Label
+	}
+	s.paymentTypeLabels = pt
+	s.paymentMethodLabels = pm
 }
 
 func (s *OrderService) GetOrderList(req *model.GetOrderListRequest) (*model.GetOrderListResponse, error) {
@@ -648,4 +682,63 @@ func (s *OrderService) CreateServiceOrderPayment(req *model.CreateServiceOrderPa
 		TotalAmount:     totalAmount,
 		RemainingAmount: remaining,
 	}, nil
+}
+
+func (s *OrderService) GetServiceOrderPaymentHistory(organizationID string, req *model.ServiceOrderPaymentHistoryRequest) ([]model.ServiceOrderPaymentHistoryItem, error) {
+	if strings.TrimSpace(req.OrderID) == "" {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "order_id wajib")
+	}
+	if req.OrderType != 1 {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "order_type tidak valid")
+	}
+
+	rows, err := s.fleetRepo.ListPaymentOrders(strings.TrimSpace(req.OrderID), req.OrderType, organizationID)
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to get payment history")
+	}
+
+	s.ensurePaymentCommonLoaded()
+
+	out := make([]model.ServiceOrderPaymentHistoryItem, 0, len(rows))
+	for _, r := range rows {
+		var bankID *int
+		if r.BankID.Valid {
+			v := int(r.BankID.Int64)
+			bankID = &v
+		}
+		var bankAccount *int
+		if r.BankAccount.Valid {
+			v := int(r.BankAccount.Int64)
+			bankAccount = &v
+		}
+		evidence := ""
+		if r.EvidenceFile.Valid {
+			evidence = r.EvidenceFile.String
+		}
+		createdBy := ""
+		if r.CreatedBy.Valid {
+			createdBy = r.CreatedBy.String
+		}
+
+		out = append(out, model.ServiceOrderPaymentHistoryItem{
+			PaymentID:          r.PaymentID,
+			OrderType:          r.OrderType,
+			OrderID:            r.OrderID,
+			OrganizationID:     r.OrganizationID,
+			PaymentType:        r.PaymentType,
+			PaymentTypeLabel:   s.paymentTypeLabels[r.PaymentType],
+			PaymentMethod:      r.PaymentMethod,
+			PaymentMethodLabel: s.paymentMethodLabels[r.PaymentMethod],
+			BankID:             bankID,
+			BankAccount:        bankAccount,
+			PaymentAmount:      r.PaymentAmount,
+			TotalAmount:        r.TotalAmount,
+			RemainingAmount:    r.RemainingAmount,
+			EvidenceFile:       evidence,
+			Status:             r.Status,
+			CreatedAt:          r.CreatedAt.Format("2006-01-02 15:04:05"),
+			CreatedBy:          createdBy,
+		})
+	}
+	return out, nil
 }
