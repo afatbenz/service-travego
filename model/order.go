@@ -346,3 +346,13 @@ type PaymentOrderRow struct {
 	CreatedAt       time.Time
 	CreatedBy       sql.NullString
 }
+
+type PaymentSummary struct {
+	PaymentAmount      float64 `json:"payment_amount"`
+	PaymentRemaining   float64 `json:"payment_remaining"`
+	PaidAmount         float64 `json:"paid_amount"`
+	PaymentMethod      int     `json:"payment_method"`
+	PaymentMethodLabel string  `json:"payment_method_label"`
+	PaymentStatus      string  `json:"payment_status"`
+	PaymentDate        string  `json:"payment_date"`
+}

@@ -422,7 +422,19 @@ func (h *FleetHandler) GetPartnerOrderDetail(c *fiber.Ctx) error {
 		}
 		return helper.SendErrorResponse(c, code, err.Error())
 	}
-	return helper.SuccessResponse(c, fiber.StatusOK, "Order detail loaded", res)
+
+	payment, err := h.service.GetPartnerOrderPaymentSummary(orderID, orgID, res.TotalAmount)
+	if err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "failed to load payment")
+	}
+
+	raw, _ := json.Marshal(res)
+	var m map[string]interface{}
+	_ = json.Unmarshal(raw, &m)
+	m["payment"] = payment
+	delete(m, "payment_status")
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Order detail loaded", m)
 }
 
 func (h *FleetHandler) GetFleetPricesByFleetID(c *fiber.Ctx) error {
