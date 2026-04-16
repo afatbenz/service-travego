@@ -1411,6 +1411,69 @@ func (r *FleetRepository) InsertServiceOrderPayment(req *model.CreateServiceOrde
 	return paymentID, nil
 }
 
+func (r *FleetRepository) ListPaymentOrders(orderID string, orderType int, organizationID string) ([]model.PaymentOrderRow, error) {
+	orgExpr := "organization_id = " + r.getPlaceholder(3)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		orgExpr = "organization_id::text = " + r.getPlaceholder(3)
+	}
+	query := fmt.Sprintf(`
+		SELECT
+			payment_id,
+			order_type,
+			order_id,
+			organization_id,
+			payment_type,
+			payment_method,
+			bank_id,
+			bank_account,
+			payment_amount,
+			total_amount,
+			remaining_amount,
+			evidence_file,
+			COALESCE(status, 0),
+			created_at,
+			created_by
+		FROM payment_orders
+		WHERE order_id = %s AND order_type = %s AND %s AND COALESCE(status, 0) > 0
+		ORDER BY created_at DESC
+	`, r.getPlaceholder(1), r.getPlaceholder(2), orgExpr)
+
+	rows, err := database.Query(r.db, query, orderID, orderType, organizationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]model.PaymentOrderRow, 0)
+	for rows.Next() {
+		var it model.PaymentOrderRow
+		if err := rows.Scan(
+			&it.PaymentID,
+			&it.OrderType,
+			&it.OrderID,
+			&it.OrganizationID,
+			&it.PaymentType,
+			&it.PaymentMethod,
+			&it.BankID,
+			&it.BankAccount,
+			&it.PaymentAmount,
+			&it.TotalAmount,
+			&it.RemainingAmount,
+			&it.EvidenceFile,
+			&it.Status,
+			&it.CreatedAt,
+			&it.CreatedBy,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (r *FleetRepository) GetPartnerOrderList(orgID string, filter *model.PartnerOrderListFilter) ([]model.PartnerOrderListItem, error) {
 	base := `
         SELECT 

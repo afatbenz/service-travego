@@ -183,6 +183,28 @@ func (h *OrderHandler) CreateServiceOrderPayment(c *fiber.Ctx) error {
 	return helper.SuccessResponse(c, fiber.StatusOK, "Payment order created", res)
 }
 
+func (h *OrderHandler) GetServiceOrderPaymentHistory(c *fiber.Ctx) error {
+	var req model.ServiceOrderPaymentHistoryRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.BadRequestResponse(c, "Invalid payload")
+	}
+	if req.OrderID == "" || req.OrderType == 0 {
+		return helper.BadRequestResponse(c, "Required fields missing")
+	}
+
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Organization not found")
+	}
+
+	list, err := h.service.GetServiceOrderPaymentHistory(orgID, &req)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Payment history retrieved", list)
+}
+
 func (h *OrderHandler) GetPaymentMethods(c *fiber.Ctx) error {
 	orgID, ok := c.Locals("organization_id").(string)
 	if !ok || orgID == "" {

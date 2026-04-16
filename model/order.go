@@ -1,6 +1,9 @@
 package model
 
-import "time"
+import (
+	"database/sql"
+	"time"
+)
 
 type OrderFleetSummaryRequest struct {
 	FleetID string `json:"fleet_id" validate:"required"`
@@ -299,4 +302,47 @@ type ServiceOrderPaymentCreateResult struct {
 type ServiceOrderPaymentStats struct {
 	TotalPaid      float64
 	DownPaymentCnt int
+}
+
+type ServiceOrderPaymentHistoryRequest struct {
+	OrderID   string `json:"order_id" validate:"required"`
+	OrderType int    `json:"order_type" validate:"required"`
+}
+
+type ServiceOrderPaymentHistoryItem struct {
+	PaymentID          string  `json:"payment_id"`
+	OrderType          int     `json:"order_type"`
+	OrderID            string  `json:"order_id"`
+	OrganizationID     string  `json:"organization_id"`
+	PaymentType        int     `json:"payment_type"`
+	PaymentTypeLabel   string  `json:"payment_type_label"`
+	PaymentMethod      int     `json:"payment_method"`
+	PaymentMethodLabel string  `json:"payment_method_label"`
+	BankID             *int    `json:"bank_id"`
+	BankAccount        *int    `json:"bank_account"`
+	PaymentAmount      float64 `json:"payment_amount"`
+	TotalAmount        float64 `json:"total_amount"`
+	RemainingAmount    float64 `json:"remaining_amount"`
+	EvidenceFile       string  `json:"evidence_file"`
+	Status             int     `json:"status"`
+	CreatedAt          string  `json:"created_at"`
+	CreatedBy          string  `json:"created_by"`
+}
+
+type PaymentOrderRow struct {
+	PaymentID       string
+	OrderType       int
+	OrderID         string
+	OrganizationID  string
+	PaymentType     int
+	PaymentMethod   int
+	BankID          sql.NullInt64
+	BankAccount     sql.NullInt64
+	PaymentAmount   float64
+	TotalAmount     float64
+	RemainingAmount float64
+	EvidenceFile    sql.NullString
+	Status          int
+	CreatedAt       time.Time
+	CreatedBy       sql.NullString
 }
