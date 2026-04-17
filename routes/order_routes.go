@@ -40,4 +40,5 @@ func SetupOrderRoutes(api fiber.Router, db *sql.DB, driver string, cfg *configs.
 	orderServices := services.Group("/order")
 	orderServices.Post("/payment", helper.JWTAuthorizationMiddleware(), orderHandler.CreateServiceOrderPayment)
 	orderServices.Post("/payment-history", helper.JWTAuthorizationMiddleware(), orderHandler.GetServiceOrderPaymentHistory)
+	orderServices.Get("/list", helper.JWTAuthorizationMiddleware(), orderHandler.GetServiceOrderList)
 }

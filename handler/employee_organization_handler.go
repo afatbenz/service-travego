@@ -15,7 +15,20 @@ func (h *OrganizationHandler) EmployeeAll(c *fiber.Ctx) error {
 	if !ok || orgID == "" {
 		return helper.SendErrorResponse(c, fiber.StatusBadRequest, "Missing organization context")
 	}
-	items, err := h.orgService.EmployeeAll(orgID)
+	items, err := h.orgService.EmployeeAll(orgID, "")
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Employees loaded", items)
+}
+
+func (h *OrganizationHandler) EmployeeOperations(c *fiber.Ctx) error {
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusBadRequest, "Missing organization context")
+	}
+	items, err := h.orgService.EmployeeAll(orgID, "operation")
 	if err != nil {
 		code := service.GetStatusCode(err)
 		return helper.SendErrorResponse(c, code, err.Error())

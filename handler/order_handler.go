@@ -208,6 +208,25 @@ func (h *OrderHandler) GetServiceOrderPaymentHistory(c *fiber.Ctx) error {
 	return helper.SuccessResponse(c, fiber.StatusOK, "Payment history retrieved", list)
 }
 
+func (h *OrderHandler) GetServiceOrderList(c *fiber.Ctx) error {
+	var req model.ServiceOrderListRequest
+	if err := c.QueryParser(&req); err != nil {
+		return helper.BadRequestResponse(c, "Invalid query parameters")
+	}
+
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Organization not found")
+	}
+
+	list, err := h.service.GetServiceOrderList(orgID, &req)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Order list retrieved", list)
+}
+
 func (h *OrderHandler) GetPaymentMethods(c *fiber.Ctx) error {
 	orgID, ok := c.Locals("organization_id").(string)
 	if !ok || orgID == "" {
