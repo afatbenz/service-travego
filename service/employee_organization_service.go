@@ -3,8 +3,8 @@ package service
 import (
 	"database/sql"
 	"encoding/json"
-	"service-travego/model"
 	"os"
+	"service-travego/model"
 	"strconv"
 	"strings"
 )
@@ -70,6 +70,20 @@ func (s *OrganizationService) EmployeeCreate(organizationID, userID string, req 
 	}
 	if !ok {
 		return "", NewServiceError(ErrInvalidInput, 400, "role_id tidak ditemukan")
+	}
+
+	if ok, err := s.orgRepo.EmployeeIDExists(organizationID, strings.TrimSpace(req.EmployeeID)); err != nil {
+		return "", NewServiceError(ErrInternalServer, 500, "failed to validate employee_id")
+	} else if ok {
+		return "", NewServiceError(ErrInvalidInput, 400, "DUPLICATE_EMPLOYEE_ID")
+	}
+
+	if nik := strings.TrimSpace(req.NIK); nik != "" {
+		if ok, err := s.orgRepo.NIKExists(organizationID, nik); err != nil {
+			return "", NewServiceError(ErrInternalServer, 500, "failed to validate nik")
+		} else if ok {
+			return "", NewServiceError(ErrInvalidInput, 400, "DUPLICATE_NIK")
+		}
 	}
 
 	id, err := s.orgRepo.CreateEmployee(organizationID, userID, req)

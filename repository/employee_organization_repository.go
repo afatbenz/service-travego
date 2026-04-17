@@ -35,6 +35,42 @@ func (r *OrganizationRepository) RoleExistsForOrgOrDefault(organizationID, roleI
 	return cnt > 0, nil
 }
 
+func (r *OrganizationRepository) EmployeeIDExists(organizationID, employeeID string) (bool, error) {
+	orgExpr := "organization_id = " + r.getPlaceholder(1)
+	if r.driver != "mysql" {
+		orgExpr = "organization_id::text = " + r.getPlaceholder(1)
+	}
+	query := fmt.Sprintf(`
+		SELECT COUNT(*)
+		FROM employee
+		WHERE %s AND employee_id = %s AND COALESCE(status, 0) > 0
+	`, orgExpr, r.getPlaceholder(2))
+
+	var cnt int
+	if err := database.QueryRow(r.db, query, organizationID, employeeID).Scan(&cnt); err != nil {
+		return false, err
+	}
+	return cnt > 0, nil
+}
+
+func (r *OrganizationRepository) NIKExists(organizationID, nik string) (bool, error) {
+	orgExpr := "organization_id = " + r.getPlaceholder(1)
+	if r.driver != "mysql" {
+		orgExpr = "organization_id::text = " + r.getPlaceholder(1)
+	}
+	query := fmt.Sprintf(`
+		SELECT COUNT(*)
+		FROM employee
+		WHERE %s AND nik = %s AND COALESCE(status, 0) > 0
+	`, orgExpr, r.getPlaceholder(2))
+
+	var cnt int
+	if err := database.QueryRow(r.db, query, organizationID, nik).Scan(&cnt); err != nil {
+		return false, err
+	}
+	return cnt > 0, nil
+}
+
 func (r *OrganizationRepository) ListEmployees(organizationID, divisionName string) ([]model.EmployeeListItem, error) {
 	orgExpr := "e.organization_id = " + r.getPlaceholder(1)
 	if r.driver != "mysql" {
