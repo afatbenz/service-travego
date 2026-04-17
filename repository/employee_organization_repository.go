@@ -35,10 +35,40 @@ func (r *OrganizationRepository) RoleExistsForOrgOrDefault(organizationID, roleI
 	return cnt > 0, nil
 }
 
-func (r *OrganizationRepository) ListEmployees(organizationID string) ([]model.EmployeeListItem, error) {
+func (r *OrganizationRepository) ListEmployees(organizationID, divisionName string) ([]model.EmployeeListItem, error) {
 	orgExpr := "e.organization_id = " + r.getPlaceholder(1)
 	if r.driver != "mysql" {
 		orgExpr = "e.organization_id::text = " + r.getPlaceholder(1)
+	}
+
+	divisionNameNormalized := strings.ToLower(strings.TrimSpace(divisionName))
+	operationDivisionID := "fe8b3916-5eff-420c-8110-8d974d767afe"
+	isOperationDivision :=
+		divisionNameNormalized == "operation" ||
+			divisionNameNormalized == "operatio" ||
+			divisionNameNormalized == "operations" ||
+			divisionNameNormalized == "operator" ||
+			divisionNameNormalized == "operators"
+
+	divisionFilter := ""
+	if isOperationDivision {
+		if r.driver == "mysql" {
+			divisionFilter = fmt.Sprintf(`
+				AND (
+					LOWER(COALESCE(d.division_name, '')) IN ('operation','operatio','operations','operator','operators')
+					OR COALESCE(d.division_id, '') = '%s'
+					OR COALESCE(r.division_id, '') = '%s'
+				)
+			`, operationDivisionID, operationDivisionID)
+		} else {
+			divisionFilter = fmt.Sprintf(`
+				AND (
+					LOWER(COALESCE(d.division_name, '')) IN ('operation','operatio','operations','operator','operators')
+					OR COALESCE(d.division_id::text, '') = '%s'
+					OR COALESCE(r.division_id::text, '') = '%s'
+				)
+			`, operationDivisionID, operationDivisionID)
+		}
 	}
 
 	query := fmt.Sprintf(`
@@ -66,8 +96,9 @@ func (r *OrganizationRepository) ListEmployees(organizationID string) ([]model.E
 		LEFT JOIN organization_roles r ON r.role_id::text = e.role_id::text
 		LEFT JOIN organization_divisions d ON d.division_id::text = r.division_id::text
 		WHERE %s AND COALESCE(e.status, 0) > 0
+		%s
 		ORDER BY e.created_at DESC
-	`, orgExpr)
+	`, orgExpr, divisionFilter)
 
 	if r.driver == "mysql" {
 		query = fmt.Sprintf(`
@@ -95,8 +126,9 @@ func (r *OrganizationRepository) ListEmployees(organizationID string) ([]model.E
 			LEFT JOIN organization_roles r ON r.role_id = e.role_id
 			LEFT JOIN organization_divisions d ON d.division_id = r.division_id
 			WHERE %s AND COALESCE(e.status, 0) > 0
+			%s
 			ORDER BY e.created_at DESC
-		`, orgExpr)
+		`, orgExpr, divisionFilter)
 	}
 
 	rows, err := database.Query(r.db, query, organizationID)

@@ -98,6 +98,7 @@ type OrderListItem struct {
 
 type OrderDetailResponse struct {
 	OrderID           string                    `json:"order_id"`
+	FleetID           string                    `json:"fleet_id"`
 	OrderDate         string                    `json:"order_date"`
 	FleetName         string                    `json:"fleet_name"`
 	RentType          int                       `json:"rent_type"`
@@ -135,19 +136,21 @@ type PaymentDetail struct {
 }
 
 type PartnerOrderListItem struct {
-	OrderID       string        `json:"order_id"`
-	TransactionID string        `json:"transaction_id"`
-	FleetName     string        `json:"fleet_name"`
-	CustomerName  string        `json:"customer_name"`
-	CustomerPhone string        `json:"customer_phone"`
-	StartDate     string        `json:"start_date"`
-	EndDate       string        `json:"end_date"`
-	UnitQty       int           `json:"unit_qty"`
-	PaymentStatus PaymentStatus `json:"payment_status"`
-	Duration      int           `json:"duration"`
-	Uom           string        `json:"uom"`
-	TotalAmount   float64       `json:"total_amount"`
-	RentType      string        `json:"rent_type"`
+	OrderID             string        `json:"order_id"`
+	TransactionID       string        `json:"transaction_id"`
+	FleetName           string        `json:"fleet_name"`
+	CustomerName        string        `json:"customer_name"`
+	CustomerPhone       string        `json:"customer_phone"`
+	StartDate           string        `json:"start_date"`
+	EndDate             string        `json:"end_date"`
+	UnitQty             int           `json:"unit_qty"`
+	PaymentStatus       PaymentStatus `json:"payment_status"`
+	LatestPaymentStatus string        `json:"latest_payment_status"`
+	Duration            int           `json:"duration"`
+	Uom                 string        `json:"uom"`
+	TotalAmount         float64       `json:"total_amount"`
+	RentType            string        `json:"rent_type"`
+	LatestPaymentType   int           `json:"-"`
 }
 
 type PartnerOrderSummary struct {
@@ -171,6 +174,17 @@ type PartnerOrderListFilter struct {
 	OrderDateTo      string
 	PaymentStatus    int
 	HasPaymentStatus bool
+}
+
+type ServiceOrderListRequest struct {
+	OrderType   string `query:"order_type"`
+	ProcessType string `query:"process_type"`
+}
+
+type ServiceOrderListItem struct {
+	OrderID   string `json:"order_id"`
+	FleetID   string `json:"fleet_id"`
+	StartDate string `json:"start_date"`
 }
 
 type OrderDetailCustomer struct {

@@ -19,6 +19,7 @@ type FleetService struct {
 	repo                *repository.FleetRepository
 	citiesName          map[string]string
 	paymentMethodLabels map[int]string
+	paymentTypeLabels   map[int]string
 }
 
 func NewFleetService(repo *repository.FleetRepository) *FleetService {
@@ -234,9 +235,15 @@ func (s *FleetService) GetPartnerOrderList(orgID string, filter *model.PartnerOr
 	if err != nil {
 		return nil, err
 	}
+	s.ensurePaymentTypesLoaded()
 	for i := range items {
 		if token, err := helper.EncryptString(items[i].OrderID); err == nil {
 			items[i].TransactionID = token
+		}
+		if items[i].PaymentStatus == 3 || items[i].PaymentStatus == 4 {
+			items[i].LatestPaymentStatus = s.paymentTypeLabels[items[i].LatestPaymentType]
+		} else {
+			items[i].LatestPaymentStatus = ""
 		}
 	}
 	return items, nil
@@ -251,9 +258,15 @@ func (s *FleetService) GetPartnerOrdersWithSummary(orgID string, filter *model.P
 		}
 		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, msg)
 	}
+	s.ensurePaymentTypesLoaded()
 	for i := range items {
 		if token, err := helper.EncryptString(items[i].OrderID); err == nil {
 			items[i].TransactionID = token
+		}
+		if items[i].PaymentStatus == 3 || items[i].PaymentStatus == 4 {
+			items[i].LatestPaymentStatus = s.paymentTypeLabels[items[i].LatestPaymentType]
+		} else {
+			items[i].LatestPaymentStatus = ""
 		}
 	}
 	summary, err := s.repo.GetPartnerOrderSummary(orgID, filter)
@@ -663,6 +676,30 @@ func (s *FleetService) ensurePaymentMethodsLoaded() {
 		m[it.ID] = it.Label
 	}
 	s.paymentMethodLabels = m
+}
+
+func (s *FleetService) ensurePaymentTypesLoaded() {
+	if s.paymentTypeLabels != nil {
+		return
+	}
+	f, err := os.Open("config/common.json")
+	if err != nil {
+		s.paymentTypeLabels = map[int]string{}
+		return
+	}
+	defer f.Close()
+
+	var cfg model.CommonConfig
+	if err := json.NewDecoder(f).Decode(&cfg); err != nil {
+		s.paymentTypeLabels = map[int]string{}
+		return
+	}
+
+	m := make(map[int]string, len(cfg.PaymentStatus))
+	for _, it := range cfg.PaymentStatus {
+		m[it.ID] = it.Label
+	}
+	s.paymentTypeLabels = m
 }
 
 func intToString(n int) string { return strconv.Itoa(n) }

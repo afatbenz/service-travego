@@ -34,8 +34,8 @@ func (s *OrganizationService) ensureContractTypesLoaded() {
 	s.contractTypeLabels = out
 }
 
-func (s *OrganizationService) EmployeeAll(organizationID string) ([]model.EmployeeListItem, error) {
-	items, err := s.orgRepo.ListEmployees(organizationID)
+func (s *OrganizationService) EmployeeAll(organizationID, divisionName string) ([]model.EmployeeListItem, error) {
+	items, err := s.orgRepo.ListEmployees(organizationID, divisionName)
 	if err != nil {
 		return nil, NewServiceError(ErrInternalServer, 500, "failed to get employees")
 	}

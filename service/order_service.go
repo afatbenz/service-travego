@@ -644,14 +644,14 @@ func (s *OrderService) CreateServiceOrderPayment(req *model.CreateServiceOrderPa
 			return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "PAYMENT_AMOUNT_MAX_EXCEEDED")
 		}
 		if stats.DownPaymentCnt > 0 {
-			return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "uang muka sudah pernah dibuat")
+			return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "DOWN_PAYMENT_ALREADY_EXIST")
 		}
 	case 1002: // Cicilan
 		if stats.DownPaymentCnt == 0 {
 			return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "DOWN_PAYMENT_NOT_FOUND")
 		}
 		if stats.TotalPaid+req.PaymentAmount > totalAmount {
-			return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "total cicilan melebihi total_amount")
+			return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "PAYMENT_AMOUNT_MAX_EXCEEDED")
 		}
 	case 1003: // Pelunasan
 		if math.Abs((stats.TotalPaid+req.PaymentAmount)-totalAmount) > 0.0001 {
@@ -670,6 +670,18 @@ func (s *OrderService) CreateServiceOrderPayment(req *model.CreateServiceOrderPa
 	paymentID, err := s.fleetRepo.InsertServiceOrderPayment(req, totalAmount, remaining)
 	if err != nil {
 		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "gagal menyimpan payment order")
+	}
+	if req.OrderType == 1 {
+		nextStatus := int(configs.PaymentStatusPartiallyPaid)
+		if remaining == 0 {
+			nextStatus = int(configs.PaymentStatusPaid)
+		}
+		if err := s.fleetRepo.UpdateFleetOrderPaymentStatusOnOrder(req.OrderID, req.OrganizationID, nextStatus); err != nil {
+			if err == sql.ErrNoRows {
+				return nil, NewServiceError(ErrNotFound, http.StatusNotFound, "order tidak ditemukan")
+			}
+			return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "gagal update payment_status order")
+		}
 	}
 
 	return &model.ServiceOrderPaymentCreateResult{
@@ -741,4 +753,15 @@ func (s *OrderService) GetServiceOrderPaymentHistory(organizationID string, req 
 		})
 	}
 	return out, nil
+}
+
+func (s *OrderService) GetServiceOrderList(orgID string, req *model.ServiceOrderListRequest) ([]model.ServiceOrderListItem, error) {
+	orderType := strings.ToLower(strings.TrimSpace(req.OrderType))
+	if orderType == "1" {
+		orderType = "fleet"
+	}
+	if orderType != "fleet" {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "order_type tidak valid")
+	}
+	return s.fleetRepo.ListServiceOrderFleet(orgID, req.ProcessType)
 }
