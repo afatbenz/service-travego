@@ -63,6 +63,9 @@ func (s *OrderService) CreateOrder(req *model.CreateOrderRequest) (*model.Create
 
 	// Formula: unit_qty * (price + total_addon_price)
 	totalAmount := float64(req.Qty) * (price + addonTotal)
+	if req.AdditionalAmount > 0 {
+		totalAmount += req.AdditionalAmount
+	}
 
 	// 2. Generate Order ID
 	// {orgcode}{YYDDMMhh:mm}{count}-FRT
