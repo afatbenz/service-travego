@@ -50,6 +50,7 @@ type CreateOrderRequest struct {
 	Destinations      []OrderDestination `json:"destinations"`
 	Qty               int                `json:"qty" validate:"required,min=1"`
 	Addons            []string           `json:"addons"`
+	AdditionalAmount  float64            `json:"additional_amount"`
 	AdditionalRequest string             `json:"additional_request"`
 	OrganizationID    string             `json:"-"`
 	OrganizationCode  string             `json:"-"`
@@ -108,6 +109,7 @@ type OrderDetailResponse struct {
 	Price             float64                   `json:"price"`
 	Quantity          int                       `json:"quantity"`
 	TotalAmount       float64                   `json:"total_amount"`
+	AdditionalAmount  float64                   `json:"additional_amount"`
 	Pickup            OrderDetailPickup         `json:"pickup"`
 	Destination       []OrderDetailDest         `json:"destination"`
 	Itinerary         []FleetOrderItineraryItem `json:"itinerary"`

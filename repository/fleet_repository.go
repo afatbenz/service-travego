@@ -621,28 +621,46 @@ func (r *FleetRepository) CreateOrder(req *model.CreateOrderRequest) error {
 
 	// 1. Insert fleet_order
 	orderQueryFull := fmt.Sprintf(`
-		INSERT INTO fleet_orders (order_id, fleet_id, start_date, end_date, pickup_city_id, pickup_location, unit_qty, price_id, created_at, total_amount, status, payment_status, organization_id, additional_request)
-		VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 2, %d, %s, %s)
+		INSERT INTO fleet_orders (order_id, fleet_id, start_date, end_date, pickup_city_id, pickup_location, unit_qty, price_id, created_at, total_amount, additional_amount, status, payment_status, organization_id, additional_request)
+		VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 2, %d, %s, %s)
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
-		r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), configs.PaymentStatusWaitingPayment, r.getPlaceholder(11), r.getPlaceholder(12))
+		r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11), configs.PaymentStatusWaitingPayment, r.getPlaceholder(12), r.getPlaceholder(13))
 
 	_, _ = database.TxExec(tx, "SAVEPOINT sp_orders")
-	_, err = database.TxExec(tx, orderQueryFull, orderID, req.FleetID, req.StartDate, req.EndDate, req.PickupCityID, req.PickupLocation, req.Qty, req.PriceID, now, totalAmount, req.OrganizationID, req.AdditionalRequest)
+	_, err = database.TxExec(tx, orderQueryFull, orderID, req.FleetID, req.StartDate, req.EndDate, req.PickupCityID, req.PickupLocation, req.Qty, req.PriceID, now, totalAmount, req.AdditionalAmount, req.OrganizationID, req.AdditionalRequest)
 	if err != nil {
 		errMsg := strings.ToLower(err.Error())
 		if strings.Contains(errMsg, "unknown column") || strings.Contains(errMsg, "does not exist") {
 			_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_orders")
-			orderQueryLegacy := fmt.Sprintf(`
-				INSERT INTO fleet_orders (order_id, fleet_id, start_date, end_date, pickup_city_id, pickup_location, unit_qty, price_id, created_at, total_amount, status, payment_status, organization_id)
-				VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 2, %d, %s)
+			orderQueryWithRequest := fmt.Sprintf(`
+				INSERT INTO fleet_orders (order_id, fleet_id, start_date, end_date, pickup_city_id, pickup_location, unit_qty, price_id, created_at, total_amount, status, payment_status, organization_id, additional_request)
+				VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 2, %d, %s, %s)
 			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
-				r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), configs.PaymentStatusWaitingPayment, r.getPlaceholder(11))
+				r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), configs.PaymentStatusWaitingPayment, r.getPlaceholder(11), r.getPlaceholder(12))
 
-			_, err = database.TxExec(tx, orderQueryLegacy, orderID, req.FleetID, req.StartDate, req.EndDate, req.PickupCityID, req.PickupLocation, req.Qty, req.PriceID, now, totalAmount, req.OrganizationID)
+			_, _ = database.TxExec(tx, "SAVEPOINT sp_orders_2")
+			_, err = database.TxExec(tx, orderQueryWithRequest, orderID, req.FleetID, req.StartDate, req.EndDate, req.PickupCityID, req.PickupLocation, req.Qty, req.PriceID, now, totalAmount, req.OrganizationID, req.AdditionalRequest)
 			if err != nil {
-				fmt.Println("error create orders legacy", err)
-				return err
+				errMsg2 := strings.ToLower(err.Error())
+				if strings.Contains(errMsg2, "unknown column") || strings.Contains(errMsg2, "does not exist") {
+					_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_orders_2")
+					orderQueryLegacy := fmt.Sprintf(`
+						INSERT INTO fleet_orders (order_id, fleet_id, start_date, end_date, pickup_city_id, pickup_location, unit_qty, price_id, created_at, total_amount, status, payment_status, organization_id)
+						VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 2, %d, %s)
+					`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
+						r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), configs.PaymentStatusWaitingPayment, r.getPlaceholder(11))
+
+					_, err = database.TxExec(tx, orderQueryLegacy, orderID, req.FleetID, req.StartDate, req.EndDate, req.PickupCityID, req.PickupLocation, req.Qty, req.PriceID, now, totalAmount, req.OrganizationID)
+					if err != nil {
+						fmt.Println("error create orders legacy", err)
+						return err
+					}
+				} else {
+					fmt.Println("error create orders fallback", err)
+					return err
+				}
 			}
+			_, _ = database.TxExec(tx, "RELEASE SAVEPOINT sp_orders_2")
 		} else {
 			fmt.Println("error create orders full", err)
 			return err
@@ -706,7 +724,7 @@ func (r *FleetRepository) CreateOrder(req *model.CreateOrderRequest) error {
 	return nil
 }
 
-func (r *FleetRepository) CreatePartnerOrder(orderID, fleetID, startDate, endDate, pickupCityID, pickupLocation string, qty int, priceID string, totalAmount float64, customerID, orgID, createdBy string, itinerary []model.FleetOrderItineraryItem, addons []model.FleetOrderAddonItem, additionalRequest string) error {
+func (r *FleetRepository) CreatePartnerOrder(orderID, fleetID, startDate, endDate, pickupCityID, pickupLocation string, qty int, priceID string, totalAmount, additionalAmount float64, customerID, orgID, createdBy string, itinerary []model.FleetOrderItineraryItem, addons []model.FleetOrderAddonItem, additionalRequest string) error {
 	tx, err := r.db.Begin()
 	if err != nil {
 		return err
@@ -721,13 +739,13 @@ func (r *FleetRepository) CreatePartnerOrder(orderID, fleetID, startDate, endDat
 	now := time.Now()
 
 	insertWithCreatedBy := fmt.Sprintf(`
-		INSERT INTO fleet_orders (order_id, fleet_id, start_date, end_date, pickup_city_id, pickup_location, unit_qty, price_id, created_at, total_amount, status, payment_status, organization_id, created_by, additional_request)
-		VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 2, %d, %s, %s, %s)
+		INSERT INTO fleet_orders (order_id, fleet_id, start_date, end_date, pickup_city_id, pickup_location, unit_qty, price_id, created_at, total_amount, additional_amount, status, payment_status, organization_id, created_by, additional_request)
+		VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 2, %d, %s, %s, %s)
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
-		r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), configs.PaymentStatusWaitingPayment, r.getPlaceholder(11), r.getPlaceholder(12), r.getPlaceholder(13))
+		r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11), configs.PaymentStatusWaitingPayment, r.getPlaceholder(12), r.getPlaceholder(13), r.getPlaceholder(14))
 
 	_, _ = database.TxExec(tx, "SAVEPOINT sp_orders")
-	_, err = database.TxExec(tx, insertWithCreatedBy, orderID, fleetID, startDate, endDate, pickupCityID, pickupLocation, qty, priceID, now, totalAmount, orgID, createdBy, additionalRequest)
+	_, err = database.TxExec(tx, insertWithCreatedBy, orderID, fleetID, startDate, endDate, pickupCityID, pickupLocation, qty, priceID, now, totalAmount, additionalAmount, orgID, createdBy, additionalRequest)
 	if err != nil {
 		errMsg := strings.ToLower(err.Error())
 		if strings.Contains(errMsg, "unknown column") || strings.Contains(errMsg, "does not exist") {
@@ -1180,7 +1198,7 @@ func (r *FleetRepository) FindOrderDetail(orderID, organizationID string) (*mode
             fo.order_id, fo.created_at, fo.price_id,
             f.fleet_name, 
             fp.rent_type, fp.duration, COALESCE(fp.uom, '') as duration_uom, fp.price, 
-            fo.unit_qty, fo.total_amount,
+            fo.unit_qty, fo.total_amount, COALESCE(fo.additional_amount, 0) as additional_amount,
             fo.pickup_location, fo.pickup_city_id, fo.start_date, fo.end_date,
             COALESCE(foc.customer_name, '') as customer_name, COALESCE(foc.customer_phone, '') as customer_phone, COALESCE(foc.customer_email, '') as customer_email, COALESCE(foc.customer_address, '') as customer_address,
             COALESCE(fo.additional_request, '') as additional_request
@@ -1200,7 +1218,7 @@ func (r *FleetRepository) FindOrderDetail(orderID, organizationID string) (*mode
 		&res.OrderID, &createdAt, &res.PriceID,
 		&res.FleetName,
 		&res.RentType, &res.Duration, &res.DurationUom, &res.Price,
-		&res.Quantity, &res.TotalAmount,
+		&res.Quantity, &res.TotalAmount, &res.AdditionalAmount,
 		&res.Pickup.PickupLocation, &pickupCityID, &startDate, &endDate,
 		&res.Customer.CustomerName, &res.Customer.CustomerPhone, &res.Customer.CustomerEmail, &res.Customer.CustomerAddress,
 		&res.AdditionalRequest,
@@ -1747,7 +1765,7 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
             fo.order_id, fo.fleet_id, fo.created_at, fo.price_id,
             f.fleet_name, 
             fp.rent_type, fp.duration, COALESCE(fp.uom, '') as duration_uom, fp.price, 
-            fo.unit_qty, fo.total_amount,
+            fo.unit_qty, fo.total_amount, COALESCE(fo.additional_amount, 0) as additional_amount,
             fo.pickup_location, fo.pickup_city_id, fo.start_date, fo.end_date,
             COALESCE(c.customer_name, '') as customer_name,
 			COALESCE(c.customer_phone, '') as customer_phone,
@@ -1772,7 +1790,7 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 		&res.OrderID, &res.FleetID, &createdAt, &res.PriceID,
 		&res.FleetName,
 		&res.RentType, &res.Duration, &res.DurationUom, &res.Price,
-		&res.Quantity, &res.TotalAmount,
+		&res.Quantity, &res.TotalAmount, &res.AdditionalAmount,
 		&res.Pickup.PickupLocation, &pickupCityID, &startDate, &endDate,
 		&res.Customer.CustomerName, &res.Customer.CustomerPhone, &res.Customer.CustomerEmail, &res.Customer.CustomerAddress, &res.Customer.CustomerCity,
 		&res.AdditionalRequest,
