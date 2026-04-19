@@ -448,12 +448,18 @@ func (s *FleetService) CreatePartnerOrder(orgID, userID string, req *model.Fleet
 	}
 
 	price := req.Price
-	if price <= 0 {
-		p, _, err := s.repo.GetPriceByID(req.PriceID)
-		if err != nil {
+	dbPrice, _, err := s.repo.GetPriceByID(req.PriceID)
+	if err != nil {
+		if price <= 0 {
 			return "", NewServiceError(ErrNotFound, http.StatusNotFound, "price not found")
 		}
-		price = p
+	} else {
+		price = dbPrice
+		if req.Price > 0 && dbPrice > 0 {
+			if req.Price >= (0.5*dbPrice) && req.Price <= (1.5*dbPrice) {
+				price = req.Price
+			}
+		}
 	}
 	addonTotal := 0.0
 	if len(req.Addons) > 0 {
@@ -478,7 +484,7 @@ func (s *FleetService) CreatePartnerOrder(orgID, userID string, req *model.Fleet
 			addonTotal += prices[id] * float64(q)
 		}
 	}
-	totalAmount := (float64(qty) * price) + addonTotal - req.DiscountAmount
+	totalAmount := (float64(qty) * price) + addonTotal + req.AdditionalAmount - req.DiscountAmount
 	if totalAmount < 0 {
 		totalAmount = 0
 	}
@@ -503,7 +509,7 @@ func (s *FleetService) CreatePartnerOrder(orgID, userID string, req *model.Fleet
 	timePart := time.Now().Format("06020115")
 	orderID := fmt.Sprintf("%s%s%d-FRT", truncatedCode, timePart, count+1)
 
-	if err := s.repo.CreatePartnerOrder(orderID, req.FleetID, startDate, endDate, req.PickupCityID, pickupLoc, qty, req.PriceID, totalAmount, req.CustomerID, orgID, userID, req.Itinerary, req.Addons, req.AdditionalRequest); err != nil {
+	if err := s.repo.CreatePartnerOrder(orderID, req.FleetID, startDate, endDate, req.PickupCityID, pickupLoc, qty, req.PriceID, totalAmount, req.AdditionalAmount, req.CustomerID, orgID, userID, req.Itinerary, req.Addons, req.AdditionalRequest); err != nil {
 		return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create order")
 	}
 	return orderID, nil
