@@ -1197,7 +1197,7 @@ func (r *FleetRepository) FindOrderDetail(orderID, organizationID string) (*mode
         SELECT 
             fo.order_id, fo.created_at, fo.price_id,
             f.fleet_name, 
-            fp.rent_type, fp.duration, COALESCE(fp.uom, '') as duration_uom, fp.price, 
+            fp.rent_type, fp.price, 
             fo.unit_qty, fo.total_amount, COALESCE(fo.additional_amount, 0) as additional_amount,
             fo.pickup_location, fo.pickup_city_id, fo.start_date, fo.end_date,
             COALESCE(foc.customer_name, '') as customer_name, COALESCE(foc.customer_phone, '') as customer_phone, COALESCE(foc.customer_email, '') as customer_email, COALESCE(foc.customer_address, '') as customer_address,
@@ -1217,7 +1217,7 @@ func (r *FleetRepository) FindOrderDetail(orderID, organizationID string) (*mode
 	err := database.QueryRow(r.db, query, orderID, organizationID).Scan(
 		&res.OrderID, &createdAt, &res.PriceID,
 		&res.FleetName,
-		&res.RentType, &res.Duration, &res.DurationUom, &res.Price,
+		&res.RentType, &res.Price,
 		&res.Quantity, &res.TotalAmount, &res.AdditionalAmount,
 		&res.Pickup.PickupLocation, &pickupCityID, &startDate, &endDate,
 		&res.Customer.CustomerName, &res.Customer.CustomerPhone, &res.Customer.CustomerEmail, &res.Customer.CustomerAddress,
@@ -1752,6 +1752,52 @@ func (r *FleetRepository) GetPartnerOrderSummary(orgID string, filter *model.Par
 	return &s, nil
 }
 
+func (r *FleetRepository) GetPartnerOrderFleetItems(organizationId, orderId string) ([]model.OrderDetailFleetItem, error) {
+	query := fmt.Sprintf(`
+		SELECT oi.order_item_id, oi.order_id, oi.fleet_id, f.fleet_name,
+		tp.label as fleet_type, oi.price_id, p.price, oi.quantity,
+		oi.charge_amount, oi.discount, oi.sub_total
+		FROM fleet_order_items oi
+		INNER JOIN fleet_orders o ON oi.order_id = o.order_id
+		INNER JOIN fleet_prices p ON p.uuid = oi.price_id
+		INNER JOIN fleets f ON f.uuid = oi.fleet_id
+		INNER JOIN fleet_types tp ON tp.id = f.fleet_type
+		WHERE oi.organization_id = %s AND oi.order_id = %s
+	`, r.getPlaceholder(1), r.getPlaceholder(2))
+
+	rows, err := database.Query(r.db, query, organizationId, orderId)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []model.OrderDetailFleetItem
+	for rows.Next() {
+		var item model.OrderDetailFleetItem
+		var fleetType sql.NullString
+		if err := rows.Scan(
+			&item.OrderItemID,
+			&item.OrderID,
+			&item.FleetID,
+			&item.FleetName,
+			&fleetType,
+			&item.PriceID,
+			&item.Price,
+			&item.Quantity,
+			&item.ChargeAmount,
+			&item.Discount,
+			&item.SubTotal,
+		); err != nil {
+			return nil, err
+		}
+		if fleetType.Valid {
+			item.FleetType = fleetType.String
+		}
+		items = append(items, item)
+	}
+	return items, nil
+}
+
 func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.OrderDetailResponse, error) {
 	customerCityExpr := "COALESCE(c.customer_city, '')"
 	if r.driver == "postgres" || r.driver == "pgx" {
@@ -1764,7 +1810,7 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
         SELECT 
             fo.order_id, fo.fleet_id, fo.created_at, fo.price_id,
             f.fleet_name, 
-            fp.rent_type, fp.duration, COALESCE(fp.uom, '') as duration_uom, fp.price, 
+            fp.rent_type, fp.price, 
             fo.unit_qty, fo.total_amount, COALESCE(fo.additional_amount, 0) as additional_amount,
             fo.pickup_location, fo.pickup_city_id, fo.start_date, fo.end_date,
             COALESCE(c.customer_name, '') as customer_name,
@@ -1789,7 +1835,7 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 	err := r.db.QueryRow(query, orderID, orgID).Scan(
 		&res.OrderID, &res.FleetID, &createdAt, &res.PriceID,
 		&res.FleetName,
-		&res.RentType, &res.Duration, &res.DurationUom, &res.Price,
+		&res.RentType, &res.Price,
 		&res.Quantity, &res.TotalAmount, &res.AdditionalAmount,
 		&res.Pickup.PickupLocation, &pickupCityID, &startDate, &endDate,
 		&res.Customer.CustomerName, &res.Customer.CustomerPhone, &res.Customer.CustomerEmail, &res.Customer.CustomerAddress, &res.Customer.CustomerCity,
@@ -1804,8 +1850,8 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 	}
 	res.OrderDate = createdAt.Format("2006-01-02 15:04:05")
 	res.Pickup.PickupCity = pickupCityID
-	res.Pickup.StartDate = startDate.Format("2006-01-02 15:04")
-	res.Pickup.EndDate = endDate.Format("2006-01-02 15:04")
+	res.Pickup.StartDate = startDate.Format("2006-01-02 15:00")
+	res.Pickup.EndDate = endDate.Format("2006-01-02 15:00")
 
 	// Destinations
 	destQuery := fmt.Sprintf(`SELECT city_id, location FROM fleet_order_destinations WHERE order_id = %s`, r.getPlaceholder(1))
