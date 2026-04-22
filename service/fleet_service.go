@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"service-travego/configs"
@@ -548,7 +549,9 @@ func (s *FleetService) CreatePartnerOrder(orgID, userID string, req *model.Fleet
 	orderID := fmt.Sprintf("%s%s%d-FRT", truncatedCode, timePart, count+1)
 
 	if err := s.repo.CreatePartnerOrder(orderID, req.FleetID, startDate, endDate, req.PickupCityID, pickupLoc, totalQty, req.PriceID, totalAmount, totalAdditional, totalDiscount, totalPriceSum, req.CustomerID, orgID, userID, req.Itinerary, req.Addons, req.AdditionalRequest, req.Fleets); err != nil {
-		return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create order")
+		log.Printf("[ERROR] CreatePartnerOrder service layer failed: %v", err)
+		log.Printf("[DEBUG] Order details: orderID=%s, fleetID=%s, customerID=%s", orderID, req.FleetID, req.CustomerID)
+		return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, fmt.Sprintf("failed to create order: %v", err))
 	}
 	return orderID, nil
 }
