@@ -447,20 +447,58 @@ func (s *FleetService) CreatePartnerOrder(orgID, userID string, req *model.Fleet
 		return "", NewServiceError(ErrInvalidInput, http.StatusBadRequest, "invalid dropoff_datetime")
 	}
 
-	price := req.Price
-	dbPrice, _, err := s.repo.GetPriceByID(req.PriceID)
-	if err != nil {
-		if price <= 0 {
-			return "", NewServiceError(ErrNotFound, http.StatusNotFound, "price not found")
+	var totalQty int
+	var totalDiscount float64
+	var totalPriceSum float64
+	var totalAdditional float64
+	var totalFleetSubTotal float64
+
+	if len(req.Fleets) > 0 {
+		for _, f := range req.Fleets {
+			if f.ArmadaID == "" {
+				return "", NewServiceError(ErrInvalidInput, http.StatusBadRequest, "armada_id is required in fleets")
+			}
+			if f.PriceID == "" {
+				return "", NewServiceError(ErrInvalidInput, http.StatusBadRequest, "price_id is required in fleets")
+			}
+			dbPrice, _, err := s.repo.GetPriceByID(f.PriceID)
+			if err != nil {
+				return "", NewServiceError(ErrNotFound, http.StatusNotFound, "price not found for price_id: "+f.PriceID)
+			}
+			totalQty += f.Qty
+			totalDiscount += f.Discount
+			totalPriceSum += dbPrice
+			totalAdditional += f.AdditionalAmount
+			totalFleetSubTotal += (dbPrice * float64(f.Qty)) + f.AdditionalAmount - f.Discount
 		}
 	} else {
-		price = dbPrice
-		if req.Price > 0 && dbPrice > 0 {
-			if req.Price >= (0.5*dbPrice) && req.Price <= (1.5*dbPrice) {
-				price = req.Price
-			}
+		// Fallback to legacy fields if fleets array is empty
+		qty := req.FleetQty
+		if qty <= 0 {
+			qty = req.Quantity
 		}
+		if qty <= 0 {
+			qty = 1
+		}
+		price := req.Price
+		dbPrice, _, err := s.repo.GetPriceByID(req.PriceID)
+		if err == nil {
+			price = dbPrice
+			if req.Price > 0 && dbPrice > 0 {
+				if req.Price >= (0.5*dbPrice) && req.Price <= (1.5*dbPrice) {
+					price = req.Price
+				}
+			}
+		} else if price <= 0 {
+			return "", NewServiceError(ErrNotFound, http.StatusNotFound, "price not found")
+		}
+		totalQty = qty
+		totalDiscount = req.DiscountAmount
+		totalPriceSum = price
+		totalAdditional = req.AdditionalAmount
+		totalFleetSubTotal = (float64(qty) * price) + req.AdditionalAmount - req.DiscountAmount
 	}
+
 	addonTotal := 0.0
 	if len(req.Addons) > 0 {
 		addonIDs := make([]string, 0, len(req.Addons))
@@ -484,7 +522,7 @@ func (s *FleetService) CreatePartnerOrder(orgID, userID string, req *model.Fleet
 			addonTotal += prices[id] * float64(q)
 		}
 	}
-	totalAmount := (float64(qty) * price) + addonTotal + req.AdditionalAmount - req.DiscountAmount
+	totalAmount := totalFleetSubTotal + addonTotal
 	if totalAmount < 0 {
 		totalAmount = 0
 	}
@@ -509,7 +547,7 @@ func (s *FleetService) CreatePartnerOrder(orgID, userID string, req *model.Fleet
 	timePart := time.Now().Format("06020115")
 	orderID := fmt.Sprintf("%s%s%d-FRT", truncatedCode, timePart, count+1)
 
-	if err := s.repo.CreatePartnerOrder(orderID, req.FleetID, startDate, endDate, req.PickupCityID, pickupLoc, qty, req.PriceID, totalAmount, req.AdditionalAmount, req.CustomerID, orgID, userID, req.Itinerary, req.Addons, req.AdditionalRequest); err != nil {
+	if err := s.repo.CreatePartnerOrder(orderID, req.FleetID, startDate, endDate, req.PickupCityID, pickupLoc, totalQty, req.PriceID, totalAmount, totalAdditional, totalDiscount, totalPriceSum, req.CustomerID, orgID, userID, req.Itinerary, req.Addons, req.AdditionalRequest, req.Fleets); err != nil {
 		return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create order")
 	}
 	return orderID, nil

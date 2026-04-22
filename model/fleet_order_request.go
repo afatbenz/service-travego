@@ -18,7 +18,16 @@ type FleetOrderCreateRequest struct {
 	AdditionalAmount  float64                   `json:"additional_amount"`
 	AdditionalRequest string                    `json:"additional_request"`
 	Addons            []FleetOrderAddonItem     `json:"addons"`
+	Fleets            []FleetItemRequest        `json:"fleets"`
 	Itinerary         []FleetOrderItineraryItem `json:"itinerary"`
+}
+
+type FleetItemRequest struct {
+	ArmadaID         string  `json:"armada_id"`
+	PriceID          string  `json:"price_id"`
+	Qty              int     `json:"qty"`
+	AdditionalAmount float64 `json:"additional_amount"`
+	Discount         float64 `json:"discount"`
 }
 
 type FleetOrderAddonItem struct {

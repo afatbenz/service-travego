@@ -549,6 +549,35 @@ func (h *FleetHandler) CreatePartnerOrder(c *fiber.Ctx) error {
 				req.Addons = addons
 			}
 		}
+		if v, ok := m["fleets"]; ok {
+			if arr, ok := v.([]interface{}); ok {
+				fleets := make([]model.FleetItemRequest, 0, len(arr))
+				for _, rawItem := range arr {
+					mm, ok := rawItem.(map[string]interface{})
+					if !ok {
+						continue
+					}
+					var it model.FleetItemRequest
+					if s, ok := mm["armada_id"].(string); ok {
+						it.ArmadaID = s
+					}
+					if s, ok := mm["price_id"].(string); ok {
+						it.PriceID = s
+					}
+					if q, ok := mm["qty"]; ok {
+						it.Qty = toInt(q)
+					}
+					if a, ok := mm["additional_amount"]; ok {
+						it.AdditionalAmount = float64(toInt(a))
+					}
+					if d, ok := mm["discount"]; ok {
+						it.Discount = float64(toInt(d))
+					}
+					fleets = append(fleets, it)
+				}
+				req.Fleets = fleets
+			}
+		}
 		if v, ok := m["itinerary"]; ok {
 			if arr, ok := v.([]interface{}); ok {
 				items := make([]model.FleetOrderItineraryItem, 0, len(arr))

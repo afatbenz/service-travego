@@ -724,7 +724,7 @@ func (r *FleetRepository) CreateOrder(req *model.CreateOrderRequest) error {
 	return nil
 }
 
-func (r *FleetRepository) CreatePartnerOrder(orderID, fleetID, startDate, endDate, pickupCityID, pickupLocation string, qty int, priceID string, totalAmount, additionalAmount float64, customerID, orgID, createdBy string, itinerary []model.FleetOrderItineraryItem, addons []model.FleetOrderAddonItem, additionalRequest string) error {
+func (r *FleetRepository) CreatePartnerOrder(orderID, fleetID, startDate, endDate, pickupCityID, pickupLocation string, qty int, priceID string, totalAmount, additionalAmount, discount, priceSum float64, customerID, orgID, createdBy string, itinerary []model.FleetOrderItineraryItem, addons []model.FleetOrderAddonItem, additionalRequest string, fleets []model.FleetItemRequest) error {
 	tx, err := r.db.Begin()
 	if err != nil {
 		return err
@@ -739,36 +739,36 @@ func (r *FleetRepository) CreatePartnerOrder(orderID, fleetID, startDate, endDat
 	now := time.Now()
 
 	insertWithCreatedBy := fmt.Sprintf(`
-		INSERT INTO fleet_orders (order_id, fleet_id, start_date, end_date, pickup_city_id, pickup_location, unit_qty, price_id, created_at, total_amount, additional_amount, status, payment_status, organization_id, created_by, additional_request)
-		VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 2, %d, %s, %s, %s)
+		INSERT INTO fleet_orders (order_id, fleet_id, start_date, end_date, pickup_city_id, pickup_location, unit_qty, price_id, created_at, total_amount, additional_amount, discount, price, status, payment_status, organization_id, created_by, additional_request)
+		VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 2, %d, %s, %s, %s)
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
-		r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11), configs.PaymentStatusWaitingPayment, r.getPlaceholder(12), r.getPlaceholder(13), r.getPlaceholder(14))
+		r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12), r.getPlaceholder(13), configs.PaymentStatusWaitingPayment, r.getPlaceholder(14), r.getPlaceholder(15), r.getPlaceholder(16))
 
 	_, _ = database.TxExec(tx, "SAVEPOINT sp_orders")
-	_, err = database.TxExec(tx, insertWithCreatedBy, orderID, fleetID, startDate, endDate, pickupCityID, pickupLocation, qty, priceID, now, totalAmount, additionalAmount, orgID, createdBy, additionalRequest)
+	_, err = database.TxExec(tx, insertWithCreatedBy, orderID, fleetID, startDate, endDate, pickupCityID, pickupLocation, qty, priceID, now, totalAmount, additionalAmount, discount, priceSum, orgID, createdBy, additionalRequest)
 	if err != nil {
 		errMsg := strings.ToLower(err.Error())
 		if strings.Contains(errMsg, "unknown column") || strings.Contains(errMsg, "does not exist") {
 			_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_orders")
 			insertWithoutCreatedBy := fmt.Sprintf(`
-				INSERT INTO fleet_orders (order_id, fleet_id, start_date, end_date, pickup_city_id, pickup_location, unit_qty, price_id, created_at, total_amount, status, payment_status, organization_id, additional_request)
-				VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 2, %d, %s, %s)
+				INSERT INTO fleet_orders (order_id, fleet_id, start_date, end_date, pickup_city_id, pickup_location, unit_qty, price_id, created_at, total_amount, additional_amount, discount, price, status, payment_status, organization_id, additional_request)
+				VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 2, %d, %s, %s)
 			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
-				r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), configs.PaymentStatusWaitingPayment, r.getPlaceholder(11), r.getPlaceholder(12))
+				r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12), r.getPlaceholder(13), configs.PaymentStatusWaitingPayment, r.getPlaceholder(14), r.getPlaceholder(15))
 
 			_, _ = database.TxExec(tx, "SAVEPOINT sp_orders_2")
-			_, err = database.TxExec(tx, insertWithoutCreatedBy, orderID, fleetID, startDate, endDate, pickupCityID, pickupLocation, qty, priceID, now, totalAmount, orgID, additionalRequest)
+			_, err = database.TxExec(tx, insertWithoutCreatedBy, orderID, fleetID, startDate, endDate, pickupCityID, pickupLocation, qty, priceID, now, totalAmount, additionalAmount, discount, priceSum, orgID, additionalRequest)
 			if err != nil {
 				errMsg2 := strings.ToLower(err.Error())
 				if strings.Contains(errMsg2, "additional_request") {
 					// Fallback if additional_request missing
 					_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_orders_2")
 					insertLegacy := fmt.Sprintf(`
-						INSERT INTO fleet_orders (order_id, fleet_id, start_date, end_date, pickup_city_id, pickup_location, unit_qty, price_id, created_at, total_amount, status, payment_status, organization_id)
-						VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 2, %d, %s)
+						INSERT INTO fleet_orders (order_id, fleet_id, start_date, end_date, pickup_city_id, pickup_location, unit_qty, price_id, created_at, total_amount, additional_amount, discount, price, status, payment_status, organization_id)
+						VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 2, %d, %s)
 					`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
-						r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), configs.PaymentStatusWaitingPayment, r.getPlaceholder(11))
-					_, err = database.TxExec(tx, insertLegacy, orderID, fleetID, startDate, endDate, pickupCityID, pickupLocation, qty, priceID, now, totalAmount, orgID)
+						r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12), r.getPlaceholder(13), configs.PaymentStatusWaitingPayment, r.getPlaceholder(14))
+					_, err = database.TxExec(tx, insertLegacy, orderID, fleetID, startDate, endDate, pickupCityID, pickupLocation, qty, priceID, now, totalAmount, additionalAmount, discount, priceSum, orgID)
 					if err != nil {
 						return fmt.Errorf("insert fleet_orders legacy: %w", err)
 					}
@@ -782,6 +782,25 @@ func (r *FleetRepository) CreatePartnerOrder(orderID, fleetID, startDate, endDat
 		}
 	}
 	_, _ = database.TxExec(tx, "RELEASE SAVEPOINT sp_orders")
+
+	// Insert into fleet_order_items
+	if len(fleets) > 0 {
+		itemQuery := fmt.Sprintf(`
+			INSERT INTO fleet_order_items (order_item_id, organization_id, order_id, fleet_id, price_id, quantity, charge_amount, discount, sub_total, create_at, created_by, status)
+			VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
+		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11))
+
+		for _, f := range fleets {
+			itemID := uuid2()
+			// Fetch price from DB to be sure, although service should have done it
+			dbPrice, _, _ := r.GetPriceByID(f.PriceID)
+			subTotal := (dbPrice * float64(f.Qty)) + f.AdditionalAmount - f.Discount
+			_, err = database.TxExec(tx, itemQuery, itemID, orgID, orderID, f.ArmadaID, f.PriceID, f.Qty, f.AdditionalAmount, f.Discount, subTotal, now, createdBy)
+			if err != nil {
+				return fmt.Errorf("insert fleet_order_items: %w", err)
+			}
+		}
+	}
 
 	custOrderWithCreatedBy := fmt.Sprintf(`
 		INSERT INTO customer_orders (order_id, customer_id, order_type, created_at, created_by, organization_id)
