@@ -1752,6 +1752,52 @@ func (r *FleetRepository) GetPartnerOrderSummary(orgID string, filter *model.Par
 	return &s, nil
 }
 
+func (r *FleetRepository) GetPartnerOrderFleetItems(organizationId, orderId string) ([]model.OrderDetailFleetItem, error) {
+	query := fmt.Sprintf(`
+		SELECT oi.order_item_id, oi.order_id, oi.fleet_id, f.fleet_name,
+		tp.label as fleet_type, oi.price_id, p.price, oi.quantity,
+		oi.charge_amount, oi.discount, oi.sub_total
+		FROM fleet_order_items oi
+		INNER JOIN fleet_orders o ON oi.order_id = o.order_id
+		INNER JOIN fleet_prices p ON p.uuid = oi.price_id
+		INNER JOIN fleets f ON f.uuid = oi.fleet_id
+		INNER JOIN fleet_types tp ON tp.id = f.fleet_type
+		WHERE oi.organization_id = %s AND oi.order_id = %s
+	`, r.getPlaceholder(1), r.getPlaceholder(2))
+
+	rows, err := database.Query(r.db, query, organizationId, orderId)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []model.OrderDetailFleetItem
+	for rows.Next() {
+		var item model.OrderDetailFleetItem
+		var fleetType sql.NullString
+		if err := rows.Scan(
+			&item.OrderItemID,
+			&item.OrderID,
+			&item.FleetID,
+			&item.FleetName,
+			&fleetType,
+			&item.PriceID,
+			&item.Price,
+			&item.Quantity,
+			&item.ChargeAmount,
+			&item.Discount,
+			&item.SubTotal,
+		); err != nil {
+			return nil, err
+		}
+		if fleetType.Valid {
+			item.FleetType = fleetType.String
+		}
+		items = append(items, item)
+	}
+	return items, nil
+}
+
 func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.OrderDetailResponse, error) {
 	customerCityExpr := "COALESCE(c.customer_city, '')"
 	if r.driver == "postgres" || r.driver == "pgx" {

@@ -120,6 +120,7 @@ type OrderDetailResponse struct {
 	AdditionalRequest string                    `json:"additional_request"`
 	Token             string                    `json:"token"`
 	PriceID           string                    `json:"-"`
+	Fleets            []OrderDetailFleetItem    `json:"fleets"`
 }
 
 type PaymentDetail struct {
@@ -217,6 +218,20 @@ type OrderDetailAddon struct {
 	AddonPrice float64 `json:"addon_price"`
 }
 
+type OrderDetailFleetItem struct {
+	OrderItemID  string  `json:"order_item_id"`
+	OrderID      string  `json:"order_id"`
+	FleetID      string  `json:"fleet_id"`
+	FleetName    string  `json:"fleet_name"`
+	FleetType    string  `json:"fleet_type"`
+	PriceID      string  `json:"price_id"`
+	Price        float64 `json:"price"`
+	Quantity     int     `json:"quantity"`
+	ChargeAmount float64 `json:"charge_amount"`
+	Discount     float64 `json:"discount"`
+	SubTotal     float64 `json:"sub_total"`
+}
+
 type CreatePaymentRequest struct {
 	Token             string  `json:"token"`
 	PaymentMethod     string  `json:"payment_method"`
@@ -267,7 +282,7 @@ type OrderPaymentHistory struct {
 	BankAccountID    string    `json:"bank_account_id"`
 	AccountNumber    string    `json:"account_number"`
 	AccountName      string    `json:"account_name"`
-	CreatedAt        time.Time `json:"created_at"`
+	CreatedAt        time.Time `json:"created:"`
 	OrganizationID   string    `json:"organization_id"`
 	PaymentAmount    float64   `json:"payment_amount"`
 	UniqueCode       int       `json:"unique_code"`

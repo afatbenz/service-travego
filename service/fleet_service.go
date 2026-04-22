@@ -323,6 +323,13 @@ func (s *FleetService) GetPartnerOrderDetail(orderID, orgID string) (*model.Orde
 		}
 	}
 
+	// Get fleet items
+	fleetItems, err := s.repo.GetPartnerOrderFleetItems(orgID, orderID)
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to get order fleet items")
+	}
+	res.Fleets = fleetItems
+
 	return res, nil
 }
 
