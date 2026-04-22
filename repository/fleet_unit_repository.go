@@ -128,7 +128,7 @@ SELECT
 	COALESCE(fu.status, 0) AS status
 FROM fleet_units fu
 LEFT JOIN fleets f ON f.uuid::text = fu.fleet_id::text
-WHERE fu.organization_id::text = $1
+WHERE fu.organization_id::text = $1 AND (fu.fleet_id::text = $2 OR $2 = '')
 ORDER BY fu.created_at DESC
 `
 
@@ -407,12 +407,15 @@ func (r *FleetUnitRepository) GetFleetPickupCityIDs(orgID, fleetID string) ([]in
 	return items, nil
 }
 
-func (r *FleetUnitRepository) List(orgID string) ([]model.FleetUnitListItem, error) {
+func (r *FleetUnitRepository) List(orgID, fleetId string) ([]model.FleetUnitListItem, error) {
 	query := listFleetUnitsMySQL
 	if r.driver == "postgres" || r.driver == "pgx" {
 		query = listFleetUnitsPostgres
 	}
-	rows, err := database.Query(r.db, query, orgID)
+	args := make([]interface{}, 0, 2)
+	args = append(args, orgID)
+	args = append(args, fleetId)
+	rows, err := database.Query(r.db, query, args...)
 	if err != nil {
 		return nil, err
 	}

@@ -24,7 +24,10 @@ func (h *FleetUnitHandler) List(c *fiber.Ctx) error {
 	if !ok || orgID == "" {
 		return helper.BadRequestResponse(c, "missing organization context")
 	}
-	items, err := h.service.List(orgID)
+
+	fleetId := strings.TrimSpace(c.Query("fleet_id"))
+
+	items, err := h.service.List(orgID, fleetId)
 	if err != nil {
 		code := service.GetStatusCode(err)
 		return helper.SendErrorResponse(c, code, err.Error())

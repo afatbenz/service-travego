@@ -68,8 +68,8 @@ func (s *FleetUnitService) ensureTransmissionLoaded() {
 	s.transmissionLabel = m
 }
 
-func (s *FleetUnitService) List(orgID string) ([]model.FleetUnitListItem, error) {
-	items, err := s.repo.List(orgID)
+func (s *FleetUnitService) List(orgID, fleetId string) ([]model.FleetUnitListItem, error) {
+	items, err := s.repo.List(orgID, fleetId)
 	if err != nil {
 		msg := "failed to get fleet units"
 		if env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV"))); env != "production" && env != "prod" {
