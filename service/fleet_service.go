@@ -289,6 +289,7 @@ func (s *FleetService) GetPartnerOrderDetail(orderID, orgID string) (*model.Orde
 		return nil, err
 	}
 	res.RentTypeLabel = configs.RentType(res.RentType).String()
+	res.Duration = calculateDurationString(res.StartDate, res.EndDate)
 	s.ensureCitiesLoaded()
 
 	// Map Customer City
@@ -716,3 +717,44 @@ func (s *FleetService) ensurePaymentTypesLoaded() {
 }
 
 func intToString(n int) string { return strconv.Itoa(n) }
+
+func calculateDurationString(startDateStr, endDateStr string) string {
+	startDate, err := time.Parse("2006-01-02", startDateStr)
+	if err != nil {
+		return ""
+	}
+	endDate, err := time.Parse("2006-01-02", endDateStr)
+	if err != nil {
+		return ""
+	}
+
+	days := int(endDate.Sub(startDate).Hours()/24) + 1
+
+	if days < 30 {
+		return fmt.Sprintf("%d hari", days)
+	} else if days < 365 {
+		months := days / 30
+		remDays := days % 30
+		if remDays > 0 {
+			return fmt.Sprintf("%d bulan %d hari", months, remDays)
+		}
+		return fmt.Sprintf("%d bulan", months)
+	} else {
+		years := days / 365
+		remDays := days % 365
+		months := remDays / 30
+		remDays = remDays % 30
+
+		var parts []string
+		if years > 0 {
+			parts = append(parts, fmt.Sprintf("%d tahun", years))
+		}
+		if months > 0 {
+			parts = append(parts, fmt.Sprintf("%d bulan", months))
+		}
+		if remDays > 0 {
+			parts = append(parts, fmt.Sprintf("%d hari", remDays))
+		}
+		return strings.Join(parts, " ")
+	}
+}

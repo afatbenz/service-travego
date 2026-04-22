@@ -104,8 +104,7 @@ type OrderDetailResponse struct {
 	FleetName         string                    `json:"fleet_name"`
 	RentType          int                       `json:"rent_type"`
 	RentTypeLabel     string                    `json:"rent_type_label"`
-	Duration          int                       `json:"duration"`
-	DurationUom       string                    `json:"duration_uom"`
+	Duration          string                    `json:"duration"`
 	Price             float64                   `json:"price"`
 	Quantity          int                       `json:"quantity"`
 	TotalAmount       float64                   `json:"total_amount"`
@@ -120,6 +119,8 @@ type OrderDetailResponse struct {
 	AdditionalRequest string                    `json:"additional_request"`
 	Token             string                    `json:"token"`
 	PriceID           string                    `json:"-"`
+	StartDate         string                    `json:"start_date"`
+	EndDate           string                    `json:"end_date"`
 	Fleets            []OrderDetailFleetItem    `json:"fleets"`
 }
 
