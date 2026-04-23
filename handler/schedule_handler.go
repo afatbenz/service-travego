@@ -27,7 +27,7 @@ func (h *ScheduleHandler) Create(c *fiber.Ctx) error {
 	}
 
 	departureTime := strings.TrimSpace(req.DepartureTime)
-	departureStart := strings.TrimSpace(req.DepartureStart)
+	departureStart := strings.TrimSpace(req.DepartureTime)
 	if departureTime == "" && departureStart == "" {
 		return helper.BadRequestResponse(c, "departure_time is required")
 	}
@@ -53,4 +53,32 @@ func (h *ScheduleHandler) Create(c *fiber.Ctx) error {
 	return helper.SuccessResponse(c, fiber.StatusOK, "Schedule created", fiber.Map{
 		"schedule_id": id,
 	})
+}
+
+func (h *ScheduleHandler) GetFleetSchedule(c *fiber.Ctx) error {
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.BadRequestResponse(c, "missing organization context")
+	}
+
+	query := model.ScheduleFleetListQuery{
+		StartDate:      strings.TrimSpace(c.Query("start_date")),
+		EndDate:        strings.TrimSpace(c.Query("end_date")),
+		FleetName:      strings.TrimSpace(c.Query("fleet_name")),
+		PlateNumber:    strings.TrimSpace(c.Query("plate_number")),
+		VehicleID:      strings.TrimSpace(c.Query("vehicle_id")),
+		Engine:         strings.TrimSpace(c.Query("engine")),
+		Capacity:       strings.TrimSpace(c.Query("capacity")),
+		ProductionYear: strings.TrimSpace(c.Query("production_year")),
+	}
+
+	result, err := h.service.GetScheduleFleetList(model.ScheduleFleetListServiceInput{
+		OrganizationID: orgID,
+		Query:          query,
+	})
+	if err != nil {
+		return helper.SendErrorResponse(c, service.GetStatusCode(err), err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Schedule fleets loaded", result)
 }
