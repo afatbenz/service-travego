@@ -47,8 +47,10 @@ type ScheduleCreateRepositoryInput struct {
 }
 
 type ScheduleFleetListQuery struct {
-	StartDate      string `query:"start_date"`
-	EndDate        string `query:"end_date"`
+	Period         string `query:"period"`
+	OrderID        string `query:"order_id"`
+	FleetID        string `query:"fleet_id"`
+	UnitID         string `query:"unit_id"`
 	FleetName      string `query:"fleet_name"`
 	PlateNumber    string `query:"plate_number"`
 	VehicleID      string `query:"vehicle_id"`
@@ -68,33 +70,22 @@ type ScheduleFleetListResponse struct {
 }
 
 type ScheduleFleetListItem struct {
-	ScheduleID        string                  `json:"schedule_id"`
-	StartDate         string                  `json:"start_date"`
-	EndDate           string                  `json:"end_date"`
-	DepartureTime     string                  `json:"departure_time"`
-	ArrivalTime       string                  `json:"arrival_time"`
-	ScheduleStatus    int                     `json:"schedule_status"`
-	PaymentStatus     int                     `json:"payment_status"`
-	UnitQty           int                     `json:"unit_qty"`
-	PickupCityID      string                  `json:"pickup_city_id"`
-	PickupCityLabel   string                  `json:"pickup_city_label"`
-	AdditionalRequest string                  `json:"additional_request"`
-	CreatedAt         string                  `json:"created_at"`
-	CreatedBy         string                  `json:"created_by"`
-	Fleets            []ScheduleFleetListUnit `json:"fleets"`
-}
-
-type ScheduleFleetListUnit struct {
-	FleetID     string `json:"fleet_id"`
-	FleetName   string `json:"fleet_name"`
-	VehicleID   string `json:"vehicle_id"`
-	PlateNumber string `json:"plate_number"`
-	Engine      string `json:"engine"`
-	Capacity    int    `json:"capacity"`
+	FleetID         string `json:"fleet_id"`
+	FleetName       string `json:"fleet_name"`
+	VehicleID       string `json:"vehicle_id"`
+	PlateNumber     string `json:"plate_number"`
+	Engine          string `json:"engine"`
+	Capacity        int    `json:"capacity"`
+	ScheduleID      string `json:"schedule_id"`
+	OrderID         string `json:"order_id"`
+	StartDate       string `json:"start_date"`
+	EndDate         string `json:"end_date"`
+	PickupCityLabel string `json:"pickup_city_label"`
 }
 
 type ScheduleFleetOrderRow struct {
 	ScheduleID        string
+	OrderID           string
 	StartDate         time.Time
 	EndDate           time.Time
 	DepartureTime     string
@@ -106,4 +97,65 @@ type ScheduleFleetOrderRow struct {
 	AdditionalRequest string
 	CreatedAt         time.Time
 	CreatedBy         string
+}
+
+type ScheduleFleetAvailabilityRequest struct {
+	StartDate      string      `json:"start_date" validate:"required"`
+	EndDate        string      `json:"end_date" validate:"required"`
+	VehicleID      interface{} `json:"vehicle_id"`
+	FleetName      interface{} `json:"fleet_name"`
+	PlateNumber    interface{} `json:"plate_number"`
+	FleetType      interface{} `json:"fleet_type"`
+	Engine         interface{} `json:"engine"`
+	Capacity       interface{} `json:"capacity"`
+	ProductionYear interface{} `json:"production_year"`
+}
+
+type ScheduleFleetAvailabilityFilter struct {
+	StartDate      string
+	EndDate        string
+	VehicleID      []string
+	FleetName      []string
+	PlateNumber    []string
+	FleetType      []string
+	Engine         []string
+	Capacity       []string
+	ProductionYear []string
+}
+
+type ScheduleFleetAvailabilityServiceInput struct {
+	OrganizationID string
+	Filter         ScheduleFleetAvailabilityFilter
+}
+
+type ScheduleFleetAvailabilityItem struct {
+	ScheduleID     string `json:"schedule_id"`
+	FleetType      string `json:"fleet_type"`
+	FleetName      string `json:"fleet_name"`
+	DepartureTime  string `json:"departure_time"`
+	ArrivalTime    string `json:"arrival_time"`
+	StartDate      string `json:"start_date"`
+	EndDate        string `json:"end_date"`
+	VehicleID      string `json:"vehicle_id"`
+	PlateNumber    string `json:"plate_number"`
+	Engine         string `json:"engine"`
+	Capacity       int    `json:"capacity"`
+	ProductionYear int    `json:"production_year"`
+	Transmission   string `json:"transmission"`
+}
+
+type ScheduleFleetAvailabilityRow struct {
+	ScheduleID     string
+	FleetType      string
+	FleetName      string
+	DepartureTime  string
+	ArrivalTime    string
+	StartDate      time.Time
+	EndDate        time.Time
+	VehicleID      string
+	PlateNumber    string
+	Engine         string
+	Capacity       int
+	ProductionYear int
+	Transmission   string
 }

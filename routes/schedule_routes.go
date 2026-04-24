@@ -19,4 +19,5 @@ func SetupScheduleRoutes(api fiber.Router, db *sql.DB, driver string) {
 	schedule := services.Group("/schedule")
 	schedule.Post("/create", helper.JWTAuthorizationMiddleware(), h.Create)
 	schedule.Get("/fleet", helper.JWTAuthorizationMiddleware(), h.GetFleetSchedule)
+	schedule.Post("/fleet/availibility", helper.JWTAuthorizationMiddleware(), h.GetFleetAvailability)
 }

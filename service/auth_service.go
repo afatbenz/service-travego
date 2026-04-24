@@ -354,6 +354,8 @@ func (s *AuthService) Login(email, phone, password string) (*LoginResponse, erro
 	token, err := helper.GenerateAuthToken(
 		user.Name,
 		organizationName,
+		organizationID,
+		user.IsAdmin,
 		user.Email,
 		user.Username,
 		encToken,

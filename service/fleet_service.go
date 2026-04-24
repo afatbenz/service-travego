@@ -331,6 +331,13 @@ func (s *FleetService) GetPartnerOrderDetail(orderID, orgID string) (*model.Orde
 	}
 	res.Fleets = fleetItems
 
+	// Get schedule info
+	schedule, err := s.repo.GetScheduleByOrderID(orderID)
+
+	if schedule != nil {
+		res.Scheduled = true
+	}
+
 	return res, nil
 }
 

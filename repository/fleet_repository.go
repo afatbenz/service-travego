@@ -2306,3 +2306,20 @@ func (r *FleetRepository) SoftDeleteFleet(orgID, userID, fleetID string) error {
 	}
 	return nil
 }
+
+func (r *FleetRepository) GetScheduleByOrderID(orderID string) (*model.ModuleScheduleInfo, error) {
+	query := fmt.Sprintf("SELECT schedule_id, order_id, departure_time, arrival_time, status, created_at, created_by FROM schedules WHERE order_type = 1 AND order_id = %s AND status = 1 LIMIT 1", r.getPlaceholder(1))
+	var schedule model.ModuleScheduleInfo
+	var DepartureTime sql.NullTime
+	var ArrivalTime sql.NullTime
+	if err := database.QueryRow(r.db, query, orderID).Scan(&schedule.ScheduleID, &schedule.OrderID, &DepartureTime, &ArrivalTime, &schedule.Status, &schedule.CreatedAt, &schedule.CreatedBy); err != nil {
+		return nil, err
+	}
+	if DepartureTime.Valid {
+		schedule.DepartureTime = DepartureTime.Time
+	}
+	if ArrivalTime.Valid {
+		schedule.ArrivalTime = ArrivalTime.Time
+	}
+	return &schedule, nil
+}

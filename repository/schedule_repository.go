@@ -6,6 +6,7 @@ import (
 	"service-travego/model"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -13,6 +14,12 @@ import (
 type ScheduleRepository struct {
 	db     *sql.DB
 	driver string
+}
+
+type inClauseInput struct {
+	ColumnName string
+	Values     []string
+	Position   int
 }
 
 func NewScheduleRepository(db *sql.DB, driver string) *ScheduleRepository {
@@ -138,16 +145,18 @@ func (r *ScheduleRepository) CreateSchedule(input model.ScheduleCreateRepository
 	return scheduleID, nil
 }
 
-func (r *ScheduleRepository) ListScheduleFleetOrders(input model.ScheduleFleetListQuery, organizationID string) ([]model.ScheduleFleetOrderRow, error) {
+func (r *ScheduleRepository) ListScheduleFleetOrders(input model.ScheduleFleetListQuery, organizationID string, monthStart, monthEnd time.Time) ([]model.ScheduleFleetOrderRow, error) {
 	orgExpr := "s.organization_id = " + r.placeholder(1)
 	departureExpr := "COALESCE(CAST(s.departure_time AS CHAR), '')"
-	arrivalExpr := "COALESCE(CAST(s.departure_end AS CHAR), '')"
+	arrivalExpr := "COALESCE(CAST(s.arrival_time AS CHAR), '')"
+	orderIDExpr := "COALESCE(CAST(fo.order_id AS CHAR), '')"
 	pickupCityExpr := "COALESCE(CAST(fo.pickup_city_id AS CHAR), '')"
 	createdByExpr := "COALESCE(CAST(s.created_by AS CHAR), '')"
 	if r.driver == "postgres" || r.driver == "pgx" {
 		orgExpr = "s.organization_id::text = " + r.placeholder(1)
 		departureExpr = "COALESCE(s.departure_time::text, '')"
-		arrivalExpr = "COALESCE(s.departure_end::text, '')"
+		arrivalExpr = "COALESCE(s.arrival_time::text, '')"
+		orderIDExpr = "COALESCE(fo.order_id::text, '')"
 		pickupCityExpr = "COALESCE(fo.pickup_city_id::text, '')"
 		createdByExpr = "COALESCE(s.created_by::text, '')"
 	}
@@ -155,6 +164,7 @@ func (r *ScheduleRepository) ListScheduleFleetOrders(input model.ScheduleFleetLi
 	query := `
 		SELECT
 			s.schedule_id,
+			` + orderIDExpr + ` AS order_id,
 			fo.start_date,
 			fo.end_date,
 			` + departureExpr + ` AS departure_time,
@@ -173,23 +183,44 @@ func (r *ScheduleRepository) ListScheduleFleetOrders(input model.ScheduleFleetLi
 
 	args := []interface{}{organizationID}
 	position := 2
-	if strings.TrimSpace(input.StartDate) != "" {
-		query += " AND fo.start_date = " + r.placeholder(position)
-		args = append(args, input.StartDate)
-		position++
-	}
-	if strings.TrimSpace(input.EndDate) != "" {
-		query += " AND fo.end_date = " + r.placeholder(position)
-		args = append(args, input.EndDate)
-		position++
-	}
+
+	query += `
+		AND (
+			(fo.start_date >= ` + r.placeholder(position) + ` AND fo.start_date <= ` + r.placeholder(position+1) + `)
+			OR
+			(fo.end_date >= ` + r.placeholder(position) + ` AND fo.end_date <= ` + r.placeholder(position+1) + `)
+		)
+	`
+	args = append(args, monthStart.Format("2006-01-02"), monthEnd.Format("2006-01-02"))
+	position += 2
 
 	fleetFilters := make([]string, 0, 6)
 	capacityExpr := "CAST(u.capacity AS CHAR)"
 	productionYearExpr := "CAST(u.production_year AS CHAR)"
+	scheduleFleetOrderIDExpr := "CAST(sf.order_id AS CHAR)"
+	scheduleFleetIDExpr := "CAST(sf.fleet_id AS CHAR)"
+	scheduleFleetUnitIDExpr := "CAST(sf.unit_id AS CHAR)"
 	if r.driver == "postgres" || r.driver == "pgx" {
 		capacityExpr = "u.capacity::text"
 		productionYearExpr = "u.production_year::text"
+		scheduleFleetOrderIDExpr = "sf.order_id::text"
+		scheduleFleetIDExpr = "sf.fleet_id::text"
+		scheduleFleetUnitIDExpr = "sf.unit_id::text"
+	}
+	if clause, values := r.buildExactFilterClause(scheduleFleetOrderIDExpr, input.OrderID, position); clause != "" {
+		fleetFilters = append(fleetFilters, clause)
+		args = append(args, values...)
+		position += len(values)
+	}
+	if clause, values := r.buildExactFilterClause(scheduleFleetIDExpr, input.FleetID, position); clause != "" {
+		fleetFilters = append(fleetFilters, clause)
+		args = append(args, values...)
+		position += len(values)
+	}
+	if clause, values := r.buildExactFilterClause(scheduleFleetUnitIDExpr, input.UnitID, position); clause != "" {
+		fleetFilters = append(fleetFilters, clause)
+		args = append(args, values...)
+		position += len(values)
 	}
 	if clause, values := r.buildFleetFilterClause("f.fleet_name", input.FleetName, position); clause != "" {
 		fleetFilters = append(fleetFilters, clause)
@@ -254,6 +285,7 @@ func (r *ScheduleRepository) ListScheduleFleetOrders(input model.ScheduleFleetLi
 
 		if err := rows.Scan(
 			&item.ScheduleID,
+			&item.OrderID,
 			&item.StartDate,
 			&item.EndDate,
 			&departureTime,
@@ -275,6 +307,125 @@ func (r *ScheduleRepository) ListScheduleFleetOrders(input model.ScheduleFleetLi
 		item.AdditionalRequest = additionalRequest.String
 		item.CreatedBy = createdBy.String
 
+		result = append(result, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+func (r *ScheduleRepository) GetFleetAvailability(filter model.ScheduleFleetAvailabilityFilter, organizationID string) ([]model.ScheduleFleetAvailabilityRow, error) {
+	orgExpr := "s.organization_id = " + r.placeholder(1)
+	scheduleIDExpr := "COALESCE(CAST(s.schedule_id AS CHAR), '')"
+	departureTimeExpr := "COALESCE(CAST(s.departure_time AS CHAR), '')"
+	arrivalTimeExpr := "COALESCE(CAST(s.arrival_time AS CHAR), '')"
+	capacityExpr := "CAST(fu.capacity AS CHAR)"
+	productionYearExpr := "CAST(fu.production_year AS CHAR)"
+	if r.driver == "postgres" || r.driver == "pgx" {
+		orgExpr = "s.organization_id::text = " + r.placeholder(1)
+		scheduleIDExpr = "COALESCE(s.schedule_id::text, '')"
+		departureTimeExpr = "COALESCE(s.departure_time::text, '')"
+		arrivalTimeExpr = "COALESCE(s.arrival_time::text, '')"
+		capacityExpr = "fu.capacity::text"
+		productionYearExpr = "fu.production_year::text"
+	}
+
+	query := `
+		SELECT DISTINCT
+			` + scheduleIDExpr + ` AS schedule_id,
+			COALESCE(ft.label, '') AS fleet_type,
+			COALESCE(f.fleet_name, '') AS fleet_name,
+			` + departureTimeExpr + ` AS departure_time,
+			` + arrivalTimeExpr + ` AS arrival_time,
+			fo.start_date,
+			fo.end_date,
+			COALESCE(fu.vehicle_id, '') AS vehicle_id,
+			COALESCE(fu.plate_number, '') AS plate_number,
+			COALESCE(fu.engine, '') AS engine,
+			COALESCE(fu.capacity, 0) AS capacity,
+			COALESCE(fu.production_year, 0) AS production_year,
+			COALESCE(fu.transmission, '') AS transmission
+		FROM schedules s
+		INNER JOIN fleet_orders fo ON fo.order_id = s.order_id
+		INNER JOIN schedule_fleets sf ON sf.schedule_id = s.schedule_id
+		INNER JOIN fleets f ON f.uuid = fo.fleet_id
+		INNER JOIN fleet_order_items foi ON foi.order_id = fo.order_id
+		INNER JOIN fleet_units fu ON sf.unit_id = fu.unit_id
+		INNER JOIN fleet_types ft ON ft.id = f.fleet_type
+		WHERE s.order_type = 1
+		  AND s.status = 1
+		  AND ` + orgExpr + `
+		  AND fo.start_date <= ` + r.placeholder(2) + `
+		  AND fo.end_date >= ` + r.placeholder(3) + `
+	`
+	args := []interface{}{organizationID, filter.EndDate, filter.StartDate}
+	position := 4
+
+	if clause, values := r.buildInClause(inClauseInput{ColumnName: "fu.vehicle_id", Values: filter.VehicleID, Position: position}); clause != "" {
+		query += " AND " + clause
+		args = append(args, values...)
+		position += len(values)
+	}
+	if clause, values := r.buildInClause(inClauseInput{ColumnName: "f.fleet_name", Values: filter.FleetName, Position: position}); clause != "" {
+		query += " AND " + clause
+		args = append(args, values...)
+		position += len(values)
+	}
+	if clause, values := r.buildInClause(inClauseInput{ColumnName: "fu.plate_number", Values: filter.PlateNumber, Position: position}); clause != "" {
+		query += " AND " + clause
+		args = append(args, values...)
+		position += len(values)
+	}
+	if clause, values := r.buildInClause(inClauseInput{ColumnName: "ft.label", Values: filter.FleetType, Position: position}); clause != "" {
+		query += " AND " + clause
+		args = append(args, values...)
+		position += len(values)
+	}
+	if clause, values := r.buildInClause(inClauseInput{ColumnName: "fu.engine", Values: filter.Engine, Position: position}); clause != "" {
+		query += " AND " + clause
+		args = append(args, values...)
+		position += len(values)
+	}
+	if clause, values := r.buildInClause(inClauseInput{ColumnName: capacityExpr, Values: filter.Capacity, Position: position}); clause != "" {
+		query += " AND " + clause
+		args = append(args, values...)
+		position += len(values)
+	}
+	if clause, values := r.buildInClause(inClauseInput{ColumnName: productionYearExpr, Values: filter.ProductionYear, Position: position}); clause != "" {
+		query += " AND " + clause
+		args = append(args, values...)
+	}
+
+	query += " ORDER BY fo.start_date ASC, s.departure_time ASC"
+
+	rows, err := database.Query(r.db, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make([]model.ScheduleFleetAvailabilityRow, 0)
+	for rows.Next() {
+		var item model.ScheduleFleetAvailabilityRow
+		if err := rows.Scan(
+			&item.ScheduleID,
+			&item.FleetType,
+			&item.FleetName,
+			&item.DepartureTime,
+			&item.ArrivalTime,
+			&item.StartDate,
+			&item.EndDate,
+			&item.VehicleID,
+			&item.PlateNumber,
+			&item.Engine,
+			&item.Capacity,
+			&item.ProductionYear,
+			&item.Transmission,
+		); err != nil {
+			return nil, err
+		}
 		result = append(result, item)
 	}
 	if err := rows.Err(); err != nil {
@@ -315,14 +466,66 @@ func (r *ScheduleRepository) buildFleetFilterClause(columnName, queryValue strin
 	return columnName + " LIKE " + r.placeholder(position), []interface{}{"%" + value + "%"}
 }
 
-func (r *ScheduleRepository) ListScheduleFleets(scheduleID, organizationID string) ([]model.ScheduleFleetListUnit, error) {
+func (r *ScheduleRepository) buildExactFilterClause(columnName, queryValue string, position int) (string, []interface{}) {
+	value := strings.TrimSpace(queryValue)
+	if value == "" {
+		return "", nil
+	}
+
+	if strings.Contains(value, ",") {
+		parts := strings.Split(value, ",")
+		filtered := make([]string, 0, len(parts))
+		for _, part := range parts {
+			trimmed := strings.TrimSpace(part)
+			if trimmed != "" {
+				filtered = append(filtered, trimmed)
+			}
+		}
+		if len(filtered) == 0 {
+			return "", nil
+		}
+
+		placeholders := make([]string, 0, len(filtered))
+		args := make([]interface{}, 0, len(filtered))
+		for i, item := range filtered {
+			placeholders = append(placeholders, r.placeholder(position+i))
+			args = append(args, item)
+		}
+		return columnName + " IN (" + strings.Join(placeholders, ",") + ")", args
+	}
+
+	return columnName + " = " + r.placeholder(position), []interface{}{value}
+}
+
+func (r *ScheduleRepository) buildInClause(input inClauseInput) (string, []interface{}) {
+	if len(input.Values) == 0 {
+		return "", nil
+	}
+
+	placeholders := make([]string, 0, len(input.Values))
+	args := make([]interface{}, 0, len(input.Values))
+	for _, value := range input.Values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		placeholders = append(placeholders, r.placeholder(input.Position+len(args)))
+		args = append(args, trimmed)
+	}
+	if len(args) == 0 {
+		return "", nil
+	}
+	return input.ColumnName + " IN (" + strings.Join(placeholders, ",") + ")", args
+}
+
+func (r *ScheduleRepository) ListScheduleFleets(scheduleID, organizationID string) ([]model.ScheduleFleetListItem, error) {
 	scheduleExpr := "sf.schedule_id = " + r.placeholder(1)
 	orgExpr := "sf.organization_id = " + r.placeholder(2)
-	fleetIDExpr := "COALESCE(CAST(sf.uuid AS CHAR), '')"
+	fleetIDExpr := "COALESCE(CAST(f.uuid AS CHAR), '')"
 	if r.driver == "postgres" || r.driver == "pgx" {
 		scheduleExpr = "sf.schedule_id::text = " + r.placeholder(1)
 		orgExpr = "sf.organization_id::text = " + r.placeholder(2)
-		fleetIDExpr = "COALESCE(sf.uuid::text, '')"
+		fleetIDExpr = "COALESCE(f.uuid::text, '')"
 	}
 
 	query := `
@@ -346,9 +549,9 @@ func (r *ScheduleRepository) ListScheduleFleets(scheduleID, organizationID strin
 	}
 	defer rows.Close()
 
-	result := make([]model.ScheduleFleetListUnit, 0)
+	result := make([]model.ScheduleFleetListItem, 0)
 	for rows.Next() {
-		var item model.ScheduleFleetListUnit
+		var item model.ScheduleFleetListItem
 		if err := rows.Scan(
 			&item.FleetID,
 			&item.FleetName,

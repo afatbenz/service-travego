@@ -81,18 +81,18 @@ func (s *ScheduleService) CreateSchedule(input model.ScheduleCreateServiceInput)
 }
 
 func (s *ScheduleService) GetScheduleFleetList(input model.ScheduleFleetListServiceInput) (*model.ScheduleFleetListResponse, error) {
-	if input.Query.StartDate != "" {
-		if _, err := time.Parse("2006-01-02", input.Query.StartDate); err != nil {
-			return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "start_date must be YYYY-MM-DD")
+	periodDate := time.Now()
+	if strings.TrimSpace(input.Query.Period) != "" {
+		parsedPeriod, err := time.Parse("2006-01", input.Query.Period)
+		if err != nil {
+			return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "period must be YYYY-MM")
 		}
+		periodDate = parsedPeriod
 	}
-	if input.Query.EndDate != "" {
-		if _, err := time.Parse("2006-01-02", input.Query.EndDate); err != nil {
-			return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "end_date must be YYYY-MM-DD")
-		}
-	}
+	monthStart := time.Date(periodDate.Year(), periodDate.Month(), 1, 0, 0, 0, 0, periodDate.Location())
+	monthEnd := monthStart.AddDate(0, 1, -1)
 
-	rows, err := s.repo.ListScheduleFleetOrders(input.Query, input.OrganizationID)
+	rows, err := s.repo.ListScheduleFleetOrders(input.Query, input.OrganizationID, monthStart, monthEnd)
 	if err != nil {
 		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, s.internalMessage("failed to get schedule fleets", err))
 	}
@@ -110,35 +110,66 @@ func (s *ScheduleService) GetScheduleFleetList(input model.ScheduleFleetListServ
 		}
 
 		pickupLabel := s.citiesMap[row.PickupCityID]
-		response.Schedules = append(response.Schedules, model.ScheduleFleetListItem{
-			ScheduleID:        row.ScheduleID,
-			StartDate:         row.StartDate.Format("2006-01-02"),
-			EndDate:           row.EndDate.Format("2006-01-02"),
-			DepartureTime:     row.DepartureTime,
-			ArrivalTime:       row.ArrivalTime,
-			ScheduleStatus:    row.ScheduleStatus,
-			PaymentStatus:     row.PaymentStatus,
-			UnitQty:           row.UnitQty,
-			PickupCityID:      row.PickupCityID,
-			PickupCityLabel:   pickupLabel,
-			AdditionalRequest: row.AdditionalRequest,
-			CreatedAt:         row.CreatedAt.Format("2006-01-02 15:04:05"),
-			CreatedBy:         row.CreatedBy,
-			Fleets:            fleets,
-		})
+
+		for _, fleet := range fleets {
+			response.Schedules = append(response.Schedules, model.ScheduleFleetListItem{
+				FleetID:         fleet.FleetID,
+				FleetName:       fleet.FleetName,
+				VehicleID:       fleet.VehicleID,
+				PlateNumber:     fleet.PlateNumber,
+				Engine:          fleet.Engine,
+				Capacity:        fleet.Capacity,
+				ScheduleID:      row.ScheduleID,
+				OrderID:         row.OrderID,
+				StartDate:       row.StartDate.Format("2006-01-02"),
+				EndDate:         row.EndDate.Format("2006-01-02"),
+				PickupCityLabel: pickupLabel,
+			})
+		}
 	}
 
-	if len(response.Schedules) > 0 {
-		periodDate := response.Schedules[0].StartDate
-		if input.Query.StartDate != "" {
-			periodDate = input.Query.StartDate
-		}
-		if t, parseErr := time.Parse("2006-01-02", periodDate); parseErr == nil {
-			response.Period = t.Format("January-2006")
-		}
-	}
+	response.Period = monthStart.Format("January 2006")
 
 	return response, nil
+}
+
+func (s *ScheduleService) GetFleetAvailability(input model.ScheduleFleetAvailabilityServiceInput) ([]model.ScheduleFleetAvailabilityItem, error) {
+	startDate, startErr := time.Parse("2006-01-02", input.Filter.StartDate)
+	if startErr != nil {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "start_date must be YYYY-MM-DD")
+	}
+	endDate, endErr := time.Parse("2006-01-02", input.Filter.EndDate)
+	if endErr != nil {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "end_date must be YYYY-MM-DD")
+	}
+	if endDate.Before(startDate) {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "end_date must be greater than or equal start_date")
+	}
+
+	rows, err := s.repo.GetFleetAvailability(input.Filter, input.OrganizationID)
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, s.internalMessage("failed to get fleet availability", err))
+	}
+
+	items := make([]model.ScheduleFleetAvailabilityItem, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, model.ScheduleFleetAvailabilityItem{
+			ScheduleID:     row.ScheduleID,
+			FleetType:      row.FleetType,
+			FleetName:      row.FleetName,
+			DepartureTime:  row.DepartureTime,
+			ArrivalTime:    row.ArrivalTime,
+			StartDate:      row.StartDate.Format("2006-01-02"),
+			EndDate:        row.EndDate.Format("2006-01-02"),
+			VehicleID:      row.VehicleID,
+			PlateNumber:    row.PlateNumber,
+			Engine:         row.Engine,
+			Capacity:       row.Capacity,
+			ProductionYear: row.ProductionYear,
+			Transmission:   row.Transmission,
+		})
+	}
+	return items, nil
 }
 
 func (s *ScheduleService) internalMessage(base string, err error) string {
