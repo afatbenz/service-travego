@@ -2,6 +2,8 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
+	"os"
 	"service-travego/helper"
 	"service-travego/model"
 	"service-travego/service"
@@ -235,9 +237,51 @@ func (h *FleetHandler) CreateFleet(c *fiber.Ctx) error {
 
 func (h *FleetHandler) UpdateFleet(c *fiber.Ctx) error {
 	var req model.UpdateFleetRequest
+	rawBody := c.Body()
+	var payloadMap map[string]interface{}
+	_ = json.Unmarshal(rawBody, &payloadMap)
+	var probe model.UpdateFleetRequest
+	probeErr := json.Unmarshal(rawBody, &probe)
+	// #region agent log
+	debugWriteNDJSON("initial", "H1", "handler/fleet_handler.go:243", "UpdateFleet payload probe", map[string]interface{}{
+		"raw_len":           len(rawBody),
+		"has_images":        payloadMap["images"] != nil,
+		"images_type":       fmt.Sprintf("%T", payloadMap["images"]),
+		"images_first_type": firstSliceElemType(payloadMap["images"]),
+		"has_fascilities":   payloadMap["fascilities"] != nil,
+		"fascilities_type":  fmt.Sprintf("%T", payloadMap["fascilities"]),
+		"fasc_first_type":   firstSliceElemType(payloadMap["fascilities"]),
+		"probe_error":       errString(probeErr),
+	})
+	// #endregion
 	if err := c.BodyParser(&req); err != nil {
+		fmt.Println("UpdateFleet body parser failed", err.Error())
+		// #region agent log
+		debugWriteNDJSON("initial", "H2", "handler/fleet_handler.go:253", "UpdateFleet body parser failed", map[string]interface{}{
+			"error":              err.Error(),
+			"has_pickup_point":   payloadMap["pickup_point"] != nil,
+			"pickup_point_type":  fmt.Sprintf("%T", payloadMap["pickup_point"]),
+			"pickup_point_first": firstSliceElemType(payloadMap["pickup_point"]),
+			"has_pickup":         payloadMap["pickup"] != nil,
+			"pickup_type":        fmt.Sprintf("%T", payloadMap["pickup"]),
+			"pickup_first":       firstSliceElemType(payloadMap["pickup"]),
+			"has_prices":         payloadMap["prices"] != nil,
+			"prices_first":       firstSliceElemType(payloadMap["prices"]),
+			"has_pricing":        payloadMap["pricing"] != nil,
+			"pricing_first":      firstSliceElemType(payloadMap["pricing"]),
+		})
+		// #endregion
 		return helper.BadRequestResponse(c, "invalid payload")
 	}
+	// #region agent log
+	debugWriteNDJSON("initial", "H3", "handler/fleet_handler.go:267", "UpdateFleet body parser success", map[string]interface{}{
+		"fleet_id":         req.FleetID,
+		"facilities_count": len(req.Facilities),
+		"pickup_count":     len(req.Pickup),
+		"pricing_count":    len(req.Pricing),
+		"images_count":     len(req.Images),
+	})
+	// #endregion
 	if req.FleetID == "" {
 		return helper.BadRequestResponse(c, "fleet_id is required")
 	}
@@ -608,4 +652,41 @@ func toInt(v interface{}) int {
 	default:
 		return 0
 	}
+}
+
+func debugWriteNDJSON(runID, hypothesisID, location, message string, data map[string]interface{}) {
+	entry := map[string]interface{}{
+		"sessionId":    "6fcadf",
+		"runId":        runID,
+		"hypothesisId": hypothesisID,
+		"location":     location,
+		"message":      message,
+		"data":         data,
+		"timestamp":    time.Now().UnixMilli(),
+	}
+	b, err := json.Marshal(entry)
+	if err != nil {
+		return
+	}
+	f, err := os.OpenFile("debug-6fcadf.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = f.Write(append(b, '\n'))
+}
+
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+func firstSliceElemType(v interface{}) string {
+	arr, ok := v.([]interface{})
+	if !ok || len(arr) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%T", arr[0])
 }

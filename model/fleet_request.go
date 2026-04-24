@@ -1,5 +1,7 @@
 package model
 
+import "time"
+
 type FleetPriceRequest struct {
 	Duration   int    `json:"duration"`
 	RentType   int    `json:"rent_type"`
@@ -191,4 +193,14 @@ type FleetDetailResponse struct {
 	Pricing    []FleetPriceItem  `json:"pricing"`
 	Addon      []FleetAddonItem  `json:"addon"`
 	Images     []FleetImageItem  `json:"images"`
+}
+
+type ModuleScheduleInfo struct {
+	ScheduleID    string    `json:"schedule_id"`
+	OrderID       string    `json:"order_id"`
+	DepartureTime time.Time `json:"departure_time"`
+	ArrivalTime   time.Time `json:"arrival_time"`
+	Status        int       `json:"status"`
+	CreatedAt     time.Time `json:"created_at"`
+	CreatedBy     string    `json:"created_by"`
 }

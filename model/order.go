@@ -122,6 +122,7 @@ type OrderDetailResponse struct {
 	StartDate         string                    `json:"start_date"`
 	EndDate           string                    `json:"end_date"`
 	Fleets            []OrderDetailFleetItem    `json:"fleets"`
+	Scheduled         bool                      `json:"scheduled"`
 }
 
 type PaymentDetail struct {
