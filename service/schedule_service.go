@@ -65,11 +65,26 @@ func (s *ScheduleService) CreateSchedule(input model.ScheduleCreateServiceInput)
 		departureStart = strings.TrimSpace(input.Request.DepartureTime)
 	}
 
+	// Parse departure_time to time.Time for timestamp with time zone
+	departureTime, err := time.Parse(time.RFC3339, departureStart)
+	if err != nil {
+		// Try alternative formats
+		if t, err := time.Parse("2006-01-02T15:04", departureStart); err == nil {
+			departureTime = t
+		} else if t, err := time.Parse("2006-01-02 15:04:05", departureStart); err == nil {
+			departureTime = t
+		} else if t, err := time.Parse("2006-01-02 15:04", departureStart); err == nil {
+			departureTime = t
+		} else {
+			return "", NewServiceError(ErrInvalidInput, http.StatusBadRequest, "invalid departure_time format")
+		}
+	}
+
 	scheduleID, createErr := s.repo.CreateSchedule(model.ScheduleCreateRepositoryInput{
 		OrganizationID: input.OrganizationID,
 		UserID:         input.UserID,
 		OrderID:        input.Request.OrderID,
-		DepartureTime:  departureStart,
+		DepartureTime:  departureTime,
 		CreatedAt:      time.Now(),
 		Fleets:         fleets,
 	})

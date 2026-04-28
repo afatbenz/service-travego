@@ -41,7 +41,7 @@ type ScheduleCreateRepositoryInput struct {
 	OrganizationID string
 	UserID         string
 	OrderID        string
-	DepartureTime  string
+	DepartureTime  time.Time
 	CreatedAt      time.Time
 	Fleets         []ScheduleFleetInsertItem
 }

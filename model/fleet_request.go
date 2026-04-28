@@ -1,6 +1,9 @@
 package model
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 type FleetPriceRequest struct {
 	Duration   int    `json:"duration"`
@@ -113,6 +116,23 @@ type FleetPriceUpsertItem struct {
 type FleetImageUpsertItem struct {
 	UUID     string `json:"uuid"`
 	PathFile string `json:"path_file"`
+}
+
+// UnmarshalJSON handles both string and object formats for images
+func (f *FleetImageUpsertItem) UnmarshalJSON(data []byte) error {
+	// Try as string first
+	var str string
+	if err := json.Unmarshal(data, &str); err == nil {
+		f.PathFile = str
+		return nil
+	}
+
+	// Try as object
+	type Alias FleetImageUpsertItem
+	aux := &struct {
+		*Alias
+	}{Alias: (*Alias)(f)}
+	return json.Unmarshal(data, aux)
 }
 
 type UpdateFleetRequest struct {

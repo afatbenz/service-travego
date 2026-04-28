@@ -524,7 +524,7 @@ func (s *FleetService) CreatePartnerOrder(orgID, userID string, req *model.Fleet
 	timePart := time.Now().Format("06020115")
 	orderID := fmt.Sprintf("%s%s%d-FRT", truncatedCode, timePart, count+1)
 
-	if err := s.repo.CreatePartnerOrder(orderID, req.FleetID, startDate, endDate, req.PickupCityID, pickupLoc, qty, req.PriceID, totalAmount, req.AdditionalAmount, req.CustomerID, orgID, userID, req.Itinerary, req.Addons, req.AdditionalRequest); err != nil {
+	if err := s.repo.CreatePartnerOrder(orderID, req.FleetID, startDate, endDate, req.PickupCityID, pickupLoc, qty, req.PriceID, totalAmount, req.AdditionalAmount, req.CustomerID, orgID, userID, req.Itinerary, req.Addons, req.AdditionalRequest, req.Fleets); err != nil {
 		return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create order")
 	}
 	return orderID, nil
