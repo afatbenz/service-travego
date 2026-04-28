@@ -724,7 +724,7 @@ func (r *FleetRepository) CreateOrder(req *model.CreateOrderRequest) error {
 	return nil
 }
 
-func (r *FleetRepository) CreatePartnerOrder(orderID, fleetID, startDate, endDate, pickupCityID, pickupLocation string, qty int, priceID string, totalAmount, additionalAmount float64, customerID, orgID, createdBy string, itinerary []model.FleetOrderItineraryItem, addons []model.FleetOrderAddonItem, additionalRequest string) error {
+func (r *FleetRepository) CreatePartnerOrder(orderID, fleetID, startDate, endDate, pickupCityID, pickupLocation string, qty int, priceID string, totalAmount, additionalAmount float64, customerID, orgID, createdBy string, itinerary []model.FleetOrderItineraryItem, addons []model.FleetOrderAddonItem, additionalRequest string, fleets []model.FleetOrderFleetItem) error {
 	tx, err := r.db.Begin()
 	if err != nil {
 		return err
@@ -911,8 +911,64 @@ func (r *FleetRepository) CreatePartnerOrder(orderID, fleetID, startDate, endDat
 		}
 	}
 
+	// Insert fleet_order_items
+	if err := r.CreateFleetOrderItems(tx, orderID, orgID, createdBy, fleets); err != nil {
+		return err
+	}
+
 	if err = tx.Commit(); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func (r *FleetRepository) CreateFleetOrderItems(tx *sql.Tx, orderID, orgID, createdBy string, fleets []model.FleetOrderFleetItem) error {
+	if len(fleets) == 0 {
+		return nil
+	}
+
+	now := time.Now()
+
+	// Try with all columns first
+	insertWithAll := fmt.Sprintf(`
+		INSERT INTO fleet_order_items (order_item_id, organization_id, order_id, fleet_id, price_id, quantity, charge_amount, discount, sub_total, create_at, created_by, status)
+		VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
+		r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11))
+
+	// Fallback without created_by
+	insertWithoutCreatedBy := fmt.Sprintf(`
+		INSERT INTO fleet_order_items (order_item_id, organization_id, order_id, fleet_id, price_id, quantity, charge_amount, discount, sub_total, create_at, status)
+		VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
+		r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10))
+
+	mode := 0
+	for _, f := range fleets {
+		id := uuid2()
+		subTotal := (float64(f.Qty) * 0) + f.BiayaLain - f.Discount // price will be fetched from fleet_prices if needed
+
+		for {
+			_, _ = database.TxExec(tx, "SAVEPOINT sp_fleet_items")
+			var err error
+			if mode == 0 {
+				_, err = database.TxExec(tx, insertWithAll, id, orgID, orderID, f.ArmadaID, f.PriceID, f.Qty, f.BiayaLain, f.Discount, subTotal, now, createdBy)
+			} else {
+				_, err = database.TxExec(tx, insertWithoutCreatedBy, id, orgID, orderID, f.ArmadaID, f.PriceID, f.Qty, f.BiayaLain, f.Discount, subTotal, now)
+			}
+			if err == nil {
+				_, _ = database.TxExec(tx, "RELEASE SAVEPOINT sp_fleet_items")
+				break
+			}
+			errMsg := strings.ToLower(err.Error())
+			if mode == 0 && (strings.Contains(errMsg, "unknown column") || strings.Contains(errMsg, "does not exist")) {
+				_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_fleet_items")
+				mode = 1
+				continue
+			}
+			return fmt.Errorf("insert fleet_order_items: %w", err)
+		}
 	}
 
 	return nil
@@ -1764,6 +1820,8 @@ func (r *FleetRepository) GetPartnerOrderFleetItems(organizationId, orderId stri
 		INNER JOIN fleet_types tp ON tp.id = f.fleet_type
 		WHERE oi.organization_id = %s AND oi.order_id = %s
 	`, r.getPlaceholder(1), r.getPlaceholder(2))
+	fmt.Println("GetPartnerOrderFleetItems query:", query)
+	fmt.Println("GetPartnerOrderFleetItems args:", organizationId, orderId)
 
 	rows, err := database.Query(r.db, query, organizationId, orderId)
 	if err != nil {
@@ -1842,6 +1900,10 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 		&res.AdditionalRequest,
 	)
 	if err != nil {
+		fmt.Println("Error querying order detail:", err)
+		fmt.Print(query)
+		fmt.Print("--- orderID ", orderID)
+		fmt.Print("--- orgID ", orgID)
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("order not found or access denied")
 		}

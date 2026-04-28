@@ -236,52 +236,171 @@ func (h *FleetHandler) CreateFleet(c *fiber.Ctx) error {
 }
 
 func (h *FleetHandler) UpdateFleet(c *fiber.Ctx) error {
-	var req model.UpdateFleetRequest
 	rawBody := c.Body()
 	var payloadMap map[string]interface{}
-	_ = json.Unmarshal(rawBody, &payloadMap)
-	var probe model.UpdateFleetRequest
-	probeErr := json.Unmarshal(rawBody, &probe)
-	// #region agent log
-	debugWriteNDJSON("initial", "H1", "handler/fleet_handler.go:243", "UpdateFleet payload probe", map[string]interface{}{
-		"raw_len":           len(rawBody),
-		"has_images":        payloadMap["images"] != nil,
-		"images_type":       fmt.Sprintf("%T", payloadMap["images"]),
-		"images_first_type": firstSliceElemType(payloadMap["images"]),
-		"has_fascilities":   payloadMap["fascilities"] != nil,
-		"fascilities_type":  fmt.Sprintf("%T", payloadMap["fascilities"]),
-		"fasc_first_type":   firstSliceElemType(payloadMap["fascilities"]),
-		"probe_error":       errString(probeErr),
-	})
-	// #endregion
-	if err := c.BodyParser(&req); err != nil {
-		fmt.Println("UpdateFleet body parser failed", err.Error())
-		// #region agent log
-		debugWriteNDJSON("initial", "H2", "handler/fleet_handler.go:253", "UpdateFleet body parser failed", map[string]interface{}{
-			"error":              err.Error(),
-			"has_pickup_point":   payloadMap["pickup_point"] != nil,
-			"pickup_point_type":  fmt.Sprintf("%T", payloadMap["pickup_point"]),
-			"pickup_point_first": firstSliceElemType(payloadMap["pickup_point"]),
-			"has_pickup":         payloadMap["pickup"] != nil,
-			"pickup_type":        fmt.Sprintf("%T", payloadMap["pickup"]),
-			"pickup_first":       firstSliceElemType(payloadMap["pickup"]),
-			"has_prices":         payloadMap["prices"] != nil,
-			"prices_first":       firstSliceElemType(payloadMap["prices"]),
-			"has_pricing":        payloadMap["pricing"] != nil,
-			"pricing_first":      firstSliceElemType(payloadMap["pricing"]),
-		})
-		// #endregion
+	if err := json.Unmarshal(rawBody, &payloadMap); err != nil {
 		return helper.BadRequestResponse(c, "invalid payload")
 	}
-	// #region agent log
-	debugWriteNDJSON("initial", "H3", "handler/fleet_handler.go:267", "UpdateFleet body parser success", map[string]interface{}{
-		"fleet_id":         req.FleetID,
-		"facilities_count": len(req.Facilities),
-		"pickup_count":     len(req.Pickup),
-		"pricing_count":    len(req.Pricing),
-		"images_count":     len(req.Images),
-	})
-	// #endregion
+
+	// Extract basic fleet fields from payload
+	var req model.UpdateFleetRequest
+	if v, ok := payloadMap["fleet_id"].(string); ok {
+		req.FleetID = v
+	}
+	if v, ok := payloadMap["fleet_name"].(string); ok {
+		req.FleetName = v
+	}
+	if v, ok := payloadMap["fleet_type"].(string); ok {
+		req.FleetType = v
+	}
+	if v, ok := payloadMap["body"].(string); ok {
+		req.Body = v
+	}
+	if v, ok := payloadMap["fuel_type"].(string); ok {
+		req.FuelType = v
+	}
+	if v, ok := payloadMap["description"].(string); ok {
+		req.Description = v
+	}
+	if v, ok := payloadMap["thumbnail"].(string); ok {
+		req.Thumbnail = v
+	}
+	if v, ok := payloadMap["active"]; ok {
+		switch vv := v.(type) {
+		case bool:
+			req.Active = vv
+		case string:
+			b, _ := strconv.ParseBool(vv)
+			req.Active = b
+		case float64:
+			req.Active = vv != 0
+		}
+	}
+
+	// Parse pickup_point
+	if v, ok := payloadMap["pickup_point"].([]interface{}); ok {
+		req.Pickup = make([]model.FleetPickupUpsertItem, 0, len(v))
+		for _, it := range v {
+			if mp, ok := it.(map[string]interface{}); ok {
+				pickup := model.FleetPickupUpsertItem{}
+				if uuidVal, ok := mp["uuid"].(string); ok {
+					pickup.UUID = uuidVal
+				}
+				if cityID, ok := mp["city_id"]; ok {
+					pickup.CityID = toInt(cityID)
+				}
+				req.Pickup = append(req.Pickup, pickup)
+			}
+		}
+	}
+
+	// Parse fascilities (handle string array)
+	if v, ok := payloadMap["fascilities"].([]interface{}); ok {
+		req.Facilities = make([]model.FleetFacilityUpsertItem, 0, len(v))
+		for _, it := range v {
+			if mp, ok := it.(map[string]interface{}); ok {
+				fac := model.FleetFacilityUpsertItem{}
+				if uuidVal, ok := mp["uuid"].(string); ok {
+					fac.UUID = uuidVal
+				}
+				if facVal, ok := mp["facility"].(string); ok {
+					fac.Facility = facVal
+				} else if facVal, ok := mp["facility_name"].(string); ok {
+					fac.Facility = facVal
+				}
+				req.Facilities = append(req.Facilities, fac)
+			} else if s, ok := it.(string); ok {
+				req.Facilities = append(req.Facilities, model.FleetFacilityUpsertItem{Facility: s})
+			}
+		}
+	}
+
+	// Parse prices (handle rent_category field name)
+	if v, ok := payloadMap["prices"].([]interface{}); ok {
+		req.Pricing = make([]model.FleetPriceUpsertItem, 0, len(v))
+		for _, it := range v {
+			if mp, ok := it.(map[string]interface{}); ok {
+				pr := model.FleetPriceUpsertItem{}
+				if uuidVal, ok := mp["uuid"].(string); ok {
+					pr.UUID = uuidVal
+				}
+				if dv, ok := mp["duration"]; ok {
+					pr.Duration = toInt(dv)
+				}
+				if rv, ok := mp["rent_category"]; ok {
+					pr.RentType = toInt(rv)
+				} else if rv, ok := mp["rent_type"]; ok {
+					pr.RentType = toInt(rv)
+				}
+				if pv, ok := mp["price"]; ok {
+					pr.Price = toInt(pv)
+				}
+				if uom, ok := mp["uom"].(string); ok {
+					pr.Uom = uom
+				}
+				if da, ok := mp["disc_amount"]; ok {
+					pr.DiscAmount = toInt(da)
+				}
+				if dp, ok := mp["disc_price"]; ok {
+					pr.DiscPrice = toInt(dp)
+				}
+				req.Pricing = append(req.Pricing, pr)
+			}
+		}
+	}
+
+	// Parse addon
+	if v, ok := payloadMap["addon"].([]interface{}); ok {
+		req.Addon = make([]model.FleetAddonUpsertItem, 0, len(v))
+		for _, it := range v {
+			if mp, ok := it.(map[string]interface{}); ok {
+				ad := model.FleetAddonUpsertItem{}
+				if uuidVal, ok := mp["uuid"].(string); ok {
+					ad.UUID = uuidVal
+				}
+				if nv, ok := mp["addon_name"].(string); ok {
+					ad.AddonName = nv
+				}
+				if dv, ok := mp["description"].(string); ok {
+					ad.AddonDesc = dv
+				} else if dv, ok := mp["addon_desc"].(string); ok {
+					ad.AddonDesc = dv
+				}
+				if pv, ok := mp["price"]; ok {
+					ad.AddonPrice = toInt(pv)
+				} else if pv, ok := mp["addon_price"]; ok {
+					ad.AddonPrice = toInt(pv)
+				}
+				req.Addon = append(req.Addon, ad)
+			}
+		}
+	}
+
+	// Parse images (handle both string and object formats)
+	if v, ok := payloadMap["images"].([]interface{}); ok {
+		req.Images = make([]model.FleetImageUpsertItem, 0, len(v))
+		for _, it := range v {
+			img := model.FleetImageUpsertItem{}
+			if s, ok := it.(string); ok && s != "" {
+				img.PathFile = s
+			} else if mp, ok := it.(map[string]interface{}); ok {
+				if uuidVal, ok := mp["uuid"].(string); ok {
+					img.UUID = uuidVal
+				}
+				if pf, ok := mp["path_file"].(string); ok {
+					img.PathFile = pf
+				} else if pf, ok := mp["url"].(string); ok {
+					img.PathFile = pf
+				} else if pf, ok := mp["image_url"].(string); ok {
+					img.PathFile = pf
+				}
+			}
+			if img.PathFile != "" || img.UUID != "" {
+				req.Images = append(req.Images, img)
+			}
+		}
+	}
+
 	if req.FleetID == "" {
 		return helper.BadRequestResponse(c, "fleet_id is required")
 	}
@@ -461,6 +580,7 @@ func (h *FleetHandler) GetPartnerOrderDetail(c *fiber.Ctx) error {
 	res, err := h.service.GetPartnerOrderDetail(orderID, orgID)
 	if err != nil {
 		code := fiber.StatusInternalServerError
+		fmt.Println("Error fetching order detail:", err)
 		if err.Error() == "order not found or access denied" {
 			code = fiber.StatusNotFound
 		}
@@ -619,6 +739,35 @@ func (h *FleetHandler) CreatePartnerOrder(c *fiber.Ctx) error {
 					items = append(items, it)
 				}
 				req.Itinerary = items
+			}
+		}
+		if v, ok := m["fleets"]; ok {
+			if arr, ok := v.([]interface{}); ok {
+				fleetItems := make([]model.FleetOrderFleetItem, 0, len(arr))
+				for _, rawItem := range arr {
+					mm, ok := rawItem.(map[string]interface{})
+					if !ok {
+						continue
+					}
+					var it model.FleetOrderFleetItem
+					if s, ok := mm["armada_id"].(string); ok {
+						it.ArmadaID = s
+					}
+					if s, ok := mm["price_id"].(string); ok {
+						it.PriceID = s
+					}
+					if q, ok := mm["qty"]; ok {
+						it.Qty = toInt(q)
+					}
+					if p, ok := mm["biaya_lain"]; ok {
+						it.BiayaLain = float64(toInt(p))
+					}
+					if d, ok := mm["discount"]; ok {
+						it.Discount = float64(toInt(d))
+					}
+					fleetItems = append(fleetItems, it)
+				}
+				req.Fleets = fleetItems
 			}
 		}
 	}
