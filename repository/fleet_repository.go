@@ -974,6 +974,517 @@ func (r *FleetRepository) CreateFleetOrderItems(tx *sql.Tx, orderID, orgID, crea
 	return nil
 }
 
+type UpdatePartnerOrderInput struct {
+	OrderID           string
+	OrganizationID    string
+	UpdatedBy         string
+	FleetID           string
+	PriceID           string
+	StartDate         string
+	EndDate           string
+	PickupCityID      string
+	PickupLocation    string
+	UnitQty           int
+	CustomerID        string
+	TotalAmount       float64
+	AdditionalAmount  float64
+	DiscountAmount    float64
+	DiscountTotal     float64
+	AdditionalRequest string
+	Fleets            []UpdatePartnerOrderFleetItem
+	Itinerary         []UpdatePartnerOrderItineraryItem
+}
+
+type UpdatePartnerOrderFleetItem struct {
+	OrderItemID  string
+	FleetID      string
+	PriceID      string
+	Qty          int
+	ChargeAmount float64
+	Discount     float64
+	SubTotal     float64
+}
+
+type UpdatePartnerOrderItineraryItem struct {
+	FleetItineraryID string
+	Day              int
+	CityID           string
+	Location         string
+}
+
+func (r *FleetRepository) UpdatePartnerOrder(in UpdatePartnerOrderInput) (err error) {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	now := time.Now()
+
+	orgExpr2 := "organization_id = " + r.getPlaceholder(2)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		orgExpr2 = "organization_id::text = " + r.getPlaceholder(2)
+	}
+	lockQuery := fmt.Sprintf("SELECT total_amount FROM fleet_orders WHERE order_id = %s AND %s FOR UPDATE", r.getPlaceholder(1), orgExpr2)
+	var oldTotal float64
+	if err := database.TxQueryRow(tx, lockQuery, in.OrderID, in.OrganizationID).Scan(&oldTotal); err != nil {
+		return err
+	}
+
+	orgWhereAt := func(pos int) string {
+		expr := "organization_id = " + r.getPlaceholder(pos)
+		if r.driver == "postgres" || r.driver == "pgx" {
+			expr = "organization_id::text = " + r.getPlaceholder(pos)
+		}
+		return expr
+	}
+	updateCandidates := []struct {
+		query string
+		args  []interface{}
+	}{
+		{
+			query: fmt.Sprintf(`
+				UPDATE fleet_orders
+				SET fleet_id = %s, start_date = %s, end_date = %s, pickup_city_id = %s, pickup_location = %s,
+				    unit_qty = %s, price_id = %s, total_amount = %s, additional_amount = %s, discount_amount = %s,
+				    additional_request = %s, updated_at = %s, updated_by = %s
+				WHERE order_id = %s AND %s
+			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
+				r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10),
+				r.getPlaceholder(11), r.getPlaceholder(12), r.getPlaceholder(13), r.getPlaceholder(14), orgWhereAt(15)),
+			args: []interface{}{in.FleetID, in.StartDate, in.EndDate, in.PickupCityID, in.PickupLocation, in.UnitQty, in.PriceID, in.TotalAmount, in.AdditionalAmount, in.DiscountTotal, in.AdditionalRequest, now, in.UpdatedBy, in.OrderID, in.OrganizationID},
+		},
+		{
+			query: fmt.Sprintf(`
+				UPDATE fleet_orders
+				SET fleet_id = %s, start_date = %s, end_date = %s, pickup_city_id = %s, pickup_location = %s,
+				    unit_qty = %s, price_id = %s, total_amount = %s, additional_amount = %s, discount = %s,
+				    additional_request = %s, updated_at = %s, updated_by = %s
+				WHERE order_id = %s AND %s
+			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
+				r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10),
+				r.getPlaceholder(11), r.getPlaceholder(12), r.getPlaceholder(13), r.getPlaceholder(14), orgWhereAt(15)),
+			args: []interface{}{in.FleetID, in.StartDate, in.EndDate, in.PickupCityID, in.PickupLocation, in.UnitQty, in.PriceID, in.TotalAmount, in.AdditionalAmount, in.DiscountTotal, in.AdditionalRequest, now, in.UpdatedBy, in.OrderID, in.OrganizationID},
+		},
+		{
+			query: fmt.Sprintf(`
+				UPDATE fleet_orders
+				SET fleet_id = %s, start_date = %s, end_date = %s, pickup_city_id = %s, pickup_location = %s,
+				    unit_qty = %s, price_id = %s, total_amount = %s, additional_amount = %s,
+				    additional_request = %s, updated_at = %s, updated_by = %s
+				WHERE order_id = %s AND %s
+			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
+				r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9),
+				r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12), r.getPlaceholder(13), orgWhereAt(14)),
+			args: []interface{}{in.FleetID, in.StartDate, in.EndDate, in.PickupCityID, in.PickupLocation, in.UnitQty, in.PriceID, in.TotalAmount, in.AdditionalAmount, in.AdditionalRequest, now, in.UpdatedBy, in.OrderID, in.OrganizationID},
+		},
+		{
+			query: fmt.Sprintf(`
+				UPDATE fleet_orders
+				SET fleet_id = %s, start_date = %s, end_date = %s, pickup_city_id = %s, pickup_location = %s,
+				    unit_qty = %s, price_id = %s, total_amount = %s, additional_amount = %s, updated_at = %s, updated_by = %s
+				WHERE order_id = %s AND %s
+			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
+				r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9),
+				r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12), orgWhereAt(13)),
+			args: []interface{}{in.FleetID, in.StartDate, in.EndDate, in.PickupCityID, in.PickupLocation, in.UnitQty, in.PriceID, in.TotalAmount, in.AdditionalAmount, now, in.UpdatedBy, in.OrderID, in.OrganizationID},
+		},
+		{
+			query: fmt.Sprintf(`
+				UPDATE fleet_orders
+				SET fleet_id = %s, start_date = %s, end_date = %s, pickup_city_id = %s, pickup_location = %s,
+				    unit_qty = %s, price_id = %s, total_amount = %s, additional_amount = %s,
+				    additional_request = %s
+				WHERE order_id = %s AND %s
+			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
+				r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9),
+				r.getPlaceholder(10), r.getPlaceholder(11), orgWhereAt(12)),
+			args: []interface{}{in.FleetID, in.StartDate, in.EndDate, in.PickupCityID, in.PickupLocation, in.UnitQty, in.PriceID, in.TotalAmount, in.AdditionalAmount, in.AdditionalRequest, in.OrderID, in.OrganizationID},
+		},
+		{
+			query: fmt.Sprintf(`
+				UPDATE fleet_orders
+				SET fleet_id = %s, start_date = %s, end_date = %s, pickup_city_id = %s, pickup_location = %s,
+				    unit_qty = %s, price_id = %s, total_amount = %s, additional_amount = %s
+				WHERE order_id = %s AND %s
+			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
+				r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9),
+				r.getPlaceholder(10), orgWhereAt(11)),
+			args: []interface{}{in.FleetID, in.StartDate, in.EndDate, in.PickupCityID, in.PickupLocation, in.UnitQty, in.PriceID, in.TotalAmount, in.AdditionalAmount, in.OrderID, in.OrganizationID},
+		},
+	}
+
+	var updated bool
+	for _, c := range updateCandidates {
+		_, _ = database.TxExec(tx, "SAVEPOINT sp_upd_orders")
+		res, e := database.TxExec(tx, c.query, c.args...)
+		if e == nil {
+			_, _ = database.TxExec(tx, "RELEASE SAVEPOINT sp_upd_orders")
+			aff, _ := res.RowsAffected()
+			if aff == 0 {
+				return sql.ErrNoRows
+			}
+			updated = true
+			break
+		}
+		_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_upd_orders")
+		msg := strings.ToLower(e.Error())
+		if strings.Contains(msg, "unknown column") || strings.Contains(msg, "does not exist") || strings.Contains(msg, "column") {
+			continue
+		}
+		return e
+	}
+	if !updated {
+		return fmt.Errorf("failed to update fleet_orders")
+	}
+
+	if strings.TrimSpace(in.CustomerID) != "" {
+		custUpdateCandidates := []struct {
+			query string
+			args  []interface{}
+		}{
+			{
+				query: fmt.Sprintf(`
+					UPDATE customer_orders
+					SET customer_id = %s, updated_at = %s, updated_by = %s
+					WHERE order_id = %s AND order_type = 1 AND %s
+				`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), orgWhereAt(5)),
+				args: []interface{}{in.CustomerID, now, in.UpdatedBy, in.OrderID, in.OrganizationID},
+			},
+			{
+				query: fmt.Sprintf(`
+					UPDATE customer_orders
+					SET customer_id = %s
+					WHERE order_id = %s AND order_type = 1 AND %s
+				`, r.getPlaceholder(1), r.getPlaceholder(2), orgWhereAt(3)),
+				args: []interface{}{in.CustomerID, in.OrderID, in.OrganizationID},
+			},
+		}
+		var affected int64
+		var lastErr error
+		for _, c := range custUpdateCandidates {
+			_, _ = database.TxExec(tx, "SAVEPOINT sp_upd_cust")
+			res, e := database.TxExec(tx, c.query, c.args...)
+			if e == nil {
+				_, _ = database.TxExec(tx, "RELEASE SAVEPOINT sp_upd_cust")
+				affected, _ = res.RowsAffected()
+				lastErr = nil
+				break
+			}
+			_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_upd_cust")
+			msg := strings.ToLower(e.Error())
+			if strings.Contains(msg, "unknown column") || strings.Contains(msg, "does not exist") || strings.Contains(msg, "column") {
+				lastErr = e
+				continue
+			}
+			return e
+		}
+		if lastErr != nil && affected == 0 {
+			affected = 0
+		}
+		if affected == 0 {
+			insertCustWithCreatedBy := fmt.Sprintf(`
+				INSERT INTO customer_orders (order_id, customer_id, order_type, created_at, created_by, organization_id)
+				VALUES (%s, %s, 1, %s, %s, %s)
+			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5))
+			insertCustWithoutCreatedBy := fmt.Sprintf(`
+				INSERT INTO customer_orders (order_id, customer_id, order_type, created_at, organization_id)
+				VALUES (%s, %s, 1, %s, %s)
+			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))
+
+			_, _ = database.TxExec(tx, "SAVEPOINT sp_ins_cust")
+			_, e := database.TxExec(tx, insertCustWithCreatedBy, in.OrderID, in.CustomerID, now, in.UpdatedBy, in.OrganizationID)
+			if e != nil {
+				msg := strings.ToLower(e.Error())
+				if strings.Contains(msg, "unknown column") || strings.Contains(msg, "does not exist") || strings.Contains(msg, "column") {
+					_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_ins_cust")
+					_, e2 := database.TxExec(tx, insertCustWithoutCreatedBy, in.OrderID, in.CustomerID, now, in.OrganizationID)
+					if e2 != nil {
+						return e2
+					}
+				} else {
+					return e
+				}
+			}
+			_, _ = database.TxExec(tx, "RELEASE SAVEPOINT sp_ins_cust")
+		}
+	}
+
+	for _, it := range in.Itinerary {
+		day := it.Day
+		if day <= 0 {
+			day = 1
+		}
+		if strings.TrimSpace(it.FleetItineraryID) == "" {
+			id := uuid2()
+			insertWithCreatedBy := fmt.Sprintf(`
+				INSERT INTO fleet_order_itinerary (fleet_itinerary_id, order_id, day_num, city_id, location, organization_id, created_at, created_by)
+				VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8))
+			insertWithoutCreatedBy := fmt.Sprintf(`
+				INSERT INTO fleet_order_itinerary (fleet_itinerary_id, order_id, day_num, city_id, location, organization_id, created_at)
+				VALUES (%s, %s, %s, %s, %s, %s, %s)
+			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7))
+
+			_, _ = database.TxExec(tx, "SAVEPOINT sp_ins_it")
+			_, e := database.TxExec(tx, insertWithCreatedBy, id, in.OrderID, day, it.CityID, it.Location, in.OrganizationID, now, in.UpdatedBy)
+			if e != nil {
+				msg := strings.ToLower(e.Error())
+				if strings.Contains(msg, "unknown column") || strings.Contains(msg, "does not exist") || strings.Contains(msg, "column") {
+					_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_ins_it")
+					_, e2 := database.TxExec(tx, insertWithoutCreatedBy, id, in.OrderID, day, it.CityID, it.Location, in.OrganizationID, now)
+					if e2 != nil {
+						return e2
+					}
+				} else {
+					return e
+				}
+			}
+			_, _ = database.TxExec(tx, "RELEASE SAVEPOINT sp_ins_it")
+			continue
+		}
+
+		updateItCandidates := []struct {
+			query string
+			args  []interface{}
+		}{
+			{
+				query: fmt.Sprintf(`
+					UPDATE fleet_order_itinerary
+					SET day_num = %s, city_id = %s, location = %s, updated_at = %s, updated_by = %s
+					WHERE fleet_itinerary_id = %s AND order_id = %s AND %s
+				`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), orgWhereAt(8)),
+				args: []interface{}{day, it.CityID, it.Location, now, in.UpdatedBy, it.FleetItineraryID, in.OrderID, in.OrganizationID},
+			},
+			{
+				query: fmt.Sprintf(`
+					UPDATE fleet_order_itinerary
+					SET day_num = %s, city_id = %s, location = %s
+					WHERE fleet_itinerary_id = %s AND order_id = %s AND %s
+				`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), orgWhereAt(6)),
+				args: []interface{}{day, it.CityID, it.Location, it.FleetItineraryID, in.OrderID, in.OrganizationID},
+			},
+		}
+		var itUpdated bool
+		for _, c := range updateItCandidates {
+			_, _ = database.TxExec(tx, "SAVEPOINT sp_upd_it")
+			res, e := database.TxExec(tx, c.query, c.args...)
+			if e == nil {
+				_, _ = database.TxExec(tx, "RELEASE SAVEPOINT sp_upd_it")
+				aff, _ := res.RowsAffected()
+				if aff > 0 {
+					itUpdated = true
+				}
+				break
+			}
+			_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_upd_it")
+			msg := strings.ToLower(e.Error())
+			if strings.Contains(msg, "unknown column") || strings.Contains(msg, "does not exist") || strings.Contains(msg, "column") {
+				continue
+			}
+			return e
+		}
+		_ = itUpdated
+	}
+
+	for _, f := range in.Fleets {
+		q := f.Qty
+		if q <= 0 {
+			q = 1
+		}
+		if strings.TrimSpace(f.OrderItemID) == "" {
+			id := uuid2()
+			insertWithAll := fmt.Sprintf(`
+				INSERT INTO fleet_order_items (order_item_id, organization_id, order_id, fleet_id, price_id, quantity, charge_amount, discount, sub_total, create_at, created_by, status)
+				VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
+			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
+				r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11))
+			insertWithoutCreatedBy := fmt.Sprintf(`
+				INSERT INTO fleet_order_items (order_item_id, organization_id, order_id, fleet_id, price_id, quantity, charge_amount, discount, sub_total, create_at, status)
+				VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
+			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
+				r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10))
+
+			_, _ = database.TxExec(tx, "SAVEPOINT sp_ins_item")
+			_, e := database.TxExec(tx, insertWithAll, id, in.OrganizationID, in.OrderID, f.FleetID, f.PriceID, q, f.ChargeAmount, f.Discount, f.SubTotal, now, in.UpdatedBy)
+			if e != nil {
+				msg := strings.ToLower(e.Error())
+				if strings.Contains(msg, "unknown column") || strings.Contains(msg, "does not exist") || strings.Contains(msg, "column") {
+					_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_ins_item")
+					_, e2 := database.TxExec(tx, insertWithoutCreatedBy, id, in.OrganizationID, in.OrderID, f.FleetID, f.PriceID, q, f.ChargeAmount, f.Discount, f.SubTotal, now)
+					if e2 != nil {
+						return e2
+					}
+				} else {
+					return e
+				}
+			}
+			_, _ = database.TxExec(tx, "RELEASE SAVEPOINT sp_ins_item")
+			continue
+		}
+
+		updateItemCandidates := []struct {
+			query string
+			args  []interface{}
+		}{
+			{
+				query: fmt.Sprintf(`
+					UPDATE fleet_order_items
+					SET fleet_id = %s, price_id = %s, quantity = %s, charge_amount = %s, discount = %s, sub_total = %s, updated_at = %s, updated_by = %s
+					WHERE order_item_id = %s AND order_id = %s AND %s
+				`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6),
+					r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), orgWhereAt(11)),
+				args: []interface{}{f.FleetID, f.PriceID, q, f.ChargeAmount, f.Discount, f.SubTotal, now, in.UpdatedBy, f.OrderItemID, in.OrderID, in.OrganizationID},
+			},
+			{
+				query: fmt.Sprintf(`
+					UPDATE fleet_order_items
+					SET fleet_id = %s, price_id = %s, quantity = %s, charge_amount = %s, discount = %s, sub_total = %s
+					WHERE order_item_id = %s AND order_id = %s AND %s
+				`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6),
+					r.getPlaceholder(7), r.getPlaceholder(8), orgWhereAt(9)),
+				args: []interface{}{f.FleetID, f.PriceID, q, f.ChargeAmount, f.Discount, f.SubTotal, f.OrderItemID, in.OrderID, in.OrganizationID},
+			},
+		}
+		var itemUpdated bool
+		for _, c := range updateItemCandidates {
+			_, _ = database.TxExec(tx, "SAVEPOINT sp_upd_item")
+			res, e := database.TxExec(tx, c.query, c.args...)
+			if e == nil {
+				_, _ = database.TxExec(tx, "RELEASE SAVEPOINT sp_upd_item")
+				aff, _ := res.RowsAffected()
+				if aff > 0 {
+					itemUpdated = true
+				}
+				break
+			}
+			_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_upd_item")
+			msg := strings.ToLower(e.Error())
+			if strings.Contains(msg, "unknown column") || strings.Contains(msg, "does not exist") || strings.Contains(msg, "column") {
+				continue
+			}
+			return e
+		}
+		_ = itemUpdated
+	}
+
+	sumOrgExpr := "organization_id = " + r.getPlaceholder(2)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		sumOrgExpr = "organization_id::text = " + r.getPlaceholder(2)
+	}
+	sumQuery := fmt.Sprintf(`SELECT COALESCE(SUM(sub_total), 0), COALESCE(SUM(discount), 0) FROM fleet_order_items WHERE order_id = %s AND %s`, r.getPlaceholder(1), sumOrgExpr)
+	var sumSubTotal, sumDiscount float64
+	sumErr := database.TxQueryRow(tx, sumQuery, in.OrderID, in.OrganizationID).Scan(&sumSubTotal, &sumDiscount)
+	finalTotal := in.TotalAmount
+	finalDiscount := in.DiscountTotal
+	if sumErr == nil {
+		finalDiscount = in.DiscountAmount + sumDiscount
+		finalTotal = sumSubTotal + in.AdditionalAmount - in.DiscountAmount
+		if finalTotal < 0 {
+			finalTotal = 0
+		}
+	}
+
+	totalUpdateCandidates := []struct {
+		query string
+		args  []interface{}
+	}{
+		{
+			query: fmt.Sprintf(`
+				UPDATE fleet_orders
+				SET total_amount = %s, additional_amount = %s, discount_amount = %s, updated_at = %s, updated_by = %s
+				WHERE order_id = %s AND %s
+			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), orgWhereAt(7)),
+			args: []interface{}{finalTotal, in.AdditionalAmount, finalDiscount, now, in.UpdatedBy, in.OrderID, in.OrganizationID},
+		},
+		{
+			query: fmt.Sprintf(`
+				UPDATE fleet_orders
+				SET total_amount = %s, additional_amount = %s, discount = %s, updated_at = %s, updated_by = %s
+				WHERE order_id = %s AND %s
+			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), orgWhereAt(7)),
+			args: []interface{}{finalTotal, in.AdditionalAmount, finalDiscount, now, in.UpdatedBy, in.OrderID, in.OrganizationID},
+		},
+		{
+			query: fmt.Sprintf(`
+				UPDATE fleet_orders
+				SET total_amount = %s, additional_amount = %s, updated_at = %s, updated_by = %s
+				WHERE order_id = %s AND %s
+			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), orgWhereAt(6)),
+			args: []interface{}{finalTotal, in.AdditionalAmount, now, in.UpdatedBy, in.OrderID, in.OrganizationID},
+		},
+		{
+			query: fmt.Sprintf(`
+				UPDATE fleet_orders
+				SET total_amount = %s, additional_amount = %s
+				WHERE order_id = %s AND %s
+			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), orgWhereAt(4)),
+			args: []interface{}{finalTotal, in.AdditionalAmount, in.OrderID, in.OrganizationID},
+		},
+	}
+	for _, c := range totalUpdateCandidates {
+		_, _ = database.TxExec(tx, "SAVEPOINT sp_upd_totals")
+		_, e := database.TxExec(tx, c.query, c.args...)
+		if e == nil {
+			_, _ = database.TxExec(tx, "RELEASE SAVEPOINT sp_upd_totals")
+			break
+		}
+		_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_upd_totals")
+		msg := strings.ToLower(e.Error())
+		if strings.Contains(msg, "unknown column") || strings.Contains(msg, "does not exist") || strings.Contains(msg, "column") {
+			continue
+		}
+		return e
+	}
+
+	if finalTotal != oldTotal {
+		payUpdateCandidates := []struct {
+			query string
+			args  []interface{}
+		}{
+			{
+				query: fmt.Sprintf(`
+					UPDATE payment_orders
+					SET total_amount = %s,
+					    remaining_amount = CASE WHEN COALESCE(payment_amount, 0) >= %s THEN 0 ELSE %s - COALESCE(payment_amount, 0) END,
+					    updated_at = %s, updated_by = %s
+					WHERE order_id = %s AND order_type = 1 AND %s AND COALESCE(status, 0) > 0
+				`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), orgWhereAt(7)),
+				args: []interface{}{finalTotal, finalTotal, finalTotal, now, in.UpdatedBy, in.OrderID, in.OrganizationID},
+			},
+			{
+				query: fmt.Sprintf(`
+					UPDATE payment_orders
+					SET total_amount = %s,
+					    remaining_amount = CASE WHEN COALESCE(payment_amount, 0) >= %s THEN 0 ELSE %s - COALESCE(payment_amount, 0) END
+					WHERE order_id = %s AND order_type = 1 AND %s AND COALESCE(status, 0) > 0
+				`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), orgWhereAt(5)),
+				args: []interface{}{finalTotal, finalTotal, finalTotal, in.OrderID, in.OrganizationID},
+			},
+		}
+		for _, c := range payUpdateCandidates {
+			_, _ = database.TxExec(tx, "SAVEPOINT sp_upd_payment_orders")
+			_, e := database.TxExec(tx, c.query, c.args...)
+			if e == nil {
+				_, _ = database.TxExec(tx, "RELEASE SAVEPOINT sp_upd_payment_orders")
+				break
+			}
+			_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_upd_payment_orders")
+			msg := strings.ToLower(e.Error())
+			if strings.Contains(msg, "unknown column") || strings.Contains(msg, "does not exist") || strings.Contains(msg, "column") {
+				continue
+			}
+			return e
+		}
+	}
+
+	return tx.Commit()
+}
+
 func (r *FleetRepository) GetFleetOrderSummary(fleetID, priceID string) (*model.OrderFleetSummaryResponse, error) {
 	query := fmt.Sprintf(`
 		SELECT f.fleet_name, f.capacity, f.engine, f.body, f.description, f.active, f.thumbnail,
@@ -1672,7 +2183,7 @@ func (r *FleetRepository) ListServiceOrderFleet(orgID, processType string) ([]mo
 func (r *FleetRepository) GetPartnerOrderList(orgID string, filter *model.PartnerOrderListFilter) ([]model.PartnerOrderListItem, error) {
 	base := `
         SELECT 
-			fo.order_id, f.fleet_name,
+			fo.order_id, f.fleet_name, f.thumbnail,
 			COALESCE(c.customer_name, '') as customer_name,
 			COALESCE(c.customer_phone, '') as customer_phone,
 			fo.start_date, fo.end_date, fo.unit_qty, fo.payment_status, 
@@ -1734,7 +2245,7 @@ func (r *FleetRepository) GetPartnerOrderList(orgID string, filter *model.Partne
 		var rentType int
 		var latestPaymentType int
 		if err := rows.Scan(
-			&it.OrderID, &it.FleetName, &it.CustomerName, &it.CustomerPhone,
+			&it.OrderID, &it.FleetName, &it.Thumbnail, &it.CustomerName, &it.CustomerPhone,
 			&startDate, &endDate, &it.UnitQty, &it.PaymentStatus,
 			&it.Duration, &it.Uom, &it.TotalAmount, &rentType,
 			&latestPaymentType,
@@ -1973,14 +2484,14 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 	} else if r.driver == "mysql" {
 		cityExpr = "CAST(city_id AS CHAR)"
 	}
-	itQuery := fmt.Sprintf(`SELECT day_num, %s as city_id, location FROM fleet_order_itinerary WHERE order_id = %s AND organization_id = %s ORDER BY day_num`, cityExpr, r.getPlaceholder(1), r.getPlaceholder(2))
+	itQuery := fmt.Sprintf(`SELECT fleet_itinerary_id, day_num, %s as city_id, location FROM fleet_order_itinerary WHERE order_id = %s AND organization_id = %s ORDER BY day_num`, cityExpr, r.getPlaceholder(1), r.getPlaceholder(2))
 	iRows, itErr := r.db.Query(itQuery, orderID, orgID)
 	if itErr == nil {
 		defer iRows.Close()
 		items := make([]model.FleetOrderItineraryItem, 0)
 		for iRows.Next() {
 			var it model.FleetOrderItineraryItem
-			if err := iRows.Scan(&it.Day, &it.CityID, &it.Destination); err == nil {
+			if err := iRows.Scan(&it.FleetItineraryID, &it.Day, &it.CityID, &it.Destination); err == nil {
 				items = append(items, it)
 			}
 		}
@@ -2248,6 +2759,53 @@ func (r *FleetRepository) GetPriceByID(priceID string) (float64, int, error) {
 	var rentType int
 	err := database.QueryRow(r.db, query, priceID).Scan(&price, &rentType)
 	return price, rentType, err
+}
+
+func (r *FleetRepository) GetFleetPricesByIDs(priceIDs []string) (map[string]float64, error) {
+	res := make(map[string]float64)
+	if len(priceIDs) == 0 {
+		return res, nil
+	}
+	unique := make(map[string]struct{}, len(priceIDs))
+	ids := make([]string, 0, len(priceIDs))
+	for _, id := range priceIDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := unique[id]; ok {
+			continue
+		}
+		unique[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		return res, nil
+	}
+	placeholders := make([]string, len(ids))
+	args := make([]interface{}, len(ids))
+	for i, id := range ids {
+		placeholders[i] = r.getPlaceholder(i + 1)
+		args[i] = id
+	}
+	query := fmt.Sprintf("SELECT uuid, price FROM fleet_prices WHERE uuid IN (%s)", strings.Join(placeholders, ","))
+	rows, err := database.Query(r.db, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var price float64
+		if err := rows.Scan(&id, &price); err != nil {
+			return nil, err
+		}
+		res[id] = price
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return res, nil
 }
 
 func (r *FleetRepository) GetAddonPrices(addonIDs []string) (map[string]float64, error) {

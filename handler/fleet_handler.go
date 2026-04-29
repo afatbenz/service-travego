@@ -601,6 +601,137 @@ func (h *FleetHandler) GetPartnerOrderDetail(c *fiber.Ctx) error {
 	return helper.SuccessResponse(c, fiber.StatusOK, "Order detail loaded", m)
 }
 
+func (h *FleetHandler) UpdatePartnerOrder(c *fiber.Ctx) error {
+	var req service.FleetOrderUpdateRequest
+	if err := c.BodyParser(&req); err != nil {
+		raw := c.Body()
+		var m map[string]interface{}
+		if err2 := json.Unmarshal(raw, &m); err2 != nil {
+			return helper.BadRequestResponse(c, "invalid payload")
+		}
+		if v, ok := m["order_id"].(string); ok {
+			req.OrderID = v
+		}
+		if v, ok := m["fleet_id"].(string); ok {
+			req.FleetID = v
+		}
+		if v, ok := m["price_id"].(string); ok {
+			req.PriceID = v
+		}
+		if v, ok := m["rent_type"]; ok {
+			req.RentType = toInt(v)
+		}
+		if v, ok := m["customer_id"].(string); ok {
+			req.CustomerID = v
+		}
+		if v, ok := m["pickup_datetime"].(string); ok {
+			req.PickupDatetime = v
+		}
+		if v, ok := m["dropoff_datetime"].(string); ok {
+			req.DropoffDatetime = v
+		}
+		if v, ok := m["pickup_address"].(string); ok {
+			req.PickupAddress = v
+		}
+		if v, ok := m["pickup_location"].(string); ok {
+			req.PickupLocation = v
+		}
+		if v, ok := m["pickup_city_id"]; ok {
+			req.PickupCityID = strconv.Itoa(toInt(v))
+		}
+		if v, ok := m["fleet_qty"]; ok {
+			req.FleetQty = toInt(v)
+		}
+		if v, ok := m["price"]; ok {
+			req.Price = float64(toInt(v))
+		}
+		if v, ok := m["discount_amount"]; ok {
+			req.DiscountAmount = float64(toInt(v))
+		}
+		if v, ok := m["additional_amount"]; ok {
+			req.AdditionalAmount = float64(toInt(v))
+		}
+		if v, ok := m["additional_request"].(string); ok {
+			req.AdditionalRequest = v
+		}
+		if v, ok := m["fleets"]; ok {
+			if arr, ok := v.([]interface{}); ok {
+				items := make([]service.FleetOrderUpdateFleetItem, 0, len(arr))
+				for _, rawItem := range arr {
+					mm, ok := rawItem.(map[string]interface{})
+					if !ok {
+						continue
+					}
+					var it service.FleetOrderUpdateFleetItem
+					if s, ok := mm["order_item_id"].(string); ok {
+						it.OrderItemID = s
+					}
+					if s, ok := mm["armada_id"].(string); ok {
+						it.ArmadaID = s
+					}
+					if s, ok := mm["price_id"].(string); ok {
+						it.PriceID = s
+					}
+					if q, ok := mm["qty"]; ok {
+						it.Qty = toInt(q)
+					}
+					if p, ok := mm["biaya_lain"]; ok {
+						it.BiayaLain = float64(toInt(p))
+					}
+					if d, ok := mm["discount"]; ok {
+						it.Discount = float64(toInt(d))
+					}
+					items = append(items, it)
+				}
+				req.Fleets = items
+			}
+		}
+		if v, ok := m["itinerary"]; ok {
+			if arr, ok := v.([]interface{}); ok {
+				items := make([]service.FleetOrderUpdateItineraryItem, 0, len(arr))
+				for _, rawItem := range arr {
+					mm, ok := rawItem.(map[string]interface{})
+					if !ok {
+						continue
+					}
+					var it service.FleetOrderUpdateItineraryItem
+					if s, ok := mm["fleet_itinerary_id"].(string); ok {
+						it.FleetItineraryID = s
+					}
+					if d, ok := mm["day"]; ok {
+						it.Day = toInt(d)
+					}
+					if s, ok := mm["city_id"]; ok {
+						switch vv := s.(type) {
+						case string:
+							it.CityID = vv
+						default:
+							it.CityID = strconv.Itoa(toInt(vv))
+						}
+					}
+					if s, ok := mm["destination"].(string); ok {
+						it.Destination = s
+					}
+					items = append(items, it)
+				}
+				req.Itinerary = items
+			}
+		}
+	}
+
+	orgID, _ := c.Locals("organization_id").(string)
+	userID, _ := c.Locals("user_id").(string)
+	if orgID == "" || userID == "" {
+		return helper.BadRequestResponse(c, "missing organization context")
+	}
+
+	if err := h.service.UpdatePartnerOrder(orgID, userID, &req); err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Order updated", nil)
+}
+
 func (h *FleetHandler) GetFleetPricesByFleetID(c *fiber.Ctx) error {
 	fleetID := c.Params("fleetid")
 	if fleetID == "" {

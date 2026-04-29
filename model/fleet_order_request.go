@@ -23,11 +23,11 @@ type FleetOrderCreateRequest struct {
 }
 
 type FleetOrderFleetItem struct {
-	ArmadaID     string  `json:"armada_id"`
-	PriceID      string  `json:"price_id"`
-	Qty          int     `json:"qty"`
-	BiayaLain    float64 `json:"biaya_lain"`
-	Discount     float64 `json:"discount"`
+	ArmadaID  string  `json:"armada_id"`
+	PriceID   string  `json:"price_id"`
+	Qty       int     `json:"qty"`
+	BiayaLain float64 `json:"biaya_lain"`
+	Discount  float64 `json:"discount"`
 }
 
 type FleetOrderAddonItem struct {
@@ -37,8 +37,9 @@ type FleetOrderAddonItem struct {
 }
 
 type FleetOrderItineraryItem struct {
-	Day         int    `json:"day"`
-	CityID      string `json:"city_id"`
-	CityLabel   string `json:"city_label"`
-	Destination string `json:"destination"`
+	FleetItineraryID string `json:"fleet_itinerary_id"`
+	Day              int    `json:"day"`
+	CityID           string `json:"city_id"`
+	CityLabel        string `json:"city_label"`
+	Destination      string `json:"destination"`
 }
