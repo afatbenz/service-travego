@@ -73,9 +73,6 @@ func (r *OrganizationRepository) NIKExists(organizationID, nik string) (bool, er
 
 func (r *OrganizationRepository) ListEmployees(organizationID, divisionName string) ([]model.EmployeeListItem, error) {
 	orgExpr := "e.organization_id = " + r.getPlaceholder(1)
-	if r.driver != "mysql" {
-		orgExpr = "e.organization_id::text = " + r.getPlaceholder(1)
-	}
 
 	divisionNameNormalized := strings.ToLower(strings.TrimSpace(divisionName))
 	operationDivisionID := "fe8b3916-5eff-420c-8110-8d974d767afe"
@@ -135,37 +132,6 @@ func (r *OrganizationRepository) ListEmployees(organizationID, divisionName stri
 		%s
 		ORDER BY e.created_at DESC
 	`, orgExpr, divisionFilter)
-
-	if r.driver == "mysql" {
-		query = fmt.Sprintf(`
-			SELECT
-				COALESCE(e.uuid, ''),
-				COALESCE(e.employee_id, ''),
-				COALESCE(e.nik, ''),
-				COALESCE(e.fullname, ''),
-				COALESCE(e.avatar, ''),
-				COALESCE(e.phone, ''),
-				e.birth_date,
-				COALESCE(e.email, ''),
-				COALESCE(e.address, ''),
-				COALESCE(e.address_city, 0),
-				e.join_date,
-				COALESCE(e.role_id, ''),
-				COALESCE(r.role_name, ''),
-				COALESCE(d.division_name, ''),
-				e.contract_status,
-				e.resign_date,
-				COALESCE(e.status, 0),
-				e.created_at,
-				e.updated_at
-			FROM employee e
-			LEFT JOIN organization_roles r ON r.role_id = e.role_id
-			LEFT JOIN organization_divisions d ON d.division_id = r.division_id
-			WHERE %s AND COALESCE(e.status, 0) > 0
-			%s
-			ORDER BY e.created_at DESC
-		`, orgExpr, divisionFilter)
-	}
 
 	rows, err := database.Query(r.db, query, organizationID)
 	if err != nil {
@@ -538,6 +504,30 @@ func (r *OrganizationRepository) UpdateEmployee(organizationID, updatedBy string
 	args = append([]interface{}{organizationID, req.UUID}, args...)
 
 	res, err := database.Exec(r.db, query, args...)
+	if err != nil {
+		return err
+	}
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (r *OrganizationRepository) DeactivateEmployeeByEmployeeID(organizationID, updatedBy, employeeID string) error {
+	now := time.Now()
+
+	orgExpr := "organization_id = " + r.getPlaceholder(1)
+
+	query := fmt.Sprintf(`
+		UPDATE employee
+		SET status = 0,
+		    updated_at = %s,
+		    updated_by = %s
+		WHERE %s AND uuid = %s AND COALESCE(status, 0) > 0
+	`, r.getPlaceholder(3), r.getPlaceholder(4), orgExpr, r.getPlaceholder(2))
+
+	res, err := database.Exec(r.db, query, organizationID, employeeID, now, updatedBy)
 	if err != nil {
 		return err
 	}

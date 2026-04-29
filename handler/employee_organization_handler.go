@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"encoding/json"
+	"os"
 	"service-travego/helper"
 	"service-travego/model"
 	"service-travego/service"
@@ -143,5 +145,41 @@ func (h *OrganizationHandler) EmployeeDetail(c *fiber.Ctx) error {
 		code := service.GetStatusCode(err)
 		return helper.SendErrorResponse(c, code, err.Error())
 	}
+	if it.ContractStatus != nil {
+		f, err := os.Open("config/common.json")
+		if err == nil {
+			defer f.Close()
+			var cfg model.CommonConfig
+			if err := json.NewDecoder(f).Decode(&cfg); err == nil {
+				for _, ct := range cfg.ContractType {
+					if ct.ID == *it.ContractStatus {
+						it.ContractStatusLabel = ct.Label
+						break
+					}
+				}
+			}
+		}
+	}
 	return helper.SuccessResponse(c, fiber.StatusOK, "Employee detail loaded", it)
+}
+
+func (h *OrganizationHandler) EmployeeDelete(c *fiber.Ctx) error {
+	id := strings.TrimSpace(c.Params("uuid"))
+	if id == "" {
+		return helper.SendErrorResponse(c, fiber.StatusBadRequest, "ID is required")
+	}
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusBadRequest, "Missing organization context")
+	}
+	userID, ok := c.Locals("user_id").(string)
+	if !ok || userID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Unauthorized")
+	}
+
+	if err := h.orgService.EmployeeDelete(orgID, userID, id); err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Employee deleted", nil)
 }

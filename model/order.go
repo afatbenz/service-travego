@@ -143,6 +143,8 @@ type PaymentDetail struct {
 type PartnerOrderListItem struct {
 	OrderID             string        `json:"order_id"`
 	TransactionID       string        `json:"transaction_id"`
+	OrderDate           string        `json:"order_date"`
+	Thumbnail           string        `json:"thumbnail"`
 	FleetName           string        `json:"fleet_name"`
 	CustomerName        string        `json:"customer_name"`
 	CustomerPhone       string        `json:"customer_phone"`
