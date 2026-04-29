@@ -56,6 +56,42 @@ func (h *ScheduleHandler) Create(c *fiber.Ctx) error {
 	})
 }
 
+func (h *ScheduleHandler) Update(c *fiber.Ctx) error {
+	var req model.ScheduleUpdateRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.BadRequestResponse(c, "invalid payload")
+	}
+	if validationErrors := helper.ValidateStruct(&req); len(validationErrors) > 0 {
+		return helper.SendValidationErrorResponse(c, validationErrors)
+	}
+
+	departureTime := strings.TrimSpace(req.DepartureTime)
+	if departureTime == "" {
+		return helper.BadRequestResponse(c, "departure_time is required")
+	}
+
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.BadRequestResponse(c, "missing organization context")
+	}
+	userID, ok := c.Locals("user_id").(string)
+	if !ok || userID == "" {
+		return helper.BadRequestResponse(c, "missing user context")
+	}
+
+	if err := h.service.UpdateSchedule(model.ScheduleUpdateServiceInput{
+		OrganizationID: orgID,
+		UserID:         userID,
+		Request:        &req,
+	}); err != nil {
+		return helper.SendErrorResponse(c, service.GetStatusCode(err), err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Schedule updated", fiber.Map{
+		"schedule_id": req.ScheduleID,
+	})
+}
+
 func (h *ScheduleHandler) GetFleetSchedule(c *fiber.Ctx) error {
 	orgID, ok := c.Locals("organization_id").(string)
 	if !ok || orgID == "" {
@@ -116,6 +152,28 @@ func (h *ScheduleHandler) GetFleetAvailability(c *fiber.Ctx) error {
 	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet availability loaded", fiber.Map{
 		"items": result,
 	})
+}
+
+func (h *ScheduleHandler) GetScheduleDetail(c *fiber.Ctx) error {
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.BadRequestResponse(c, "missing organization context")
+	}
+
+	orderID := strings.TrimSpace(c.Params("orderid"))
+	if orderID == "" {
+		return helper.BadRequestResponse(c, "order_id is required")
+	}
+
+	result, err := h.service.GetScheduleDetail(model.ScheduleDetailServiceInput{
+		OrganizationID: orgID,
+		OrderID:        orderID,
+	})
+	if err != nil {
+		return helper.SendErrorResponse(c, service.GetStatusCode(err), err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Schedule detail loaded", result)
 }
 
 func (h *ScheduleHandler) buildFleetAvailabilityFilter(req model.ScheduleFleetAvailabilityRequest) (model.ScheduleFleetAvailabilityFilter, error) {

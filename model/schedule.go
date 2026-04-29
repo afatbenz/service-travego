@@ -6,6 +6,7 @@ type ScheduleAssignmentUnitRequest struct {
 	FleetID  string   `json:"fleet_id" validate:"required"`
 	UnitID   string   `json:"unit_id" validate:"required"`
 	DriverID []string `json:"driver_id" validate:"required,min=1,dive,required"`
+	CrewID   []string `json:"crew_id" validate:"omitempty,min=1,dive,required"`
 }
 
 type ScheduleCreateRequest struct {
@@ -18,6 +19,20 @@ type ScheduleCreateServiceInput struct {
 	OrganizationID string
 	UserID         string
 	Request        *ScheduleCreateRequest
+}
+
+type ScheduleUpdateRequest struct {
+	ScheduleID      string                          `json:"schedule_id" validate:"required"`
+	OrderID         string                          `json:"order_id" validate:"required"`
+	DepartureTime   string                          `json:"departure_time"`
+	ArrivalTime     string                          `json:"arrival_time"`
+	AssignmentUnits []ScheduleAssignmentUnitRequest `json:"assignment_units" validate:"required,min=1,dive"`
+}
+
+type ScheduleUpdateServiceInput struct {
+	OrganizationID string
+	UserID         string
+	Request        *ScheduleUpdateRequest
 }
 
 type ScheduleOrderValidationInput struct {
@@ -35,6 +50,7 @@ type ScheduleFleetInsertItem struct {
 	FleetID  string
 	UnitID   string
 	DriverID []string
+	CrewID   []string
 }
 
 type ScheduleCreateRepositoryInput struct {
@@ -43,6 +59,17 @@ type ScheduleCreateRepositoryInput struct {
 	OrderID        string
 	DepartureTime  time.Time
 	CreatedAt      time.Time
+	Fleets         []ScheduleFleetInsertItem
+}
+
+type ScheduleUpdateRepositoryInput struct {
+	OrganizationID string
+	UserID         string
+	ScheduleID     string
+	OrderID        string
+	DepartureTime  time.Time
+	ArrivalTime    *time.Time
+	UpdatedAt      time.Time
 	Fleets         []ScheduleFleetInsertItem
 }
 
@@ -158,4 +185,46 @@ type ScheduleFleetAvailabilityRow struct {
 	Capacity       int
 	ProductionYear int
 	Transmission   string
+}
+
+type ScheduleDetailServiceInput struct {
+	OrganizationID string
+	OrderID        string
+}
+
+type ScheduleDetailResponse struct {
+	ScheduleID    string                    `json:"schedule_id"`
+	OrderID       string                    `json:"order_id"`
+	OrderType     int                       `json:"order_type"`
+	DepartureTime string                    `json:"departure_time"`
+	ArrivalTime   string                    `json:"arrival_time"`
+	Status        int                       `json:"status"`
+	Fleets        []ScheduleDetailFleetItem `json:"fleets"`
+}
+
+type ScheduleDetailFleetItem struct {
+	FleetName   string `json:"fleet_name"`
+	FleetType   string `json:"fleet_type"`
+	UnitID      string `json:"unit_id"`
+	DriverID    string `json:"driver_id"`
+	VehicleID   string `json:"vehicle_id"`
+	PlateNumber string `json:"plate_number"`
+}
+
+type ScheduleDetailRow struct {
+	ScheduleID    string
+	OrderID       string
+	OrderType     int
+	DepartureTime string
+	ArrivalTime   string
+	Status        int
+	FleetID       string
+	FleetName     string
+	FleetType     string
+	UnitID        string
+	VehicleID     string
+	PlateNumber   string
+	DriverID      string
+	Fullname      string
+	RoleName      string
 }

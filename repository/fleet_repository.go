@@ -1809,17 +1809,24 @@ func (r *FleetRepository) GetPartnerOrderSummary(orgID string, filter *model.Par
 }
 
 func (r *FleetRepository) GetPartnerOrderFleetItems(organizationId, orderId string) ([]model.OrderDetailFleetItem, error) {
+	priceJoinExpr := "p.uuid = oi.price_id"
+	fleetJoinExpr := "f.uuid = oi.fleet_id"
+	if r.driver == "postgres" || r.driver == "pgx" {
+		priceJoinExpr = "p.uuid::text = oi.price_id::text"
+		fleetJoinExpr = "f.uuid::text = oi.fleet_id::text"
+	}
+
 	query := fmt.Sprintf(`
 		SELECT oi.order_item_id, oi.order_id, oi.fleet_id, f.fleet_name,
 		tp.label as fleet_type, oi.price_id, p.price, oi.quantity,
 		oi.charge_amount, oi.discount, oi.sub_total
 		FROM fleet_order_items oi
 		INNER JOIN fleet_orders o ON oi.order_id = o.order_id
-		INNER JOIN fleet_prices p ON p.uuid = oi.price_id
-		INNER JOIN fleets f ON f.uuid = oi.fleet_id
+		INNER JOIN fleet_prices p ON %[3]s
+		INNER JOIN fleets f ON %[4]s
 		INNER JOIN fleet_types tp ON tp.id = f.fleet_type
-		WHERE oi.organization_id = %s AND oi.order_id = %s
-	`, r.getPlaceholder(1), r.getPlaceholder(2))
+		WHERE oi.organization_id = %[1]s AND oi.order_id = %[2]s
+	`, r.getPlaceholder(1), r.getPlaceholder(2), priceJoinExpr, fleetJoinExpr)
 	fmt.Println("GetPartnerOrderFleetItems query:", query)
 	fmt.Println("GetPartnerOrderFleetItems args:", organizationId, orderId)
 
@@ -1858,10 +1865,28 @@ func (r *FleetRepository) GetPartnerOrderFleetItems(organizationId, orderId stri
 
 func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.OrderDetailResponse, error) {
 	customerCityExpr := "COALESCE(c.customer_city, '')"
+	customerIDExpr := "COALESCE(c.customer_id, '')"
 	if r.driver == "postgres" || r.driver == "pgx" {
 		customerCityExpr = "COALESCE(c.customer_city::text, '')"
+		customerIDExpr = "COALESCE(c.customer_id::text, '')"
 	} else if r.driver == "mysql" {
 		customerCityExpr = "COALESCE(CAST(c.customer_city AS CHAR), '')"
+		customerIDExpr = "COALESCE(CAST(c.customer_id AS CHAR), '')"
+	}
+
+	fleetJoinExpr := "fo.fleet_id = f.uuid"
+	priceJoinExpr := "fo.price_id = fp.uuid"
+	customerOrderOrgExpr := "co.organization_id = f.organization_id"
+	customerJoinExpr := "c.customer_id = co.customer_id"
+	customerOrgExpr := "c.organization_id = f.organization_id"
+	orgWhereExpr := "f.organization_id = " + r.getPlaceholder(2)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		fleetJoinExpr = "fo.fleet_id::text = f.uuid::text"
+		priceJoinExpr = "fo.price_id::text = fp.uuid::text"
+		customerOrderOrgExpr = "co.organization_id::text = f.organization_id::text"
+		customerJoinExpr = "c.customer_id::text = co.customer_id::text"
+		customerOrgExpr = "c.organization_id::text = f.organization_id::text"
+		orgWhereExpr = "f.organization_id::text = " + r.getPlaceholder(2)
 	}
 
 	query := fmt.Sprintf(`
@@ -1871,6 +1896,7 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
             fp.rent_type, fp.price, 
             fo.unit_qty, fo.total_amount, COALESCE(fo.additional_amount, 0) as additional_amount,
             fo.pickup_location, fo.pickup_city_id, fo.start_date, fo.end_date,
+			%[8]s as customer_id,
             COALESCE(c.customer_name, '') as customer_name,
 			COALESCE(c.customer_phone, '') as customer_phone,
 			COALESCE(c.customer_email, '') as customer_email,
@@ -1878,12 +1904,12 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 			%[1]s as customer_city,
 			COALESCE(fo.additional_request, '') as additional_request
         FROM fleet_orders fo
-        JOIN fleets f ON fo.fleet_id = f.uuid
-        JOIN fleet_prices fp ON fo.price_id = fp.uuid
-		LEFT JOIN customer_orders co ON co.order_id = fo.order_id AND co.organization_id = f.organization_id
-		LEFT JOIN customers c ON c.customer_id = co.customer_id AND c.organization_id = f.organization_id
-        WHERE fo.order_id = %s AND f.organization_id = %s
-    `, customerCityExpr, r.getPlaceholder(1), r.getPlaceholder(2))
+        JOIN fleets f ON %[2]s
+        JOIN fleet_prices fp ON %[3]s
+		LEFT JOIN customer_orders co ON co.order_id = fo.order_id AND %[4]s
+		LEFT JOIN customers c ON %[9]s AND %[5]s
+        WHERE fo.order_id = %[6]s AND %[7]s
+    `, customerCityExpr, fleetJoinExpr, priceJoinExpr, customerOrderOrgExpr, customerOrgExpr, r.getPlaceholder(1), orgWhereExpr, customerIDExpr, customerJoinExpr)
 
 	var res model.OrderDetailResponse
 	var createdAt time.Time
@@ -1896,7 +1922,7 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 		&res.RentType, &res.Price,
 		&res.Quantity, &res.TotalAmount, &res.AdditionalAmount,
 		&res.Pickup.PickupLocation, &pickupCityID, &startDate, &endDate,
-		&res.Customer.CustomerName, &res.Customer.CustomerPhone, &res.Customer.CustomerEmail, &res.Customer.CustomerAddress, &res.Customer.CustomerCity,
+		&res.Customer.CustomerID, &res.Customer.CustomerName, &res.Customer.CustomerPhone, &res.Customer.CustomerEmail, &res.Customer.CustomerAddress, &res.Customer.CustomerCity,
 		&res.AdditionalRequest,
 	)
 	if err != nil {
