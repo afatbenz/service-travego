@@ -22,6 +22,42 @@ type FleetService struct {
 	paymentTypeLabels   map[int]string
 }
 
+type FleetOrderUpdateRequest struct {
+	OrderID           string                          `json:"order_id"`
+	FleetID           string                          `json:"fleet_id"`
+	PriceID           string                          `json:"price_id"`
+	RentType          int                             `json:"rent_type"`
+	CustomerID        string                          `json:"customer_id"`
+	PickupDatetime    string                          `json:"pickup_datetime"`
+	DropoffDatetime   string                          `json:"dropoff_datetime"`
+	PickupAddress     string                          `json:"pickup_address"`
+	PickupCityID      string                          `json:"pickup_city_id"`
+	PickupLocation    string                          `json:"pickup_location"`
+	FleetQty          int                             `json:"fleet_qty"`
+	Price             float64                         `json:"price"`
+	DiscountAmount    float64                         `json:"discount_amount"`
+	AdditionalAmount  float64                         `json:"additional_amount"`
+	AdditionalRequest string                          `json:"additional_request"`
+	Fleets            []FleetOrderUpdateFleetItem     `json:"fleets"`
+	Itinerary         []FleetOrderUpdateItineraryItem `json:"itinerary"`
+}
+
+type FleetOrderUpdateFleetItem struct {
+	OrderItemID string  `json:"order_item_id"`
+	ArmadaID    string  `json:"armada_id"`
+	PriceID     string  `json:"price_id"`
+	Qty         int     `json:"qty"`
+	BiayaLain   float64 `json:"biaya_lain"`
+	Discount    float64 `json:"discount"`
+}
+
+type FleetOrderUpdateItineraryItem struct {
+	FleetItineraryID string `json:"fleet_itinerary_id"`
+	Day              int    `json:"day"`
+	CityID           string `json:"city_id"`
+	Destination      string `json:"destination"`
+}
+
 func NewFleetService(repo *repository.FleetRepository) *FleetService {
 	return &FleetService{repo: repo}
 }
@@ -528,6 +564,149 @@ func (s *FleetService) CreatePartnerOrder(orgID, userID string, req *model.Fleet
 		return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create order")
 	}
 	return orderID, nil
+}
+
+func (s *FleetService) UpdatePartnerOrder(orgID, userID string, req *FleetOrderUpdateRequest) error {
+	if strings.TrimSpace(req.OrderID) == "" {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "order_id is required")
+	}
+	if orgID == "" || userID == "" {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "organization context missing")
+	}
+
+	unitQty := req.FleetQty
+	if unitQty <= 0 {
+		unitQty = 1
+	}
+
+	pickupLoc := strings.TrimSpace(req.PickupLocation)
+	if pickupLoc == "" {
+		pickupLoc = strings.TrimSpace(req.PickupAddress)
+	}
+
+	startDate, err := normalizeDateTime(req.PickupDatetime)
+	if err != nil {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "invalid pickup_datetime")
+	}
+	endDate, err := normalizeDateTime(req.DropoffDatetime)
+	if err != nil {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "invalid dropoff_datetime")
+	}
+
+	totalDiscountItems := 0.0
+	itemsTotal := 0.0
+
+	updateItems := make([]repository.UpdatePartnerOrderFleetItem, 0, len(req.Fleets))
+	if len(req.Fleets) > 0 {
+		priceIDs := make([]string, 0, len(req.Fleets))
+		for _, it := range req.Fleets {
+			if strings.TrimSpace(it.PriceID) != "" {
+				priceIDs = append(priceIDs, it.PriceID)
+			}
+			totalDiscountItems += it.Discount
+		}
+		priceMap, err := s.repo.GetFleetPricesByIDs(priceIDs)
+		if err != nil {
+			return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to calc prices")
+		}
+
+		for _, it := range req.Fleets {
+			q := it.Qty
+			if q <= 0 {
+				q = 1
+			}
+			unitPrice := 0.0
+			if strings.TrimSpace(it.PriceID) != "" {
+				if p, ok := priceMap[it.PriceID]; ok {
+					unitPrice = p
+				} else {
+					p, _, err := s.repo.GetPriceByID(it.PriceID)
+					if err == nil {
+						unitPrice = p
+					}
+				}
+			}
+			subTotal := (float64(q) * unitPrice) + it.BiayaLain - it.Discount
+			if subTotal < 0 {
+				subTotal = 0
+			}
+			itemsTotal += subTotal
+
+			updateItems = append(updateItems, repository.UpdatePartnerOrderFleetItem{
+				OrderItemID:  strings.TrimSpace(it.OrderItemID),
+				FleetID:      strings.TrimSpace(it.ArmadaID),
+				PriceID:      strings.TrimSpace(it.PriceID),
+				Qty:          q,
+				ChargeAmount: it.BiayaLain,
+				Discount:     it.Discount,
+				SubTotal:     subTotal,
+			})
+		}
+	} else {
+		price := req.Price
+		if strings.TrimSpace(req.PriceID) != "" {
+			dbPrice, _, err := s.repo.GetPriceByID(req.PriceID)
+			if err != nil {
+				if price <= 0 {
+					return NewServiceError(ErrNotFound, http.StatusNotFound, "price not found")
+				}
+			} else {
+				price = dbPrice
+				if req.Price > 0 && dbPrice > 0 {
+					if req.Price >= (0.5*dbPrice) && req.Price <= (1.5*dbPrice) {
+						price = req.Price
+					}
+				}
+			}
+		}
+		itemsTotal = float64(unitQty) * price
+	}
+
+	totalAmount := itemsTotal + req.AdditionalAmount - req.DiscountAmount
+	if totalAmount < 0 {
+		totalAmount = 0
+	}
+	totalDiscount := req.DiscountAmount + totalDiscountItems
+
+	updateItinerary := make([]repository.UpdatePartnerOrderItineraryItem, 0, len(req.Itinerary))
+	for _, it := range req.Itinerary {
+		updateItinerary = append(updateItinerary, repository.UpdatePartnerOrderItineraryItem{
+			FleetItineraryID: strings.TrimSpace(it.FleetItineraryID),
+			Day:              it.Day,
+			CityID:           strings.TrimSpace(it.CityID),
+			Location:         strings.TrimSpace(it.Destination),
+		})
+	}
+
+	in := repository.UpdatePartnerOrderInput{
+		OrderID:           strings.TrimSpace(req.OrderID),
+		OrganizationID:    orgID,
+		UpdatedBy:         userID,
+		FleetID:           strings.TrimSpace(req.FleetID),
+		PriceID:           strings.TrimSpace(req.PriceID),
+		StartDate:         startDate,
+		EndDate:           endDate,
+		PickupCityID:      strings.TrimSpace(req.PickupCityID),
+		PickupLocation:    pickupLoc,
+		UnitQty:           unitQty,
+		CustomerID:        strings.TrimSpace(req.CustomerID),
+		AdditionalAmount:  req.AdditionalAmount,
+		DiscountAmount:    req.DiscountAmount,
+		DiscountTotal:     totalDiscount,
+		TotalAmount:       totalAmount,
+		AdditionalRequest: strings.TrimSpace(req.AdditionalRequest),
+		Fleets:            updateItems,
+		Itinerary:         updateItinerary,
+	}
+
+	if err := s.repo.UpdatePartnerOrder(in); err != nil {
+		fmt.Println(err)
+		if err == sql.ErrNoRows {
+			return NewServiceError(ErrNotFound, http.StatusNotFound, "order not found")
+		}
+		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to update order")
+	}
+	return nil
 }
 
 func (s *FleetService) ListFleets(req *model.ListFleetRequest) ([]model.FleetListItem, error) {

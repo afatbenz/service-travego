@@ -145,6 +145,183 @@ func (r *ScheduleRepository) CreateSchedule(input model.ScheduleCreateRepository
 	return scheduleID, nil
 }
 
+func (r *ScheduleRepository) UpdateSchedule(input model.ScheduleUpdateRepositoryInput) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	scheduleExpr := "schedule_id = " + r.placeholder(1)
+	orgExpr := "organization_id = " + r.placeholder(2)
+	orderExpr := "order_id = " + r.placeholder(3)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		scheduleExpr = "schedule_id::text = " + r.placeholder(1)
+		orgExpr = "organization_id::text = " + r.placeholder(2)
+		orderExpr = "order_id::text = " + r.placeholder(3)
+	}
+
+	if input.ArrivalTime == nil {
+		updateSchedule := `
+			UPDATE schedules
+			SET departure_time = ` + r.placeholder(4) + `, updated_at = ` + r.placeholder(5) + `, updated_by = ` + r.placeholder(6) + `
+			WHERE ` + scheduleExpr + ` AND ` + orgExpr + ` AND ` + orderExpr + `
+		`
+		res, execErr := database.TxExec(tx, updateSchedule, input.ScheduleID, input.OrganizationID, input.OrderID, input.DepartureTime, input.UpdatedAt, input.UserID)
+		if execErr != nil {
+			return execErr
+		}
+		affected, _ := res.RowsAffected()
+		if affected == 0 {
+			return sql.ErrNoRows
+		}
+	} else {
+		updateSchedule := `
+			UPDATE schedules
+			SET departure_time = ` + r.placeholder(4) + `, arrival_time = ` + r.placeholder(5) + `, updated_at = ` + r.placeholder(6) + `, updated_by = ` + r.placeholder(7) + `
+			WHERE ` + scheduleExpr + ` AND ` + orgExpr + ` AND ` + orderExpr + `
+		`
+		res, execErr := database.TxExec(tx, updateSchedule, input.ScheduleID, input.OrganizationID, input.OrderID, input.DepartureTime, *input.ArrivalTime, input.UpdatedAt, input.UserID)
+		if execErr != nil {
+			return execErr
+		}
+		affected, _ := res.RowsAffected()
+		if affected == 0 {
+			return sql.ErrNoRows
+		}
+	}
+
+	scheduleFleetExpr := "schedule_id = " + r.placeholder(1)
+	scheduleFleetOrgExpr := "organization_id = " + r.placeholder(2)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		scheduleFleetExpr = "schedule_id::text = " + r.placeholder(1)
+		scheduleFleetOrgExpr = "organization_id::text = " + r.placeholder(2)
+	}
+
+	selectExisting := `
+		SELECT
+			COALESCE(CAST(uuid AS CHAR), '') AS uuid,
+			COALESCE(CAST(unit_id AS CHAR), '') AS unit_id
+		FROM schedule_fleets
+		WHERE ` + scheduleFleetExpr + ` AND ` + scheduleFleetOrgExpr + ` AND status = 1
+	`
+	if r.driver == "postgres" || r.driver == "pgx" {
+		selectExisting = `
+			SELECT
+				COALESCE(uuid::text, '') AS uuid,
+				COALESCE(unit_id::text, '') AS unit_id
+			FROM schedule_fleets
+			WHERE ` + scheduleFleetExpr + ` AND ` + scheduleFleetOrgExpr + ` AND status = 1
+		`
+	}
+
+	rows, qErr := database.TxQuery(tx, selectExisting, input.ScheduleID, input.OrganizationID)
+	if qErr != nil {
+		return qErr
+	}
+	defer rows.Close()
+
+	existingByUnit := map[string]string{}
+	for rows.Next() {
+		var uuidText string
+		var unitID string
+		if err := rows.Scan(&uuidText, &unitID); err != nil {
+			return err
+		}
+		unitID = strings.TrimSpace(unitID)
+		uuidText = strings.TrimSpace(uuidText)
+		if unitID != "" && uuidText != "" {
+			existingByUnit[unitID] = uuidText
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, fleet := range input.Fleets {
+		unitID := strings.TrimSpace(fleet.UnitID)
+		if unitID == "" {
+			continue
+		}
+
+		scheduleFleetID := existingByUnit[unitID]
+		if scheduleFleetID == "" {
+			scheduleFleetID = uuid.New().String()
+			insertScheduleFleet := `
+				INSERT INTO schedule_fleets (uuid, schedule_id, order_id, fleet_d, unit_id, departure_time, created_at, created_by, status, organization_id)
+				VALUES (` + r.placeholder(1) + `, ` + r.placeholder(2) + `, ` + r.placeholder(3) + `, ` + r.placeholder(4) + `, ` + r.placeholder(5) + `, ` + r.placeholder(6) + `, ` + r.placeholder(7) + `, ` + r.placeholder(8) + `, 1, ` + r.placeholder(9) + `)
+			`
+			if _, err = database.TxExec(tx, insertScheduleFleet, scheduleFleetID, input.ScheduleID, input.OrderID, fleet.FleetID, unitID, input.DepartureTime, input.UpdatedAt, input.UserID, input.OrganizationID); err != nil {
+				return err
+			}
+		} else {
+			updateScheduleFleet := `
+				UPDATE schedule_fleets
+				SET fleet_d = ` + r.placeholder(3) + `, departure_time = ` + r.placeholder(4) + `
+				WHERE uuid = ` + r.placeholder(1) + ` AND organization_id = ` + r.placeholder(2) + `
+			`
+			if r.driver == "postgres" || r.driver == "pgx" {
+				updateScheduleFleet = `
+					UPDATE schedule_fleets
+					SET fleet_d = ` + r.placeholder(3) + `, departure_time = ` + r.placeholder(4) + `
+					WHERE uuid::text = ` + r.placeholder(1) + ` AND organization_id::text = ` + r.placeholder(2) + `
+				`
+			}
+			if _, err = database.TxExec(tx, updateScheduleFleet, scheduleFleetID, input.OrganizationID, fleet.FleetID, input.DepartureTime); err != nil {
+				return err
+			}
+		}
+
+		deleteTeams := `
+			DELETE FROM schedule_fleet_teams
+			WHERE schedule_fleet_id = ` + r.placeholder(1) + ` AND organization_id = ` + r.placeholder(2) + `
+		`
+		if r.driver == "postgres" || r.driver == "pgx" {
+			deleteTeams = `
+				DELETE FROM schedule_fleet_teams
+				WHERE schedule_fleet_id::text = ` + r.placeholder(1) + ` AND organization_id::text = ` + r.placeholder(2) + `
+			`
+		}
+		if _, err = database.TxExec(tx, deleteTeams, scheduleFleetID, input.OrganizationID); err != nil {
+			return err
+		}
+
+		insertTeam := `
+			INSERT INTO schedule_fleet_teams (uuid, schedule_id, unit_id, schedule_fleet_id, employee_id, created_by, created_at, organization_id, status)
+			VALUES (` + r.placeholder(1) + `, ` + r.placeholder(2) + `, ` + r.placeholder(3) + `, ` + r.placeholder(4) + `, ` + r.placeholder(5) + `, ` + r.placeholder(6) + `, ` + r.placeholder(7) + `, ` + r.placeholder(8) + `, 1)
+		`
+
+		for _, employeeID := range fleet.DriverID {
+			driverID := strings.TrimSpace(employeeID)
+			if driverID == "" {
+				continue
+			}
+			if _, err = database.TxExec(tx, insertTeam, uuid.New().String(), input.ScheduleID, unitID, scheduleFleetID, driverID, input.UserID, input.UpdatedAt, input.OrganizationID); err != nil {
+				return err
+			}
+		}
+		for _, employeeID := range fleet.CrewID {
+			crewID := strings.TrimSpace(employeeID)
+			if crewID == "" {
+				continue
+			}
+			if _, err = database.TxExec(tx, insertTeam, uuid.New().String(), input.ScheduleID, unitID, scheduleFleetID, crewID, input.UserID, input.UpdatedAt, input.OrganizationID); err != nil {
+				return err
+			}
+		}
+	}
+
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (r *ScheduleRepository) ListScheduleFleetOrders(input model.ScheduleFleetListQuery, organizationID string, monthStart, monthEnd time.Time) ([]model.ScheduleFleetOrderRow, error) {
 	orgExpr := "s.organization_id = " + r.placeholder(1)
 	departureExpr := "COALESCE(CAST(s.departure_time AS CHAR), '')"
@@ -559,6 +736,123 @@ func (r *ScheduleRepository) ListScheduleFleets(scheduleID, organizationID strin
 			&item.PlateNumber,
 			&item.Engine,
 			&item.Capacity,
+		); err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+func (r *ScheduleRepository) LatestScheduleIDByOrderID(organizationID, orderID string) (string, bool, error) {
+	orderExpr := "order_id = " + r.placeholder(1)
+	orgExpr := "organization_id = " + r.placeholder(2)
+	scheduleIDExpr := "schedule_id"
+	if r.driver == "postgres" || r.driver == "pgx" {
+		orderExpr = "order_id::text = " + r.placeholder(1)
+		orgExpr = "organization_id::text = " + r.placeholder(2)
+		scheduleIDExpr = "schedule_id::text"
+	}
+
+	query := `
+		SELECT ` + scheduleIDExpr + `
+		FROM schedules
+		WHERE ` + orderExpr + ` AND ` + orgExpr + `
+		ORDER BY created_at DESC
+		LIMIT 1
+	`
+
+	var scheduleID string
+	if err := database.QueryRow(r.db, query, orderID, organizationID).Scan(&scheduleID); err != nil {
+		if err == sql.ErrNoRows {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	return scheduleID, true, nil
+}
+
+func (r *ScheduleRepository) GetScheduleDetailRows(scheduleID, organizationID, orderID string) ([]model.ScheduleDetailRow, error) {
+	scheduleExpr := "s.schedule_id = " + r.placeholder(1)
+	orgExpr := "s.organization_id = " + r.placeholder(2)
+	orderExpr := "s.order_id = " + r.placeholder(3)
+	scheduleIDExpr := "COALESCE(CAST(s.schedule_id AS CHAR), '')"
+	orderIDExpr := "COALESCE(CAST(s.order_id AS CHAR), '')"
+	departureExpr := "COALESCE(CAST(s.departure_time AS CHAR), '')"
+	arrivalExpr := "COALESCE(CAST(s.arrival_time AS CHAR), '')"
+	fleetIDExpr := "COALESCE(CAST(sf.fleet_id AS CHAR), '')"
+	unitIDExpr := "COALESCE(CAST(sf.unit_id AS CHAR), '')"
+	driverIDExpr := "COALESCE(CAST(e.employee_id AS CHAR), '')"
+	if r.driver == "postgres" || r.driver == "pgx" {
+		scheduleExpr = "s.schedule_id::text = " + r.placeholder(1)
+		orgExpr = "s.organization_id::text = " + r.placeholder(2)
+		orderExpr = "s.order_id::text = " + r.placeholder(3)
+		scheduleIDExpr = "COALESCE(s.schedule_id::text, '')"
+		orderIDExpr = "COALESCE(s.order_id::text, '')"
+		departureExpr = "COALESCE(s.departure_time::text, '')"
+		arrivalExpr = "COALESCE(s.arrival_time::text, '')"
+		fleetIDExpr = "COALESCE(sf.fleet_id::text, '')"
+		unitIDExpr = "COALESCE(sf.unit_id::text, '')"
+		driverIDExpr = "COALESCE(e.employee_id::text, '')"
+	}
+
+	query := `
+		SELECT
+			` + scheduleIDExpr + ` AS schedule_id,
+			` + orderIDExpr + ` AS order_id,
+			COALESCE(s.order_type, 0) AS order_type,
+			` + departureExpr + ` AS departure_time,
+			` + arrivalExpr + ` AS arrival_time,
+			COALESCE(s.status, 0) AS status,
+			` + fleetIDExpr + ` AS fleet_id,
+			COALESCE(f.fleet_name, '') AS fleet_name,
+			COALESCE(ft.label, '') AS fleet_type,
+			` + unitIDExpr + ` AS unit_id,
+			COALESCE(fu.vehicle_id, '') AS vehicle_id,
+			COALESCE(fu.plate_number, '') AS plate_number,
+			` + driverIDExpr + ` AS driver_id,
+			COALESCE(e.fullname, '') AS fullname,
+			COALESCE(orole.role_name, '') AS role_name
+		FROM schedules s
+		INNER JOIN schedule_fleets sf ON sf.schedule_id = s.schedule_id AND sf.organization_id = s.organization_id
+		INNER JOIN fleets f ON f.uuid = sf.fleet_id
+		INNER JOIN fleet_units fu ON fu.unit_id = sf.unit_id
+		INNER JOIN fleet_types ft ON f.fleet_type = ft.id
+		INNER JOIN schedule_fleet_teams sft ON sft.schedule_id = s.schedule_id AND sft.unit_id = sf.unit_id AND sft.organization_id = s.organization_id
+		INNER JOIN employee e ON sft.employee_id = e.uuid
+		INNER JOIN organization_roles orole ON orole.role_id = e.role_id
+		WHERE ` + orgExpr + ` AND ` + orderExpr + ` AND ` + scheduleExpr + `
+	`
+
+	rows, err := database.Query(r.db, query, scheduleID, organizationID, orderID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make([]model.ScheduleDetailRow, 0)
+	for rows.Next() {
+		var item model.ScheduleDetailRow
+		if err := rows.Scan(
+			&item.ScheduleID,
+			&item.OrderID,
+			&item.OrderType,
+			&item.DepartureTime,
+			&item.ArrivalTime,
+			&item.Status,
+			&item.FleetID,
+			&item.FleetName,
+			&item.FleetType,
+			&item.UnitID,
+			&item.VehicleID,
+			&item.PlateNumber,
+			&item.DriverID,
+			&item.Fullname,
+			&item.RoleName,
 		); err != nil {
 			return nil, err
 		}
