@@ -129,3 +129,17 @@ func (s *OrganizationService) EmployeeUpdate(organizationID, userID string, req 
 	}
 	return nil
 }
+
+func (s *OrganizationService) EmployeeDelete(organizationID, userID, uuid string) error {
+	if strings.TrimSpace(uuid) == "" {
+		return NewServiceError(ErrInvalidInput, 400, "ID is required")
+	}
+	err := s.orgRepo.DeactivateEmployeeByEmployeeID(organizationID, userID, strings.TrimSpace(uuid))
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return NewServiceError(ErrNotFound, 404, "employee not found")
+		}
+		return NewServiceError(ErrInternalServer, 500, "failed to delete employee")
+	}
+	return nil
+}
