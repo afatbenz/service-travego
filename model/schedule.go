@@ -262,6 +262,7 @@ type ScheduleDetailFleetItem struct {
 	FleetType   string `json:"fleet_type"`
 	UnitID      string `json:"unit_id"`
 	DriverID    string `json:"driver_id"`
+	DriverName  string `json:"driver_name"`
 	CrewID      string `json:"crew_id"`
 	CrewName    string `json:"crew_name"`
 	VehicleID   string `json:"vehicle_id"`

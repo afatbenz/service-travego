@@ -326,6 +326,7 @@ func (s *ScheduleService) GetScheduleDetail(input model.ScheduleDetailServiceInp
 				FleetType:   row.FleetType,
 				UnitID:      row.UnitID,
 				DriverID:    row.DriverID,
+				DriverName:  row.Fullname,
 				CrewID:      row.CrewID,
 				CrewName:    row.CrewName,
 				VehicleID:   row.VehicleID,
@@ -337,6 +338,9 @@ func (s *ScheduleService) GetScheduleDetail(input model.ScheduleDetailServiceInp
 
 		if strings.TrimSpace(existing.DriverID) == "" && strings.TrimSpace(row.DriverID) != "" {
 			existing.DriverID = row.DriverID
+		}
+		if strings.TrimSpace(existing.DriverName) == "" && strings.TrimSpace(row.Fullname) != "" {
+			existing.DriverName = row.Fullname
 		}
 		if strings.TrimSpace(existing.CrewID) == "" && strings.TrimSpace(row.CrewID) != "" {
 			existing.CrewID = row.CrewID
