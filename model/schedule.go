@@ -48,6 +48,29 @@ type ScheduleOrderItemValidationInput struct {
 	FleetID        string
 }
 
+type ScheduleFleetUnitAvailabilityServiceInput struct {
+	OrganizationID string
+	StartDate      string
+	EndDate        string
+	FleetID        string
+}
+
+type ScheduleFleetUnitAvailabilityItem struct {
+	UnitID      string `json:"unit_id"`
+	FleetID     string `json:"fleet_id"`
+	FleetName   string `json:"fleet_name"`
+	VehicleID   string `json:"vehicle_id"`
+	PlateNumber string `json:"plate_number"`
+}
+
+type ScheduleFleetUnitAvailabilityRow struct {
+	UnitID      string
+	FleetID     string
+	FleetName   string
+	VehicleID   string
+	PlateNumber string
+}
+
 type ScheduleFleetInsertItem struct {
 	FleetID string
 	UnitID  string

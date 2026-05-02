@@ -441,6 +441,45 @@ func (s *ScheduleService) GetScheduleOperationAvailability(input model.ScheduleO
 	return items, nil
 }
 
+func (s *ScheduleService) GetScheduleFleetUnitAvailability(input model.ScheduleFleetUnitAvailabilityServiceInput) ([]model.ScheduleFleetUnitAvailabilityItem, error) {
+	if strings.TrimSpace(input.StartDate) == "" {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "start_date is required")
+	}
+	if strings.TrimSpace(input.EndDate) == "" {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "end_date is required")
+	}
+
+	startDate, startErr := time.Parse("2006-01-02", strings.TrimSpace(input.StartDate))
+	if startErr != nil {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "start_date must be YYYY-MM-DD")
+	}
+	endDate, endErr := time.Parse("2006-01-02", strings.TrimSpace(input.EndDate))
+	if endErr != nil {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "end_date must be YYYY-MM-DD")
+	}
+	if endDate.Before(startDate) {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "end_date must be greater than or equal start_date")
+	}
+
+	rows, err := s.repo.ListAvailableScheduleFleetUnits(input.OrganizationID, startDate, endDate, input.FleetID)
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, s.internalMessage("failed to get fleet units availability", err))
+	}
+
+	items := make([]model.ScheduleFleetUnitAvailabilityItem, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, model.ScheduleFleetUnitAvailabilityItem{
+			UnitID:      row.UnitID,
+			FleetID:     row.FleetID,
+			FleetName:   row.FleetName,
+			VehicleID:   row.VehicleID,
+			PlateNumber: row.PlateNumber,
+		})
+	}
+
+	return items, nil
+}
+
 func (s *ScheduleService) internalMessage(base string, err error) string {
 	message := base
 	env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
