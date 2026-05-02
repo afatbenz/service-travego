@@ -850,6 +850,82 @@ func (r *ScheduleRepository) ListScheduleOperationAvailabilityEmployees(organiza
 	return result, nil
 }
 
+func (r *ScheduleRepository) ListAvailableScheduleFleetUnits(organizationID string, startDate, endDate time.Time, fleetID string) ([]model.ScheduleFleetUnitAvailabilityRow, error) {
+	orgFleetExpr := "fu.organization_id = " + r.placeholder(1)
+	orgFleetJoinExpr := "f.organization_id = " + r.placeholder(1)
+	orgScheduleExpr := "sf.organization_id = " + r.placeholder(1)
+	orderJoinExpr := "fo.order_id = sf.order_id AND fo.organization_id = sf.organization_id"
+	unitJoinExpr := "sf.unit_id = fu.unit_id"
+	fleetJoinExpr := "f.uuid = fu.fleet_id"
+	unitIDExpr := "COALESCE(CAST(fu.unit_id AS CHAR), '')"
+	fleetIDExpr := "COALESCE(CAST(f.uuid AS CHAR), '')"
+	vehicleIDExpr := "COALESCE(CAST(fu.vehicle_id AS CHAR), '')"
+	fleetFilterExpr := "fu.fleet_id = " + r.placeholder(4)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		orgFleetExpr = "fu.organization_id::text = " + r.placeholder(1)
+		orgFleetJoinExpr = "f.organization_id::text = " + r.placeholder(1)
+		orgScheduleExpr = "sf.organization_id::text = " + r.placeholder(1)
+		orderJoinExpr = "fo.order_id::text = sf.order_id::text AND fo.organization_id::text = sf.organization_id::text"
+		unitJoinExpr = "sf.unit_id::text = fu.unit_id::text"
+		fleetJoinExpr = "f.uuid::text = fu.fleet_id::text"
+		unitIDExpr = "COALESCE(fu.unit_id::text, '')"
+		fleetIDExpr = "COALESCE(f.uuid::text, '')"
+		vehicleIDExpr = "COALESCE(fu.vehicle_id::text, '')"
+		fleetFilterExpr = "fu.fleet_id::text = " + r.placeholder(4)
+	}
+
+	query := `
+		SELECT
+			` + unitIDExpr + ` AS unit_id,
+			` + fleetIDExpr + ` AS fleet_id,
+			COALESCE(f.fleet_name, '') AS fleet_name,
+			` + vehicleIDExpr + ` AS vehicle_id,
+			COALESCE(fu.plate_number, '') AS plate_number
+		FROM fleet_units fu
+		INNER JOIN fleets f ON ` + fleetJoinExpr + `
+		WHERE ` + orgFleetExpr + `
+		  AND ` + orgFleetJoinExpr + `
+		  AND ` + fleetFilterExpr + `
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM schedule_fleets sf
+			INNER JOIN fleet_orders fo ON ` + orderJoinExpr + `
+			WHERE ` + orgScheduleExpr + `
+			  AND ` + unitJoinExpr + `
+			  AND COALESCE(sf.status, 0) = 1
+			  AND fo.start_date <= ` + r.placeholder(2) + `
+			  AND fo.end_date >= ` + r.placeholder(3) + `
+		  )
+		ORDER BY f.fleet_name ASC, fu.created_at ASC
+	`
+
+	rows, err := database.Query(r.db, query, organizationID, endDate, startDate, strings.TrimSpace(fleetID))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make([]model.ScheduleFleetUnitAvailabilityRow, 0)
+	for rows.Next() {
+		var item model.ScheduleFleetUnitAvailabilityRow
+		if err := rows.Scan(
+			&item.UnitID,
+			&item.FleetID,
+			&item.FleetName,
+			&item.VehicleID,
+			&item.PlateNumber,
+		); err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
 func (r *ScheduleRepository) buildFleetFilterClause(columnName, queryValue string, position int) (string, []interface{}) {
 	value := strings.TrimSpace(queryValue)
 	if value == "" {
