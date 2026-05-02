@@ -1,18 +1,22 @@
 package model
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
-type ScheduleAssignmentUnitRequest struct {
-	FleetID  string   `json:"fleet_id" validate:"required"`
-	UnitID   string   `json:"unit_id" validate:"required"`
-	DriverID []string `json:"driver_id" validate:"required,min=1,dive,required"`
-	CrewID   []string `json:"crew_id" validate:"omitempty,min=1,dive,required"`
+type ScheduleUnitRequest struct {
+	UUID     string `json:"uuid"`
+	FleetID  string `json:"fleet_id" validate:"required"`
+	UnitID   string `json:"unit_id" validate:"required"`
+	DriverID string `json:"driver_id" validate:"required"`
+	CrewID   string `json:"crew_id"`
 }
 
 type ScheduleCreateRequest struct {
-	OrderID         string                          `json:"order_id" validate:"required"`
-	DepartureTime   string                          `json:"departure_time"`
-	AssignmentUnits []ScheduleAssignmentUnitRequest `json:"assignment_units" validate:"required,min=1,dive"`
+	OrderID       string                `json:"order_id" validate:"required"`
+	DepartureTime string                `json:"departure_time" validate:"required"`
+	ScheduleUnits []ScheduleUnitRequest `json:"schedule_units" validate:"required,min=1,dive"`
 }
 
 type ScheduleCreateServiceInput struct {
@@ -22,11 +26,9 @@ type ScheduleCreateServiceInput struct {
 }
 
 type ScheduleUpdateRequest struct {
-	ScheduleID      string                          `json:"schedule_id" validate:"required"`
-	OrderID         string                          `json:"order_id" validate:"required"`
-	DepartureTime   string                          `json:"departure_time"`
-	ArrivalTime     string                          `json:"arrival_time"`
-	AssignmentUnits []ScheduleAssignmentUnitRequest `json:"assignment_units" validate:"required,min=1,dive"`
+	OrderID       string                `json:"order_id" validate:"required"`
+	DepartureTime string                `json:"departure_time" validate:"required"`
+	ScheduleUnits []ScheduleUnitRequest `json:"schedule_units" validate:"required,min=1,dive"`
 }
 
 type ScheduleUpdateServiceInput struct {
@@ -47,10 +49,8 @@ type ScheduleOrderItemValidationInput struct {
 }
 
 type ScheduleFleetInsertItem struct {
-	FleetID  string
-	UnitID   string
-	DriverID []string
-	CrewID   []string
+	FleetID string
+	UnitID  string
 }
 
 type ScheduleCreateRepositoryInput struct {
@@ -60,6 +60,7 @@ type ScheduleCreateRepositoryInput struct {
 	DepartureTime  time.Time
 	CreatedAt      time.Time
 	Fleets         []ScheduleFleetInsertItem
+	Teams          []ScheduleFleetTeamUpsertItem
 }
 
 type ScheduleUpdateRepositoryInput struct {
@@ -68,9 +69,63 @@ type ScheduleUpdateRepositoryInput struct {
 	ScheduleID     string
 	OrderID        string
 	DepartureTime  time.Time
-	ArrivalTime    *time.Time
 	UpdatedAt      time.Time
 	Fleets         []ScheduleFleetInsertItem
+	Teams          []ScheduleFleetTeamUpsertItem
+}
+
+type ScheduleFleetTeamUpsertItem struct {
+	UUID     string
+	FleetID  string
+	UnitID   string
+	DriverID string
+	CrewID   string
+}
+
+func (r *ScheduleCreateRequest) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		OrderID         string                `json:"order_id"`
+		DepartureTime   string                `json:"departure_time"`
+		ScheduleUnits   []ScheduleUnitRequest `json:"schedule_units"`
+		Units           []ScheduleUnitRequest `json:"units"`
+		AssignmentUnits []ScheduleUnitRequest `json:"assignment_units"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	r.OrderID = raw.OrderID
+	r.DepartureTime = raw.DepartureTime
+	if len(raw.ScheduleUnits) > 0 {
+		r.ScheduleUnits = raw.ScheduleUnits
+	} else if len(raw.Units) > 0 {
+		r.ScheduleUnits = raw.Units
+	} else {
+		r.ScheduleUnits = raw.AssignmentUnits
+	}
+	return nil
+}
+
+func (r *ScheduleUpdateRequest) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		OrderID         string                `json:"order_id"`
+		DepartureTime   string                `json:"departure_time"`
+		ScheduleUnits   []ScheduleUnitRequest `json:"schedule_units"`
+		Units           []ScheduleUnitRequest `json:"units"`
+		AssignmentUnits []ScheduleUnitRequest `json:"assignment_units"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	r.OrderID = raw.OrderID
+	r.DepartureTime = raw.DepartureTime
+	if len(raw.ScheduleUnits) > 0 {
+		r.ScheduleUnits = raw.ScheduleUnits
+	} else if len(raw.Units) > 0 {
+		r.ScheduleUnits = raw.Units
+	} else {
+		r.ScheduleUnits = raw.AssignmentUnits
+	}
+	return nil
 }
 
 type ScheduleFleetListQuery struct {
@@ -207,6 +262,8 @@ type ScheduleDetailFleetItem struct {
 	FleetType   string `json:"fleet_type"`
 	UnitID      string `json:"unit_id"`
 	DriverID    string `json:"driver_id"`
+	CrewID      string `json:"crew_id"`
+	CrewName    string `json:"crew_name"`
 	VehicleID   string `json:"vehicle_id"`
 	PlateNumber string `json:"plate_number"`
 }
@@ -226,5 +283,59 @@ type ScheduleDetailRow struct {
 	PlateNumber   string
 	DriverID      string
 	Fullname      string
+	CrewID        string
+	CrewName      string
 	RoleName      string
+}
+
+type ScheduleDetailByDateServiceInput struct {
+	OrganizationID string
+	Date           string
+}
+
+type ScheduleDetailByDateItem struct {
+	ScheduleID       string `json:"schedule_id"`
+	OrderID          string `json:"order_id"`
+	FleetName        string `json:"fleet_name"`
+	VehicleID        string `json:"vehicle_id"`
+	PlateNumber      string `json:"plate_number"`
+	DriverName       string `json:"driver_name"`
+	StartDate        string `json:"start_date"`
+	EndDate          string `json:"end_date"`
+	CityIDs          string `json:"city_ids"`
+	CityDestinations string `json:"city_destinations"`
+}
+
+type ScheduleDetailByDateRow struct {
+	ScheduleID  string
+	OrderID     string
+	FleetName   string
+	VehicleID   string
+	PlateNumber string
+	DriverName  string
+	StartDate   time.Time
+	EndDate     time.Time
+	CityIDsRaw  string
+}
+
+type ScheduleOperationAvailabilityServiceInput struct {
+	OrganizationID string
+	StartDate      string
+	EndDate        string
+}
+
+type ScheduleOperationAvailabilityItem struct {
+	UUID       string `json:"uuid"`
+	EmployeeID string `json:"employee_id"`
+	Fullname   string `json:"fullname"`
+	Phone      string `json:"phone"`
+	ScheduleID string `json:"schedule_id"`
+}
+
+type ScheduleOperationAvailabilityRow struct {
+	UUID       string
+	EmployeeID string
+	Fullname   string
+	Phone      string
+	ScheduleID string
 }

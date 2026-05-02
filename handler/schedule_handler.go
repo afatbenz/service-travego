@@ -1,21 +1,25 @@
 package handler
 
 import (
+	"database/sql"
 	"fmt"
 	"service-travego/helper"
 	"service-travego/model"
 	"service-travego/service"
 	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 )
 
 type ScheduleHandler struct {
 	service *service.ScheduleService
+	db      *sql.DB
+	driver  string
 }
 
-func NewScheduleHandler(s *service.ScheduleService) *ScheduleHandler {
-	return &ScheduleHandler{service: s}
+func NewScheduleHandler(s *service.ScheduleService, db *sql.DB, driver string) *ScheduleHandler {
+	return &ScheduleHandler{service: s, db: db, driver: driver}
 }
 
 func (h *ScheduleHandler) Create(c *fiber.Ctx) error {
@@ -40,6 +44,10 @@ func (h *ScheduleHandler) Create(c *fiber.Ctx) error {
 	userID, ok := c.Locals("user_id").(string)
 	if !ok || userID == "" {
 		return helper.BadRequestResponse(c, "missing user context")
+	}
+
+	if err := h.validateOrderNotExpired(c, req.OrderID); err != nil {
+		return err
 	}
 
 	id, err := h.service.CreateSchedule(model.ScheduleCreateServiceInput{
@@ -79,16 +87,21 @@ func (h *ScheduleHandler) Update(c *fiber.Ctx) error {
 		return helper.BadRequestResponse(c, "missing user context")
 	}
 
-	if err := h.service.UpdateSchedule(model.ScheduleUpdateServiceInput{
+	if err := h.validateOrderNotExpired(c, req.OrderID); err != nil {
+		return err
+	}
+
+	scheduleID, err := h.service.UpdateSchedule(model.ScheduleUpdateServiceInput{
 		OrganizationID: orgID,
 		UserID:         userID,
 		Request:        &req,
-	}); err != nil {
+	})
+	if err != nil {
 		return helper.SendErrorResponse(c, service.GetStatusCode(err), err.Error())
 	}
 
 	return helper.SuccessResponse(c, fiber.StatusOK, "Schedule updated", fiber.Map{
-		"schedule_id": req.ScheduleID,
+		"schedule_id": scheduleID,
 	})
 }
 
@@ -160,7 +173,7 @@ func (h *ScheduleHandler) GetScheduleDetail(c *fiber.Ctx) error {
 		return helper.BadRequestResponse(c, "missing organization context")
 	}
 
-	orderID := strings.TrimSpace(c.Params("orderid"))
+	orderID := strings.TrimSpace(c.Params("order_id"))
 	if orderID == "" {
 		return helper.BadRequestResponse(c, "order_id is required")
 	}
@@ -174,6 +187,105 @@ func (h *ScheduleHandler) GetScheduleDetail(c *fiber.Ctx) error {
 	}
 
 	return helper.SuccessResponse(c, fiber.StatusOK, "Schedule detail loaded", result)
+}
+
+func (h *ScheduleHandler) GetScheduleDetailByDate(c *fiber.Ctx) error {
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.BadRequestResponse(c, "missing organization context")
+	}
+
+	date := strings.TrimSpace(c.Query("date"))
+	if date == "" {
+		return helper.BadRequestResponse(c, "date is required")
+	}
+
+	result, err := h.service.GetScheduleDetailByDate(model.ScheduleDetailByDateServiceInput{
+		OrganizationID: orgID,
+		Date:           date,
+	})
+	if err != nil {
+		return helper.SendErrorResponse(c, service.GetStatusCode(err), err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Schedule detail loaded", fiber.Map{
+		"items": result,
+	})
+}
+
+func (h *ScheduleHandler) GetScheduleOperationAvailability(c *fiber.Ctx) error {
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.BadRequestResponse(c, "missing organization context")
+	}
+
+	startDate := strings.TrimSpace(c.Query("start_date"))
+	endDate := strings.TrimSpace(c.Query("end_date"))
+	if startDate == "" {
+		return helper.BadRequestResponse(c, "start_date is required")
+	}
+	if endDate == "" {
+		return helper.BadRequestResponse(c, "end_date is required")
+	}
+
+	result, err := h.service.GetScheduleOperationAvailability(model.ScheduleOperationAvailabilityServiceInput{
+		OrganizationID: orgID,
+		StartDate:      startDate,
+		EndDate:        endDate,
+	})
+	if err != nil {
+		return helper.SendErrorResponse(c, service.GetStatusCode(err), err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Operations availability loaded", fiber.Map{
+		"items": result,
+	})
+}
+
+func (h *ScheduleHandler) validateOrderNotExpired(c *fiber.Ctx, orderID string) error {
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.BadRequestResponse(c, "missing organization context")
+	}
+
+	orderID = strings.TrimSpace(orderID)
+	if orderID == "" {
+		return helper.BadRequestResponse(c, "order_id is required")
+	}
+
+	placeholder := func(position int) string {
+		if h.driver == "postgres" || h.driver == "pgx" {
+			return fmt.Sprintf("$%d", position)
+		}
+		return "?"
+	}
+
+	orderExpr := "order_id = " + placeholder(1)
+	orgExpr := "organization_id = " + placeholder(2)
+	if h.driver == "postgres" || h.driver == "pgx" {
+		orderExpr = "order_id::text = " + placeholder(1)
+		orgExpr = "organization_id::text = " + placeholder(2)
+	}
+
+	query := "SELECT end_date FROM fleet_orders WHERE " + orderExpr + " AND " + orgExpr + " LIMIT 1"
+	var endDate sql.NullTime
+	if err := h.db.QueryRow(query, orderID, orgID).Scan(&endDate); err != nil {
+		if err == sql.ErrNoRows {
+			return helper.BadRequestResponse(c, "ORDER_ID_NOT_FOUND")
+		}
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "failed to validate order")
+	}
+
+	if endDate.Valid {
+		now := time.Now()
+		nowDate := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		endDateOnly := time.Date(endDate.Time.Year(), endDate.Time.Month(), endDate.Time.Day(), 0, 0, 0, 0, endDate.Time.Location())
+		if endDateOnly.Before(nowDate) {
+			return helper.BadRequestResponse(c, "ORDER_EXPIRED")
+		}
+	}
+
+	return nil
 }
 
 func (h *ScheduleHandler) buildFleetAvailabilityFilter(req model.ScheduleFleetAvailabilityRequest) (model.ScheduleFleetAvailabilityFilter, error) {

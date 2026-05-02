@@ -475,6 +475,43 @@ func (h *FleetHandler) ListFleets(c *fiber.Ctx) error {
 	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet list loaded", items)
 }
 
+func (h *FleetHandler) FleetAvailibility(c *fiber.Ctx) error {
+	startStr := strings.TrimSpace(c.Query("start_date"))
+	endStr := strings.TrimSpace(c.Query("end_date"))
+	if startStr == "" {
+		return helper.BadRequestResponse(c, "start_date is required")
+	}
+	if endStr == "" {
+		return helper.BadRequestResponse(c, "end_date is required")
+	}
+
+	layout := "2006-01-02 15:04"
+	startDate, err := time.ParseInLocation(layout, startStr, time.Local)
+	if err != nil {
+		return helper.BadRequestResponse(c, "invalid start_date")
+	}
+	endDate, err := time.ParseInLocation(layout, endStr, time.Local)
+	if err != nil {
+		return helper.BadRequestResponse(c, "invalid end_date")
+	}
+
+	orgID, _ := c.Locals("organization_id").(string)
+	if orgID == "" {
+		return helper.BadRequestResponse(c, "missing organization context")
+	}
+
+	available, fleets, err := h.service.GetFleetAvailibility(orgID, startDate, endDate)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "OK", fiber.Map{
+		"available": available,
+		"fleets":    fleets,
+	})
+}
+
 func (h *FleetHandler) FleetDetail(c *fiber.Ctx) error {
 	var req model.FleetDetailRequest
 	if err := c.BodyParser(&req); err != nil {

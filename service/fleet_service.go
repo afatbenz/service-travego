@@ -729,6 +729,33 @@ func (s *FleetService) ListFleetsForUnit(orgID, searchFor string) ([]model.Fleet
 	return items, nil
 }
 
+func (s *FleetService) GetFleetAvailibility(orgID string, startDate time.Time, endDate time.Time) (bool, []repository.FleetAvailibilityItem, error) {
+	if strings.TrimSpace(orgID) == "" {
+		return false, nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "missing organization context")
+	}
+	if startDate.IsZero() || endDate.IsZero() || !startDate.Before(endDate) {
+		return false, nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "invalid start_date or end_date")
+	}
+
+	items, err := s.repo.GetFleetAvailibility(orgID, startDate, endDate)
+	if err != nil {
+		msg := "failed to get fleet availibility"
+		if env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV"))); env != "production" && env != "prod" {
+			msg = fmt.Sprintf("%s: %v", msg, err)
+		}
+		return false, nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, msg)
+	}
+
+	available := false
+	for i := range items {
+		if items[i].TotalAvailable > 0 {
+			available = true
+			break
+		}
+	}
+	return available, items, nil
+}
+
 func (s *FleetService) DeleteFleet(orgID, userID, fleetID string) error {
 	if strings.TrimSpace(fleetID) == "" {
 		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "fleet_id is required")

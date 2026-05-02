@@ -2449,6 +2449,8 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 	}
 	res.OrderDate = createdAt.Format("2006-01-02 15:04:05")
 	res.Pickup.PickupCity = pickupCityID
+	res.StartDate = startDate.Format("2006-01-02")
+	res.EndDate = endDate.Format("2006-01-02")
 	res.Pickup.StartDate = startDate.Format("2006-01-02 15:00")
 	res.Pickup.EndDate = endDate.Format("2006-01-02 15:00")
 
@@ -2889,6 +2891,102 @@ func (r *FleetRepository) GetOrganizationCodeByOrgID(orgID string) (string, erro
 	var code string
 	err := database.QueryRow(r.db, query, orgID).Scan(&code)
 	return code, err
+}
+
+type FleetAvailibilityItem struct {
+	FleetID        string `json:"fleet_id"`
+	FleetName      string `json:"fleet_name"`
+	TotalUnit      int    `json:"total_unit"`
+	TotalAvailable int    `json:"total_avaible"`
+}
+
+func (r *FleetRepository) GetFleetAvailibility(orgID string, reqStart time.Time, reqEnd time.Time) ([]FleetAvailibilityItem, error) {
+	if orgID == "" {
+		return nil, fmt.Errorf("missing organization_id")
+	}
+
+	orgExpr := "f.organization_id = " + r.getPlaceholder(1)
+	bookOrgExpr := "sf.organization_id = " + r.getPlaceholder(1)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		orgExpr = "f.organization_id::text = " + r.getPlaceholder(1)
+		bookOrgExpr = "sf.organization_id::text = " + r.getPlaceholder(1)
+	}
+
+	var existingStartExpr string
+	var existingEndExpr string
+	var conflictExpr string
+	if r.driver == "postgres" || r.driver == "pgx" {
+		existingStartExpr = "(fo.start_date::date + s.departure_time::time)"
+		existingEndExpr = "(fo.end_date::date + s.arrival_time::time)"
+		conflictExpr = fmt.Sprintf("%s < (%s + INTERVAL '6 hours') AND %s > (%s - INTERVAL '6 hours')", r.getPlaceholder(2), existingEndExpr, r.getPlaceholder(3), existingStartExpr)
+	} else {
+		existingStartExpr = "TIMESTAMP(fo.start_date, s.departure_time)"
+		existingEndExpr = "TIMESTAMP(fo.end_date, s.arrival_time)"
+		conflictExpr = fmt.Sprintf("%s < DATE_ADD(%s, INTERVAL 6 HOUR) AND %s > DATE_SUB(%s, INTERVAL 6 HOUR)", r.getPlaceholder(2), existingEndExpr, r.getPlaceholder(3), existingStartExpr)
+	}
+
+	fleetJoinExpr := "b.fleet_id = f.uuid"
+	if r.driver == "postgres" || r.driver == "pgx" {
+		fleetJoinExpr = "b.fleet_id::text = f.uuid::text"
+	}
+
+	totalUnitExpr := "COALESCE((SELECT COUNT(*) FROM fleet_units fu WHERE fu.fleet_id = f.uuid AND fu.status = 1), 0)"
+	if r.driver == "postgres" || r.driver == "pgx" {
+		totalUnitExpr = "COALESCE((SELECT COUNT(*) FROM fleet_units fu WHERE fu.fleet_id::text = f.uuid::text AND fu.status = 1), 0)"
+	}
+
+	greatestFn := "GREATEST"
+	if r.driver != "postgres" && r.driver != "pgx" {
+		greatestFn = "GREATEST"
+	}
+
+	query := fmt.Sprintf(`
+		SELECT
+			f.uuid AS fleet_id,
+			f.fleet_name,
+			%s AS total_unit,
+			%s((%s - COALESCE(b.booked_unit, 0)), 0) AS total_avaible
+		FROM fleets f
+		LEFT JOIN (
+			SELECT
+				sf.fleet_id,
+				COUNT(DISTINCT sf.unit_id) AS booked_unit
+			FROM schedule_fleets sf
+			INNER JOIN schedules s ON s.schedule_id = sf.schedule_id
+			INNER JOIN fleet_orders fo ON fo.order_id = s.order_id
+			WHERE %s
+			  AND s.order_type = 1
+			  AND s.status = 1
+			  AND %s
+			GROUP BY sf.fleet_id
+		) b ON %s
+		WHERE f.status > 0
+		  AND %s
+		ORDER BY f.fleet_name ASC
+	`, totalUnitExpr, greatestFn, totalUnitExpr, bookOrgExpr, conflictExpr, fleetJoinExpr, orgExpr)
+
+	rows, err := database.Query(r.db, query, orgID, reqStart, reqEnd)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]FleetAvailibilityItem, 0)
+	for rows.Next() {
+		var it FleetAvailibilityItem
+		var totalUnit int64
+		var totalAvail int64
+		if err := rows.Scan(&it.FleetID, &it.FleetName, &totalUnit, &totalAvail); err != nil {
+			return nil, err
+		}
+		it.TotalUnit = int(totalUnit)
+		it.TotalAvailable = int(totalAvail)
+		out = append(out, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (r *FleetRepository) getPlaceholder(pos int) string {

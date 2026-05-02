@@ -29,6 +29,7 @@ func (s *ScheduleService) CreateSchedule(input model.ScheduleCreateServiceInput)
 		OrderID:        input.Request.OrderID,
 	})
 	if err != nil {
+		fmt.Println("OrderPaymentStatus error:", err)
 		return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, s.internalMessage("failed to create schedule", err))
 	}
 	if !exists {
@@ -41,14 +42,16 @@ func (s *ScheduleService) CreateSchedule(input model.ScheduleCreateServiceInput)
 		return "", NewServiceError(ErrInvalidInput, http.StatusBadRequest, "ORDER_CANCELLED")
 	}
 
-	fleets := make([]model.ScheduleFleetInsertItem, 0, len(input.Request.AssignmentUnits))
-	for _, unit := range input.Request.AssignmentUnits {
+	fleets := make([]model.ScheduleFleetInsertItem, 0, len(input.Request.ScheduleUnits))
+	teams := make([]model.ScheduleFleetTeamUpsertItem, 0, len(input.Request.ScheduleUnits))
+	for _, unit := range input.Request.ScheduleUnits {
 		itemExists, checkErr := s.repo.OrderItemExists(model.ScheduleOrderItemValidationInput{
 			OrganizationID: input.OrganizationID,
 			OrderID:        input.Request.OrderID,
 			FleetID:        unit.FleetID,
 		})
 		if checkErr != nil {
+			fmt.Println("OrderItemExists error:", checkErr)
 			return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, s.internalMessage("failed to create schedule", checkErr))
 		}
 		if !itemExists {
@@ -56,9 +59,14 @@ func (s *ScheduleService) CreateSchedule(input model.ScheduleCreateServiceInput)
 		}
 
 		fleets = append(fleets, model.ScheduleFleetInsertItem{
+			FleetID: unit.FleetID,
+			UnitID:  unit.UnitID,
+		})
+		teams = append(teams, model.ScheduleFleetTeamUpsertItem{
 			FleetID:  unit.FleetID,
 			UnitID:   unit.UnitID,
 			DriverID: unit.DriverID,
+			CrewID:   unit.CrewID,
 		})
 	}
 
@@ -89,37 +97,52 @@ func (s *ScheduleService) CreateSchedule(input model.ScheduleCreateServiceInput)
 		DepartureTime:  departureTime,
 		CreatedAt:      time.Now(),
 		Fleets:         fleets,
+		Teams:          teams,
 	})
 	if createErr != nil {
+		fmt.Println("CreateSchedule error:", createErr)
 		return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, s.internalMessage("failed to create schedule", createErr))
 	}
 
 	return scheduleID, nil
 }
 
-func (s *ScheduleService) UpdateSchedule(input model.ScheduleUpdateServiceInput) error {
-	if strings.TrimSpace(input.Request.ScheduleID) == "" {
-		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "schedule_id is required")
-	}
+func (s *ScheduleService) UpdateSchedule(input model.ScheduleUpdateServiceInput) (string, error) {
 	if strings.TrimSpace(input.Request.OrderID) == "" {
-		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "order_id is required")
+		return "", NewServiceError(ErrInvalidInput, http.StatusBadRequest, "order_id is required")
 	}
 
-	fleets := make([]model.ScheduleFleetInsertItem, 0, len(input.Request.AssignmentUnits))
-	for _, unit := range input.Request.AssignmentUnits {
+	scheduleID, exists, err := s.repo.LatestScheduleIDByOrderID(input.OrganizationID, input.Request.OrderID)
+	if err != nil {
+		fmt.Println("LatestScheduleIDByOrderID error:", err)
+		return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, s.internalMessage("failed to update schedule", err))
+	}
+	if !exists {
+		return "", NewServiceError(ErrNotFound, http.StatusNotFound, "SCHEDULE_NOT_FOUND")
+	}
+
+	fleets := make([]model.ScheduleFleetInsertItem, 0, len(input.Request.ScheduleUnits))
+	teams := make([]model.ScheduleFleetTeamUpsertItem, 0, len(input.Request.ScheduleUnits))
+	for _, unit := range input.Request.ScheduleUnits {
 		itemExists, checkErr := s.repo.OrderItemExists(model.ScheduleOrderItemValidationInput{
 			OrganizationID: input.OrganizationID,
 			OrderID:        input.Request.OrderID,
 			FleetID:        unit.FleetID,
 		})
 		if checkErr != nil {
-			return NewServiceError(ErrInternalServer, http.StatusInternalServerError, s.internalMessage("failed to update schedule", checkErr))
+			fmt.Println("OrderItemExists error:", checkErr)
+			return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, s.internalMessage("failed to update schedule", checkErr))
 		}
 		if !itemExists {
-			return NewServiceError(ErrInvalidInput, http.StatusBadRequest, fmt.Sprintf("fleet_id %s not found in order", unit.FleetID))
+			return "", NewServiceError(ErrInvalidInput, http.StatusBadRequest, fmt.Sprintf("fleet_id %s not found in order", unit.FleetID))
 		}
 
 		fleets = append(fleets, model.ScheduleFleetInsertItem{
+			FleetID: unit.FleetID,
+			UnitID:  unit.UnitID,
+		})
+		teams = append(teams, model.ScheduleFleetTeamUpsertItem{
+			UUID:     unit.UUID,
 			FleetID:  unit.FleetID,
 			UnitID:   unit.UnitID,
 			DriverID: unit.DriverID,
@@ -137,46 +160,29 @@ func (s *ScheduleService) UpdateSchedule(input model.ScheduleUpdateServiceInput)
 		} else if t, err := time.Parse("2006-01-02 15:04", departureStart); err == nil {
 			departureTime = t
 		} else {
-			return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "invalid departure_time format")
+			return "", NewServiceError(ErrInvalidInput, http.StatusBadRequest, "invalid departure_time format")
 		}
-	}
-
-	var arrivalTime *time.Time
-	arrivalStart := strings.TrimSpace(input.Request.ArrivalTime)
-	if arrivalStart != "" {
-		at, err := time.Parse(time.RFC3339, arrivalStart)
-		if err != nil {
-			if t, err := time.Parse("2006-01-02T15:04", arrivalStart); err == nil {
-				at = t
-			} else if t, err := time.Parse("2006-01-02 15:04:05", arrivalStart); err == nil {
-				at = t
-			} else if t, err := time.Parse("2006-01-02 15:04", arrivalStart); err == nil {
-				at = t
-			} else {
-				return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "invalid arrival_time format")
-			}
-		}
-		arrivalTime = &at
 	}
 
 	updateErr := s.repo.UpdateSchedule(model.ScheduleUpdateRepositoryInput{
 		OrganizationID: input.OrganizationID,
 		UserID:         input.UserID,
-		ScheduleID:     input.Request.ScheduleID,
+		ScheduleID:     scheduleID,
 		OrderID:        input.Request.OrderID,
 		DepartureTime:  departureTime,
-		ArrivalTime:    arrivalTime,
 		UpdatedAt:      time.Now(),
 		Fleets:         fleets,
+		Teams:          teams,
 	})
 	if updateErr != nil {
+		fmt.Println("UpdateSchedule error:", updateErr)
 		if errors.Is(updateErr, sql.ErrNoRows) {
-			return NewServiceError(ErrNotFound, http.StatusNotFound, "SCHEDULE_NOT_FOUND")
+			return "", NewServiceError(ErrNotFound, http.StatusNotFound, "SCHEDULE_NOT_FOUND")
 		}
-		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, s.internalMessage("failed to update schedule", updateErr))
+		return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, s.internalMessage("failed to update schedule", updateErr))
 	}
 
-	return nil
+	return scheduleID, nil
 }
 
 func (s *ScheduleService) GetScheduleFleetList(input model.ScheduleFleetListServiceInput) (*model.ScheduleFleetListResponse, error) {
@@ -320,6 +326,8 @@ func (s *ScheduleService) GetScheduleDetail(input model.ScheduleDetailServiceInp
 				FleetType:   row.FleetType,
 				UnitID:      row.UnitID,
 				DriverID:    row.DriverID,
+				CrewID:      row.CrewID,
+				CrewName:    row.CrewName,
 				VehicleID:   row.VehicleID,
 				PlateNumber: row.PlateNumber,
 			}
@@ -329,8 +337,14 @@ func (s *ScheduleService) GetScheduleDetail(input model.ScheduleDetailServiceInp
 
 		if strings.TrimSpace(existing.DriverID) == "" && strings.TrimSpace(row.DriverID) != "" {
 			existing.DriverID = row.DriverID
-			seen[key] = existing
 		}
+		if strings.TrimSpace(existing.CrewID) == "" && strings.TrimSpace(row.CrewID) != "" {
+			existing.CrewID = row.CrewID
+		}
+		if strings.TrimSpace(existing.CrewName) == "" && strings.TrimSpace(row.CrewName) != "" {
+			existing.CrewName = row.CrewName
+		}
+		seen[key] = existing
 	}
 
 	for _, key := range order {
@@ -340,6 +354,89 @@ func (s *ScheduleService) GetScheduleDetail(input model.ScheduleDetailServiceInp
 	return response, nil
 }
 
+func (s *ScheduleService) GetScheduleDetailByDate(input model.ScheduleDetailByDateServiceInput) ([]model.ScheduleDetailByDateItem, error) {
+	if strings.TrimSpace(input.Date) == "" {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "date is required")
+	}
+
+	selectedDate, err := time.Parse("2006-01-02", strings.TrimSpace(input.Date))
+	if err != nil {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "date must be YYYY-MM-DD")
+	}
+
+	rows, err := s.repo.ListScheduleDetailsByDate(selectedDate, input.OrganizationID)
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, s.internalMessage("failed to get schedule detail", err))
+	}
+
+	s.ensureCitiesLoaded()
+
+	items := make([]model.ScheduleDetailByDateItem, 0, len(rows))
+	for _, row := range rows {
+		cityIDs := parseCityIDsRaw(row.CityIDsRaw)
+		cityNames := make([]string, 0, len(cityIDs))
+		for _, id := range cityIDs {
+			if name := strings.TrimSpace(s.citiesMap[id]); name != "" {
+				cityNames = append(cityNames, name)
+			}
+		}
+
+		items = append(items, model.ScheduleDetailByDateItem{
+			ScheduleID:       row.ScheduleID,
+			OrderID:          row.OrderID,
+			FleetName:        row.FleetName,
+			VehicleID:        row.VehicleID,
+			PlateNumber:      row.PlateNumber,
+			DriverName:       row.DriverName,
+			StartDate:        row.StartDate.Format("2006-01-02"),
+			EndDate:          row.EndDate.Format("2006-01-02"),
+			CityIDs:          row.CityIDsRaw,
+			CityDestinations: strings.Join(cityNames, ", "),
+		})
+	}
+
+	return items, nil
+}
+
+func (s *ScheduleService) GetScheduleOperationAvailability(input model.ScheduleOperationAvailabilityServiceInput) ([]model.ScheduleOperationAvailabilityItem, error) {
+	if strings.TrimSpace(input.StartDate) == "" {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "start_date is required")
+	}
+	if strings.TrimSpace(input.EndDate) == "" {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "end_date is required")
+	}
+
+	startDate, startErr := time.Parse("2006-01-02", strings.TrimSpace(input.StartDate))
+	if startErr != nil {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "start_date must be YYYY-MM-DD")
+	}
+	endDate, endErr := time.Parse("2006-01-02", strings.TrimSpace(input.EndDate))
+	if endErr != nil {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "end_date must be YYYY-MM-DD")
+	}
+	if endDate.Before(startDate) {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "end_date must be greater than or equal start_date")
+	}
+
+	rows, err := s.repo.ListScheduleOperationAvailabilityEmployees(input.OrganizationID, startDate, endDate)
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, s.internalMessage("failed to get operations availability", err))
+	}
+
+	items := make([]model.ScheduleOperationAvailabilityItem, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, model.ScheduleOperationAvailabilityItem{
+			UUID:       row.UUID,
+			EmployeeID: row.EmployeeID,
+			Fullname:   row.Fullname,
+			Phone:      row.Phone,
+			ScheduleID: row.ScheduleID,
+		})
+	}
+
+	return items, nil
+}
+
 func (s *ScheduleService) internalMessage(base string, err error) string {
 	message := base
 	env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
@@ -347,6 +444,37 @@ func (s *ScheduleService) internalMessage(base string, err error) string {
 		message = fmt.Sprintf("%s: %v", base, err)
 	}
 	return message
+}
+
+func parseCityIDsRaw(raw string) []string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil
+	}
+
+	if strings.HasPrefix(trimmed, "{") && strings.HasSuffix(trimmed, "}") {
+		trimmed = strings.TrimPrefix(trimmed, "{")
+		trimmed = strings.TrimSuffix(trimmed, "}")
+	}
+
+	trimmed = strings.TrimSpace(trimmed)
+	if trimmed == "" {
+		return nil
+	}
+
+	parts := strings.Split(trimmed, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		val := strings.TrimSpace(part)
+		val = strings.Trim(val, `"`)
+		if val != "" {
+			out = append(out, val)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func (s *ScheduleService) ensureCitiesLoaded() {
