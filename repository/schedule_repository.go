@@ -786,15 +786,17 @@ func (r *ScheduleRepository) ListScheduleDetailsByDate(selectedDate time.Time, o
 }
 
 func (r *ScheduleRepository) ListScheduleOperationAvailabilityEmployees(organizationID string, startDate, endDate time.Time) ([]model.ScheduleOperationAvailabilityRow, error) {
-	orgExpr := "s.organization_id = " + r.placeholder(1)
 	uuidExpr := "COALESCE(CAST(e.uuid AS CHAR), '')"
 	employeeIDExpr := "COALESCE(CAST(e.employee_id AS CHAR), '')"
-	scheduleIDExpr := "COALESCE(CAST(st.schedule_id AS CHAR), '')"
+	scheduleIDExpr := "''"
+	orgEmployeeExpr := "e.organization_id = " + r.placeholder(1)
+	orgScheduleExpr := "s.organization_id = " + r.placeholder(1)
 	if r.driver == "postgres" || r.driver == "pgx" {
-		orgExpr = "s.organization_id::text = " + r.placeholder(1)
 		uuidExpr = "COALESCE(e.uuid::text, '')"
 		employeeIDExpr = "COALESCE(e.employee_id::text, '')"
-		scheduleIDExpr = "COALESCE(st.schedule_id::text, '')"
+		scheduleIDExpr = "''"
+		orgEmployeeExpr = "e.organization_id::text = " + r.placeholder(1)
+		orgScheduleExpr = "s.organization_id::text = " + r.placeholder(1)
 	}
 
 	query := `
@@ -805,12 +807,19 @@ func (r *ScheduleRepository) ListScheduleOperationAvailabilityEmployees(organiza
 			COALESCE(e.phone, '') AS phone,
 			` + scheduleIDExpr + ` AS schedule_id
 		FROM employee e
-		LEFT JOIN schedule_fleet_teams st ON st.driver_id = e.uuid OR st.crew_id = e.uuid
-		INNER JOIN schedules s ON s.schedule_id = st.schedule_id
-		INNER JOIN fleet_orders fo ON fo.order_id = s.order_id
-		WHERE ` + orgExpr + `
-		  AND fo.start_date <= ` + r.placeholder(2) + `
-		  AND fo.end_date >= ` + r.placeholder(3) + `
+		WHERE ` + orgEmployeeExpr + `
+		  AND COALESCE(e.status, 0) > 0
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM schedule_fleet_teams st
+			INNER JOIN schedules s ON s.schedule_id = st.schedule_id
+			INNER JOIN fleet_orders fo ON fo.order_id = s.order_id
+			WHERE ` + orgScheduleExpr + `
+			  AND st.organization_id = s.organization_id
+			  AND (st.driver_id = e.uuid OR st.crew_id = e.uuid)
+			  AND fo.start_date <= ` + r.placeholder(2) + `
+			  AND fo.end_date >= ` + r.placeholder(3) + `
+		  )
 		ORDER BY e.fullname ASC
 	`
 
