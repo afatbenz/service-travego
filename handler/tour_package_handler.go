@@ -8,6 +8,7 @@ import (
 	"service-travego/model"
 	"service-travego/service"
 	"strconv"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -34,6 +35,93 @@ func (h *TourPackageHandler) GetTourPackages(c *fiber.Ctx) error {
 	}
 
 	return helper.SuccessResponse(c, fiber.StatusOK, "Tour packages retrieved successfully", packages)
+}
+
+func (h *TourPackageHandler) GetTourPackageOrderList(c *fiber.Ctx) error {
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Organization not found")
+	}
+
+	items, err := h.service.GetTourPackageOrderList(orgID)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Tour package orders retrieved successfully", items)
+}
+
+func (h *TourPackageHandler) CreateTourPackageOrder(c *fiber.Ctx) error {
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Organization not found")
+	}
+	userID, ok := c.Locals("user_id").(string)
+	if !ok || userID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "User not found")
+	}
+
+	var req model.TourPackageOrderCreateRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.BadRequestResponse(c, "Invalid request body")
+	}
+	if validationErrors := helper.ValidateStruct(req); len(validationErrors) > 0 {
+		return helper.SendValidationErrorResponse(c, validationErrors)
+	}
+
+	orderID, err := h.service.CreateTourPackageOrder(c.Context(), orgID, userID, &req)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusCreated, "Tour package order created successfully", fiber.Map{
+		"order_id": strings.TrimSpace(orderID),
+	})
+}
+
+func (h *TourPackageHandler) UpdateTourPackageOrder(c *fiber.Ctx) error {
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Organization not found")
+	}
+	userID, ok := c.Locals("user_id").(string)
+	if !ok || userID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "User not found")
+	}
+
+	var req model.TourPackageOrderUpdateRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.BadRequestResponse(c, "Invalid request body")
+	}
+	if validationErrors := helper.ValidateStruct(req); len(validationErrors) > 0 {
+		return helper.SendValidationErrorResponse(c, validationErrors)
+	}
+
+	if err := h.service.UpdateTourPackageOrder(c.Context(), orgID, userID, &req); err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Tour package order updated successfully", nil)
+}
+
+func (h *TourPackageHandler) GetTourPackageOrderDetail(c *fiber.Ctx) error {
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Organization not found")
+	}
+
+	orderID := strings.TrimSpace(c.Params("order_id"))
+	if orderID == "" {
+		return helper.BadRequestResponse(c, "order_id is required")
+	}
+
+	data, err := h.service.GetTourPackageOrderDetail(c.Context(), orgID, orderID)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Tour package order detail loaded", data)
 }
 
 func (h *TourPackageHandler) CreateTourPackage(c *fiber.Ctx) error {

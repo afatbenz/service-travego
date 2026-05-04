@@ -18,6 +18,44 @@ type TourPackageRepository struct {
 	driver string
 }
 
+type CreateTourPackageOrderInput struct {
+	OrderID          string
+	OrganizationID   string
+	UserID           string
+	TourPackageID    string
+	CustomerID       string
+	StartDate        string
+	EndDate          string
+	PickupAddress    string
+	PickupCityID     string
+	DiscountAmount   float64
+	AdditionalAmount float64
+	OfficialPax      int
+	MemberPax        int
+	TotalPax         int
+	TotalAmount      float64
+	AddonIDs         []string
+}
+
+type UpdateTourPackageOrderInput struct {
+	OrderID          string
+	OrganizationID   string
+	UserID           string
+	TourPackageID    string
+	CustomerID       string
+	StartDate        string
+	EndDate          string
+	PickupAddress    string
+	PickupCityID     string
+	DiscountAmount   float64
+	AdditionalAmount float64
+	OfficialPax      int
+	MemberPax        int
+	TotalPax         int
+	TotalAmount      float64
+	AddonIDs         []string
+}
+
 const softDeleteTourPackagePostgres = `
 UPDATE tour_packages
 SET status = 0, updated_at = $1, updated_by = $2
@@ -42,6 +80,51 @@ func (r *TourPackageRepository) getPlaceholder(pos int) string {
 		return fmt.Sprintf("$%d", pos)
 	}
 	return "?"
+}
+
+func scanRowsToMaps(rows *sql.Rows) ([]map[string]interface{}, error) {
+	cols, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]map[string]interface{}, 0)
+	values := make([]interface{}, len(cols))
+	valuePtrs := make([]interface{}, len(cols))
+	for i := range values {
+		valuePtrs[i] = &values[i]
+	}
+
+	for rows.Next() {
+		if err := rows.Scan(valuePtrs...); err != nil {
+			return nil, err
+		}
+		out := make(map[string]interface{}, len(cols))
+		for i, col := range cols {
+			v := values[i]
+			if b, ok := v.([]byte); ok {
+				out[col] = string(b)
+			} else {
+				out[col] = v
+			}
+		}
+		items = append(items, out)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func scanSingleRowToMap(rows *sql.Rows) (map[string]interface{}, error) {
+	items, err := scanRowsToMaps(rows)
+	if err != nil {
+		return nil, err
+	}
+	if len(items) == 0 {
+		return nil, sql.ErrNoRows
+	}
+	return items[0], nil
 }
 
 func (r *TourPackageRepository) SoftDeleteTourPackage(ctx context.Context, orgID, userID, packageID string) error {
@@ -146,6 +229,423 @@ func (r *TourPackageRepository) GetTourPackagesByOrgID(orgID string) ([]model.To
 	}
 
 	return items, nil
+}
+
+func (r *TourPackageRepository) ListTourPackageOrders(orgID string) ([]model.TourPackageOrderListItem, error) {
+	query := fmt.Sprintf(`
+		SELECT
+			tpo.order_id,
+			tp.package_name,
+			tp.uuid AS package_id,
+			tpo.total_pax,
+			tpo.customer_id,
+			c.customer_name,
+			tpo.start_date,
+			tpo.end_date
+		FROM tour_package_orders tpo
+		INNER JOIN tour_packages tp ON tp.uuid = tpo.tour_package_id
+		INNER JOIN customers c ON c.customer_id = tpo.customer_id
+		WHERE tp.organization_id = %s AND c.organization_id = %s
+		ORDER BY tpo.start_date DESC
+	`, r.getPlaceholder(1), r.getPlaceholder(2))
+
+	rows, err := database.Query(r.db, query, orgID, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]model.TourPackageOrderListItem, 0)
+	for rows.Next() {
+		var it model.TourPackageOrderListItem
+		var packageName sql.NullString
+		var customerName sql.NullString
+		var totalPax sql.NullInt64
+		var startDate sql.NullTime
+		var endDate sql.NullTime
+
+		if err := rows.Scan(
+			&it.OrderID,
+			&packageName,
+			&it.PackageID,
+			&totalPax,
+			&it.CustomerID,
+			&customerName,
+			&startDate,
+			&endDate,
+		); err != nil {
+			return nil, err
+		}
+
+		if packageName.Valid {
+			it.PackageName = packageName.String
+		}
+		if customerName.Valid {
+			it.CustomerName = customerName.String
+		}
+		if totalPax.Valid {
+			it.TotalPax = int(totalPax.Int64)
+		}
+		if startDate.Valid {
+			t := startDate.Time
+			it.StartDate = &t
+		}
+		if endDate.Valid {
+			t := endDate.Time
+			it.EndDate = &t
+		}
+
+		items = append(items, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func (r *TourPackageRepository) CustomerExistsByOrgID(orgID, customerID string) (bool, error) {
+	query := fmt.Sprintf(
+		"SELECT 1 FROM customers WHERE customer_id = %s AND organization_id = %s LIMIT 1",
+		r.getPlaceholder(1),
+		r.getPlaceholder(2),
+	)
+	var one int
+	err := database.QueryRow(r.db, query, customerID, orgID).Scan(&one)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (r *TourPackageRepository) TourPackageExistsByOrgID(orgID, packageID string) (bool, error) {
+	query := fmt.Sprintf(
+		"SELECT 1 FROM tour_packages WHERE uuid = %s AND organization_id = %s LIMIT 1",
+		r.getPlaceholder(1),
+		r.getPlaceholder(2),
+	)
+	var one int
+	err := database.QueryRow(r.db, query, packageID, orgID).Scan(&one)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (r *TourPackageRepository) TourPackageOrderExistsByOrgID(orgID, orderID string) (bool, error) {
+	query := fmt.Sprintf(
+		"SELECT 1 FROM tour_package_orders WHERE order_id = %s AND organization_id = %s LIMIT 1",
+		r.getPlaceholder(1),
+		r.getPlaceholder(2),
+	)
+	var one int
+	err := database.QueryRow(r.db, query, orderID, orgID).Scan(&one)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (r *TourPackageRepository) GetTourPackagePriceByID(orgID, priceID string) (float64, bool, error) {
+	query := fmt.Sprintf(
+		"SELECT price FROM tour_package_prices WHERE uuid = %s AND organization_id = %s LIMIT 1",
+		r.getPlaceholder(1),
+		r.getPlaceholder(2),
+	)
+	var price sql.NullFloat64
+	err := database.QueryRow(r.db, query, priceID, orgID).Scan(&price)
+	if err == sql.ErrNoRows {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	if !price.Valid {
+		return 0, false, nil
+	}
+	return price.Float64, true, nil
+}
+
+func (r *TourPackageRepository) GetTourPackageAddonTotalByIDs(orgID string, addonIDs []string) (float64, bool, error) {
+	if len(addonIDs) == 0 {
+		return 0, true, nil
+	}
+	ph := make([]string, 0, len(addonIDs))
+	args := make([]interface{}, 0, len(addonIDs)+1)
+	pos := 1
+	for _, id := range addonIDs {
+		ph = append(ph, r.getPlaceholder(pos))
+		args = append(args, id)
+		pos++
+	}
+	orgPH := r.getPlaceholder(pos)
+	args = append(args, orgID)
+
+	query := fmt.Sprintf(
+		"SELECT COUNT(*), COALESCE(SUM(price), 0) FROM tour_package_addons WHERE uuid IN (%s) AND organization_id = %s",
+		strings.Join(ph, ","),
+		orgPH,
+	)
+	var cnt int
+	var total float64
+	if err := database.QueryRow(r.db, query, args...).Scan(&cnt, &total); err != nil {
+		return 0, false, err
+	}
+	return total, cnt == len(addonIDs), nil
+}
+
+func (r *TourPackageRepository) GetTourPackageOrderCountByOrgID(orgID string) (int, error) {
+	query := fmt.Sprintf("SELECT COUNT(*) FROM tour_package_orders WHERE organization_id = %s", r.getPlaceholder(1))
+	var count int
+	err := database.QueryRow(r.db, query, orgID).Scan(&count)
+	return count, err
+}
+
+func (r *TourPackageRepository) GetOrganizationCodeByOrgID(orgID string) (string, error) {
+	query := fmt.Sprintf("SELECT organization_code FROM organizations WHERE organization_id = %s", r.getPlaceholder(1))
+	var code string
+	err := database.QueryRow(r.db, query, orgID).Scan(&code)
+	return code, err
+}
+
+func (r *TourPackageRepository) CreateTourPackageOrder(ctx context.Context, in CreateTourPackageOrderInput) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	now := time.Now()
+	orderUUID := uuid.New().String()
+
+	query := `INSERT INTO tour_package_orders (uuid, order_id, tour_package_id, customer_id, start_date, end_date, pickup_address, pickup_city_id, discount_amount, additional_amount, official_pax, member_pax, total_pax, total_amount, created_at, created_by, status, payment_status, organization_id) VALUES `
+	if r.driver == "postgres" || r.driver == "pgx" {
+		query += `($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`
+	} else {
+		query += `(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	}
+
+	if _, err := database.TxExecContext(
+		ctx,
+		tx,
+		query,
+		orderUUID,
+		in.OrderID,
+		in.TourPackageID,
+		in.CustomerID,
+		in.StartDate,
+		in.EndDate,
+		in.PickupAddress,
+		in.PickupCityID,
+		in.DiscountAmount,
+		in.AdditionalAmount,
+		in.OfficialPax,
+		in.MemberPax,
+		in.TotalPax,
+		in.TotalAmount,
+		now,
+		in.UserID,
+		1,
+		0,
+		in.OrganizationID,
+	); err != nil {
+		return err
+	}
+
+	if len(in.AddonIDs) > 0 {
+		addonQuery := `INSERT INTO tour_package_order_addons (order_id, organization_id, addon_id, created_at, created_by) VALUES `
+		if r.driver == "postgres" || r.driver == "pgx" {
+			addonQuery += `($1, $2, $3, $4, $5)`
+		} else {
+			addonQuery += `(?, ?, ?, ?, ?)`
+		}
+		for _, addonID := range in.AddonIDs {
+			if _, err := database.TxExecContext(ctx, tx, addonQuery, in.OrderID, in.OrganizationID, addonID, now, in.UserID); err != nil {
+				return err
+			}
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (r *TourPackageRepository) UpdateTourPackageOrder(ctx context.Context, in UpdateTourPackageOrderInput) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	now := time.Now()
+
+	updateQuery := fmt.Sprintf(`
+		UPDATE tour_package_orders
+		SET
+			tour_package_id = %s,
+			customer_id = %s,
+			start_date = %s,
+			end_date = %s,
+			pickup_address = %s,
+			pickup_city_id = %s,
+			discount_amount = %s,
+			additional_amount = %s,
+			official_pax = %s,
+			member_pax = %s,
+			total_pax = %s,
+			total_amount = %s,
+			updated_at = %s,
+			updated_by = %s
+		WHERE order_id = %s AND organization_id = %s
+	`,
+		r.getPlaceholder(1),
+		r.getPlaceholder(2),
+		r.getPlaceholder(3),
+		r.getPlaceholder(4),
+		r.getPlaceholder(5),
+		r.getPlaceholder(6),
+		r.getPlaceholder(7),
+		r.getPlaceholder(8),
+		r.getPlaceholder(9),
+		r.getPlaceholder(10),
+		r.getPlaceholder(11),
+		r.getPlaceholder(12),
+		r.getPlaceholder(13),
+		r.getPlaceholder(14),
+		r.getPlaceholder(15),
+		r.getPlaceholder(16),
+	)
+
+	res, err := database.TxExecContext(
+		ctx,
+		tx,
+		updateQuery,
+		in.TourPackageID,
+		in.CustomerID,
+		in.StartDate,
+		in.EndDate,
+		in.PickupAddress,
+		in.PickupCityID,
+		in.DiscountAmount,
+		in.AdditionalAmount,
+		in.OfficialPax,
+		in.MemberPax,
+		in.TotalPax,
+		in.TotalAmount,
+		now,
+		in.UserID,
+		in.OrderID,
+		in.OrganizationID,
+	)
+	if err != nil {
+		return err
+	}
+	ra, _ := res.RowsAffected()
+	if ra == 0 {
+		return sql.ErrNoRows
+	}
+
+	delQuery := fmt.Sprintf(
+		"DELETE FROM tour_package_order_addons WHERE order_id = %s AND organization_id = %s",
+		r.getPlaceholder(1),
+		r.getPlaceholder(2),
+	)
+	if _, err := database.TxExecContext(ctx, tx, delQuery, in.OrderID, in.OrganizationID); err != nil {
+		return err
+	}
+
+	if len(in.AddonIDs) > 0 {
+		addonQuery := `INSERT INTO tour_package_order_addons (order_id, organization_id, addon_id, created_at, created_by) VALUES `
+		if r.driver == "postgres" || r.driver == "pgx" {
+			addonQuery += `($1, $2, $3, $4, $5)`
+		} else {
+			addonQuery += `(?, ?, ?, ?, ?)`
+		}
+		for _, addonID := range in.AddonIDs {
+			if _, err := database.TxExecContext(ctx, tx, addonQuery, in.OrderID, in.OrganizationID, addonID, now, in.UserID); err != nil {
+				return err
+			}
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (r *TourPackageRepository) GetTourPackageOrderDetail(ctx context.Context, orgID, orderID string) (map[string]interface{}, []map[string]interface{}, error) {
+	orderExpr := "order_id = " + r.getPlaceholder(1)
+	orgExpr := "organization_id = " + r.getPlaceholder(2)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		orgExpr = "organization_id::text = " + r.getPlaceholder(2)
+	}
+
+	query := "SELECT * FROM tour_package_orders WHERE " + orderExpr + " AND " + orgExpr + " LIMIT 1"
+	orderRows, err := database.QueryContext(ctx, r.db, query, orderID, orgID)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer orderRows.Close()
+
+	orderMap, err := scanSingleRowToMap(orderRows)
+	if err != nil {
+		return nil, nil, err
+	}
+	if _, ok := orderMap["order_id"]; !ok {
+		orderMap["order_id"] = orderID
+	}
+
+	addons := make([]map[string]interface{}, 0)
+	oaOrgExpr := "oa.organization_id = " + r.getPlaceholder(2)
+	aOrgExpr := "a.organization_id = " + r.getPlaceholder(3)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		oaOrgExpr = "oa.organization_id::text = " + r.getPlaceholder(2)
+		aOrgExpr = "a.organization_id::text = " + r.getPlaceholder(3)
+	}
+	addonQuery := fmt.Sprintf(`
+		SELECT a.uuid, a.price, a.description
+		FROM tour_package_order_addons oa
+		INNER JOIN tour_package_addons a ON a.uuid = oa.addon_id
+		WHERE oa.order_id = %s AND %s AND %s
+		ORDER BY oa.created_at ASC
+	`, r.getPlaceholder(1), oaOrgExpr, aOrgExpr)
+	addonRows, err := database.QueryContext(ctx, r.db, addonQuery, orderID, orgID, orgID)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer addonRows.Close()
+	addons, err = scanRowsToMaps(addonRows)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return orderMap, addons, nil
+}
+
+func (r *TourPackageRepository) GetCustomerInfoByOrgID(ctx context.Context, orgID, customerID string) (map[string]interface{}, error) {
+	custIDExpr := "customer_id = " + r.getPlaceholder(1)
+	orgExpr := "organization_id = " + r.getPlaceholder(2)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		orgExpr = "organization_id::text = " + r.getPlaceholder(2)
+	}
+
+	query := `
+		SELECT customer_id, customer_name, customer_phone, customer_email
+		FROM customers
+		WHERE ` + custIDExpr + ` AND ` + orgExpr + `
+		LIMIT 1
+	`
+	rows, err := database.QueryContext(ctx, r.db, query, customerID, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanSingleRowToMap(rows)
 }
 
 func (r *TourPackageRepository) CreateTourPackage(ctx context.Context, req *model.CreateTourPackageRequest, packageID, orgID, userID string) error {
@@ -706,7 +1206,7 @@ func (r *TourPackageRepository) GetTourPackageDetail(ctx context.Context, orgID,
 	}
 
 	priceQuery := `
-		SELECT min_pax, max_pax, price
+		SELECT uuid, min_pax, max_pax, price
 		FROM tour_package_prices
 		WHERE package_id = %s AND organization_id = %s
 		ORDER BY min_pax ASC, max_pax ASC
@@ -718,15 +1218,17 @@ func (r *TourPackageRepository) GetTourPackageDetail(ctx context.Context, orgID,
 	}
 	defer priceRows.Close()
 	for priceRows.Next() {
+		var priceID sql.NullString
 		var minPax, maxPax sql.NullInt64
 		var priceVal sql.NullFloat64
-		if err := priceRows.Scan(&minPax, &maxPax, &priceVal); err != nil {
+		if err := priceRows.Scan(&priceID, &minPax, &maxPax, &priceVal); err != nil {
 			return nil, err
 		}
 		detail.Pricing = append(detail.Pricing, model.TourPackagePricing{
-			MinPax: int(minPax.Int64),
-			MaxPax: int(maxPax.Int64),
-			Price:  priceVal.Float64,
+			PriceID: priceID.String,
+			MinPax:  int(minPax.Int64),
+			MaxPax:  int(maxPax.Int64),
+			Price:   priceVal.Float64,
 		})
 	}
 
@@ -849,7 +1351,7 @@ func (r *TourPackageRepository) GetTourPackageDetail(ctx context.Context, orgID,
 	}
 
 	addonQuery := `
-		SELECT description, price
+		SELECT uuid, description, price
 		FROM tour_package_addons
 		WHERE package_id = %s AND organization_id = %s
 		ORDER BY created_at ASC
@@ -861,12 +1363,14 @@ func (r *TourPackageRepository) GetTourPackageDetail(ctx context.Context, orgID,
 	}
 	defer addonRows.Close()
 	for addonRows.Next() {
+		var addonID sql.NullString
 		var description sql.NullString
 		var priceVal sql.NullFloat64
-		if err := addonRows.Scan(&description, &priceVal); err != nil {
+		if err := addonRows.Scan(&addonID, &description, &priceVal); err != nil {
 			return nil, err
 		}
 		detail.Addons = append(detail.Addons, model.TourPackageAddon{
+			AddonID:     addonID.String,
 			Description: description.String,
 			Price:       priceVal.Float64,
 		})

@@ -18,8 +18,14 @@ func SetupTourPackageRoutes(api fiber.Router, db *sql.DB, driver string) {
 	services := api.Group("/services")
 	tourPackages := services.Group("/tour-packages")
 	tourPackages.Get("/list", helper.JWTAuthorizationMiddleware(), h.GetTourPackages)
+	tourPackages.Get("/order/list", helper.JWTAuthorizationMiddleware(), h.GetTourPackageOrderList)
 	tourPackages.Post("/create", helper.JWTAuthorizationMiddleware(), h.CreateTourPackage)
 	tourPackages.Post("/update", helper.JWTAuthorizationMiddleware(), h.UpdateTourPackage)
 	tourPackages.Post("/detail", helper.JWTAuthorizationMiddleware(), h.TourPackageDetail)
-	tourPackages.Post("/:packageid", helper.JWTAuthorizationMiddleware(), h.DeleteTourPackage)
+	tourPackages.Post("/delete/:packageid", helper.JWTAuthorizationMiddleware(), h.DeleteTourPackage)
+
+	tourPackage := services.Group("/tour-package")
+	tourPackage.Post("/order/create", helper.JWTAuthorizationMiddleware(), h.CreateTourPackageOrder)
+	tourPackage.Post("/order/update", helper.JWTAuthorizationMiddleware(), h.UpdateTourPackageOrder)
+	tourPackage.Get("/order/detail/:order_id", helper.JWTAuthorizationMiddleware(), h.GetTourPackageOrderDetail)
 }
