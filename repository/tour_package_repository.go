@@ -454,7 +454,7 @@ func (r *TourPackageRepository) CreateTourPackageOrder(ctx context.Context, in C
 		now,
 		in.UserID,
 		1,
-		0,
+		2,
 		in.OrganizationID,
 	); err != nil {
 		return err
