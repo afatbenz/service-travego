@@ -342,6 +342,28 @@ func (s *TourPackageService) GetTourPackageOrderDetail(ctx context.Context, orgI
 	}
 
 	s.ensureCitiesLoaded()
+	if len(customer) > 0 {
+		custCityID := ""
+		if v, ok := customer["customer_city"]; ok && v != nil {
+			switch vv := v.(type) {
+			case string:
+				custCityID = strings.TrimSpace(vv)
+			case []byte:
+				custCityID = strings.TrimSpace(string(vv))
+			default:
+				custCityID = strings.TrimSpace(fmt.Sprintf("%v", vv))
+			}
+		}
+		if custCityID != "" {
+			if name, ok := s.citiesName[custCityID]; ok {
+				customer["customer_city"] = name
+			} else {
+				customer["customer_city"] = ""
+			}
+		} else {
+			customer["customer_city"] = ""
+		}
+	}
 	cityKey := ""
 	if v, ok := order["pickup_city_id"]; ok && v != nil {
 		switch vv := v.(type) {
@@ -486,9 +508,9 @@ func (s *TourPackageService) GetTourPackageOrderDetail(ctx context.Context, orgI
 	}
 
 	return map[string]interface{}{
-		"order":    orderOut,
-		"customer": customer,
-		"addons":   addons,
+		"order":     orderOut,
+		"customers": customer,
+		"addons":    addons,
 	}, nil
 }
 

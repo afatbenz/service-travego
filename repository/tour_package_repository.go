@@ -635,7 +635,7 @@ func (r *TourPackageRepository) GetCustomerInfoByOrgID(ctx context.Context, orgI
 	}
 
 	query := `
-		SELECT customer_id, customer_name, customer_phone, customer_email
+		SELECT customer_id, customer_name, customer_phone, customer_email, customer_address, customer_city
 		FROM customers
 		WHERE ` + custIDExpr + ` AND ` + orgExpr + `
 		LIMIT 1
