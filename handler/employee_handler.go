@@ -183,3 +183,81 @@ func (h *OrganizationHandler) EmployeeDelete(c *fiber.Ctx) error {
 	}
 	return helper.SuccessResponse(c, fiber.StatusOK, "Employee deleted", nil)
 }
+
+func (h *OrganizationHandler) EmployeeShiftSchedule(c *fiber.Ctx) error {
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusBadRequest, "Missing organization context")
+	}
+
+	var req model.EmployeeShiftScheduleRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusBadRequest, "Invalid request body")
+	}
+	if validationErrors := helper.ValidateStruct(req); len(validationErrors) > 0 {
+		return helper.SendValidationErrorResponse(c, validationErrors)
+	}
+
+	resp, err := h.orgService.EmployeeShiftSchedule(orgID, &req)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Employee shift schedule loaded", resp)
+}
+
+func (h *OrganizationHandler) EmployeeShiftSetSchedule(c *fiber.Ctx) error {
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusBadRequest, "Missing organization context")
+	}
+	userID, ok := c.Locals("user_id").(string)
+	if !ok || userID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Unauthorized")
+	}
+
+	var req model.EmployeeShiftSetScheduleRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusBadRequest, "Invalid request body")
+	}
+	if validationErrors := helper.ValidateStruct(req); len(validationErrors) > 0 {
+		return helper.SendValidationErrorResponse(c, validationErrors)
+	}
+
+	typ := strings.ToLower(strings.TrimSpace(req.Type))
+	if typ != "submit" && typ != "delete" {
+		return helper.BadRequestResponse(c, "invalid type")
+	}
+	if typ == "delete" && strings.TrimSpace(req.ShiftID) == "" {
+		return helper.BadRequestResponse(c, "shift_id is required")
+	}
+	if typ == "delete" && strings.TrimSpace(req.EmployeeID) == "" {
+		return helper.BadRequestResponse(c, "employee_id is required")
+	}
+	if typ == "submit" {
+		if len(req.Schedules) == 0 {
+			if strings.TrimSpace(req.EmployeeID) == "" {
+				return helper.BadRequestResponse(c, "employee_id is required")
+			}
+			if strings.TrimSpace(req.ShiftDate) == "" {
+				return helper.BadRequestResponse(c, "shift_date is required")
+			}
+		} else {
+			for _, it := range req.Schedules {
+				if strings.TrimSpace(it.EmployeeID) == "" {
+					return helper.BadRequestResponse(c, "employee_id is required")
+				}
+				if strings.TrimSpace(it.ShiftDate) == "" {
+					return helper.BadRequestResponse(c, "shift_date is required")
+				}
+			}
+		}
+	}
+
+	out, err := h.orgService.EmployeeShiftSetSchedule(orgID, userID, &req)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Employee shift schedule updated", out)
+}

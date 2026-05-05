@@ -25,4 +25,6 @@ func SetupEmployeeRoutes(api fiber.Router, db *sql.DB, driver string) {
 	employee.Post("/update", helper.JWTAuthorizationMiddleware(), orgHandler.EmployeeUpdate)
 	employee.Get("/detail/:uuid", helper.JWTAuthorizationMiddleware(), orgHandler.EmployeeDetail)
 	employee.Delete("/delete/:uuid", helper.JWTAuthorizationMiddleware(), orgHandler.EmployeeDelete)
+	employee.Post("/shift/schedule", helper.JWTAuthorizationMiddleware(), orgHandler.EmployeeShiftSchedule)
+	employee.Post("/shift/set-schedule", helper.JWTAuthorizationMiddleware(), orgHandler.EmployeeShiftSetSchedule)
 }

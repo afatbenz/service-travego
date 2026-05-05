@@ -152,3 +152,37 @@ type EmployeeDetailResponse struct {
 	UpdatedBy           string  `json:"updated_by"`
 	UpdatedAt           string  `json:"updated_at"`
 }
+
+type EmployeeShiftScheduleRow struct {
+	UUID       string
+	EmployeeID string
+	Fullname   string
+	Avatar     string
+	RoleName   string
+	ShiftID    string
+	ShiftDate  string
+	ShiftType  *int
+}
+
+type EmployeeShiftScheduleItem struct {
+	ShiftID   string `json:"shift_id"`
+	ShiftDate string `json:"shift_date"`
+	ShiftType int    `json:"shift_type"`
+}
+
+type EmployeeShiftScheduleEmployee struct {
+	UUID         string                      `json:"uuid"`
+	EmployeeID   string                      `json:"employee_id"`
+	Fullname     string                      `json:"fullname"`
+	Avatar       string                      `json:"avatar"`
+	RoleName     string                      `json:"role_name"`
+	TotalWorkday int                         `json:"total_workday"`
+	TotalOffday  int                         `json:"total_offday"`
+	Shifts       []EmployeeShiftScheduleItem `json:"shifts"`
+}
+
+type EmployeeShiftScheduleResponse struct {
+	StartDate string                          `json:"start_date"`
+	EndDate   string                          `json:"end_date"`
+	Employees []EmployeeShiftScheduleEmployee `json:"employees"`
+}

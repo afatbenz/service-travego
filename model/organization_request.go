@@ -106,3 +106,25 @@ type UpdateEmployeeRequest struct {
 	ResignDate     *string `json:"resign_date"`
 	Status         *int    `json:"status"`
 }
+
+type EmployeeShiftScheduleRequest struct {
+	RoleID     string `json:"role_id"`
+	DivisionID string `json:"division_id"`
+	StartDate  string `json:"start_date"`
+	EndDate    string `json:"end_date"`
+}
+
+type EmployeeShiftSubmitItem struct {
+	EmployeeID string `json:"employee_id" validate:"required"`
+	ShiftDate  string `json:"shift_date" validate:"required"`
+	ShiftType  int    `json:"shift_type"`
+}
+
+type EmployeeShiftSetScheduleRequest struct {
+	Type       string                    `json:"type" validate:"required"`
+	ShiftID    string                    `json:"shift_id"`
+	EmployeeID string                    `json:"employee_id"`
+	ShiftDate  string                    `json:"shift_date"`
+	ShiftType  int                       `json:"shift_type"`
+	Schedules  []EmployeeShiftSubmitItem `json:"schedules"`
+}
