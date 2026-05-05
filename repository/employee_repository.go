@@ -537,3 +537,235 @@ func (r *OrganizationRepository) DeactivateEmployeeByEmployeeID(organizationID, 
 	}
 	return nil
 }
+
+func (r *OrganizationRepository) EmployeeShiftSchedule(organizationID, roleID, divisionID string, startDate, endDate time.Time) ([]model.EmployeeShiftScheduleRow, error) {
+	orgExpr := "e.organization_id = " + r.getPlaceholder(1)
+	shiftJoinEmployeeExpr := "es.employee_id = e.uuid"
+	shiftJoinOrgExpr := "es.organization_id = e.organization_id"
+	shiftJoinDateExpr := "es.shift_date BETWEEN " + r.getPlaceholder(2) + " AND " + r.getPlaceholder(3)
+	roleJoinExpr := "r.role_id = e.role_id"
+
+	if r.driver != "mysql" {
+		orgExpr = "e.organization_id::text = " + r.getPlaceholder(1)
+		shiftJoinEmployeeExpr = "es.employee_id::text = e.uuid::text"
+		shiftJoinOrgExpr = "es.organization_id::text = e.organization_id::text"
+		roleJoinExpr = "r.role_id::text = e.role_id::text"
+	}
+
+	whereParts := make([]string, 0, 4)
+	whereParts = append(whereParts, orgExpr)
+	whereParts = append(whereParts, "COALESCE(e.status, 0) > 0")
+
+	args := make([]interface{}, 0, 5)
+	args = append(args, organizationID, startDate, endDate)
+	pos := 4
+
+	if strings.TrimSpace(roleID) != "" {
+		roleExpr := "e.role_id = " + r.getPlaceholder(pos)
+		whereParts = append(whereParts, roleExpr)
+		args = append(args, roleID)
+		pos++
+	}
+
+	if strings.TrimSpace(divisionID) != "" {
+		divisionExpr := "r.division_id = " + r.getPlaceholder(pos)
+		if r.driver != "mysql" {
+			divisionExpr = "r.division_id::text = " + r.getPlaceholder(pos)
+		}
+		whereParts = append(whereParts, divisionExpr)
+		args = append(args, divisionID)
+		pos++
+	}
+
+	query := fmt.Sprintf(`
+		SELECT
+			COALESCE(e.uuid::text, ''),
+			COALESCE(e.employee_id, ''),
+			COALESCE(e.fullname, ''),
+			COALESCE(e.avatar, ''),
+			COALESCE(r.role_name, ''),
+			COALESCE(es.shift_id::text, ''),
+			es.shift_date,
+			es.shift_type
+		FROM employee e
+		LEFT JOIN organization_roles r ON %s
+		LEFT JOIN employee_shift es ON %s AND %s AND %s
+		WHERE %s
+		ORDER BY e.fullname ASC, es.shift_date ASC
+	`, roleJoinExpr, shiftJoinEmployeeExpr, shiftJoinOrgExpr, shiftJoinDateExpr, strings.Join(whereParts, " AND "))
+
+	rows, err := database.Query(r.db, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]model.EmployeeShiftScheduleRow, 0)
+	for rows.Next() {
+		var it model.EmployeeShiftScheduleRow
+		var shiftDate sql.NullTime
+		var shiftType sql.NullInt64
+		if err := rows.Scan(
+			&it.UUID,
+			&it.EmployeeID,
+			&it.Fullname,
+			&it.Avatar,
+			&it.RoleName,
+			&it.ShiftID,
+			&shiftDate,
+			&shiftType,
+		); err != nil {
+			return nil, err
+		}
+		if shiftDate.Valid {
+			it.ShiftDate = shiftDate.Time.Format("2006-01-02")
+		}
+		if shiftType.Valid {
+			v := int(shiftType.Int64)
+			it.ShiftType = &v
+		}
+		out = append(out, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (r *OrganizationRepository) EmployeeShiftOffdayCounts(organizationID string, employeeIDs []string, monthStart, monthEnd time.Time) (map[string]int, error) {
+	out := make(map[string]int)
+	if len(employeeIDs) == 0 {
+		return out, nil
+	}
+
+	orgExpr := "organization_id = " + r.getPlaceholder(1)
+	employeeCol := "employee_id"
+	if r.driver != "mysql" {
+		orgExpr = "organization_id::text = " + r.getPlaceholder(1)
+		employeeCol = "employee_id::text"
+	}
+
+	inParts := make([]string, 0, len(employeeIDs))
+	args := make([]interface{}, 0, len(employeeIDs)+3)
+	args = append(args, organizationID, monthStart, monthEnd)
+
+	for i, id := range employeeIDs {
+		inParts = append(inParts, r.getPlaceholder(4+i))
+		args = append(args, id)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT
+			COALESCE(%s, ''),
+			COUNT(DISTINCT shift_date)
+		FROM employee_shift
+		WHERE %s
+		  AND shift_date BETWEEN %s AND %s
+		  AND %s IN (%s)
+		GROUP BY %s
+	`, employeeCol, orgExpr, r.getPlaceholder(2), r.getPlaceholder(3), employeeCol, strings.Join(inParts, ", "), employeeCol)
+
+	rows, err := database.Query(r.db, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var employeeID string
+		var cnt int
+		if err := rows.Scan(&employeeID, &cnt); err != nil {
+			return nil, err
+		}
+		out[employeeID] = cnt
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (r *OrganizationRepository) CreateEmployeeShiftSchedules(organizationID, createdBy string, items []model.EmployeeShiftSubmitItem) ([]string, error) {
+	if len(items) == 0 {
+		return []string{}, nil
+	}
+
+	now := time.Now()
+
+	valueParts := make([]string, 0, len(items))
+	args := make([]interface{}, 0, len(items)*7)
+	ids := make([]string, 0, len(items))
+
+	pos := 1
+	for _, it := range items {
+		shiftID := uuid.New().String()
+		ids = append(ids, shiftID)
+
+		shiftDateRaw := strings.TrimSpace(it.ShiftDate)
+		if shiftDateRaw == "" {
+			return nil, fmt.Errorf("invalid shift_date")
+		}
+		shiftDate, err := time.Parse("2006-01-02", shiftDateRaw)
+		if err != nil {
+			return nil, fmt.Errorf("invalid shift_date")
+		}
+
+		valueParts = append(valueParts, fmt.Sprintf("(%s,%s,%s,%s,%s,%s,%s)",
+			r.getPlaceholder(pos),
+			r.getPlaceholder(pos+1),
+			r.getPlaceholder(pos+2),
+			r.getPlaceholder(pos+3),
+			r.getPlaceholder(pos+4),
+			r.getPlaceholder(pos+5),
+			r.getPlaceholder(pos+6),
+		))
+		pos += 7
+
+		args = append(args,
+			shiftID,
+			organizationID,
+			strings.TrimSpace(it.EmployeeID),
+			shiftDate,
+			it.ShiftType,
+			now,
+			createdBy,
+		)
+	}
+
+	query := fmt.Sprintf(`
+		INSERT INTO employee_shift
+			(shift_id, organization_id, employee_id, shift_date, shift_type, created_at, created_by)
+		VALUES %s
+	`, strings.Join(valueParts, ", "))
+
+	if _, err := database.Exec(r.db, query, args...); err != nil {
+		return nil, err
+	}
+	return ids, nil
+}
+
+func (r *OrganizationRepository) DeleteEmployeeShiftSchedule(organizationID, employeeID, shiftID string) error {
+	orgExpr := "organization_id = " + r.getPlaceholder(1)
+	employeeExpr := "employee_id = " + r.getPlaceholder(2)
+	shiftExpr := "shift_id = " + r.getPlaceholder(3)
+	if r.driver != "mysql" {
+		orgExpr = "organization_id::text = " + r.getPlaceholder(1)
+		employeeExpr = "employee_id::text = " + r.getPlaceholder(2)
+		shiftExpr = "shift_id::text = " + r.getPlaceholder(3)
+	}
+
+	query := fmt.Sprintf(`
+		DELETE FROM employee_shift
+		WHERE %s AND %s AND %s
+	`, orgExpr, employeeExpr, shiftExpr)
+
+	res, err := database.Exec(r.db, query, organizationID, employeeID, shiftID)
+	if err != nil {
+		return err
+	}
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
