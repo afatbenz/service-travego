@@ -71,6 +71,10 @@ func (r *LeaveManagementRepository) ListEmployeeLeaves(organizationID string, st
 			COALESCE(el.leave_id::text, ''),
 			COALESCE(el.employee_id::text, ''),
 			COALESCE(el.substituted_by::text, ''),
+			COALESCE(e.fullname, ''),
+			COALESCE(e.avatar, ''),
+			COALESCE(d.division_name, ''),
+			COALESCE(e.employee_id, '') AS employee_nip,
 			el.start_date,
 			el.end_date,
 			COALESCE(el.leave_type, 0),
@@ -79,6 +83,8 @@ func (r *LeaveManagementRepository) ListEmployeeLeaves(organizationID string, st
 		INNER JOIN employee_leave_type lt ON lt.id = el.leave_type
 		INNER JOIN employee e ON e.uuid = el.employee_id
 		INNER JOIN employee es ON es.uuid = el.substituted_by
+		LEFT JOIN organization_roles r ON r.role_id::text = e.role_id::text
+		LEFT JOIN organization_divisions d ON d.division_id::text = r.division_id::text
 		WHERE %s
 		%s
 		ORDER BY el.start_date DESC
@@ -90,6 +96,10 @@ func (r *LeaveManagementRepository) ListEmployeeLeaves(organizationID string, st
 				COALESCE(el.leave_id, ''),
 				COALESCE(el.employee_id, ''),
 				COALESCE(el.substituted_by, ''),
+				COALESCE(e.fullname, ''),
+				COALESCE(e.avatar, ''),
+				COALESCE(d.division_name, ''),
+				COALESCE(e.employee_id, '') AS employee_nip,
 				el.start_date,
 				el.end_date,
 				COALESCE(el.leave_type, 0),
@@ -98,6 +108,8 @@ func (r *LeaveManagementRepository) ListEmployeeLeaves(organizationID string, st
 			INNER JOIN employee_leave_type lt ON lt.id = el.leave_type
 			INNER JOIN employee e ON e.uuid = el.employee_id
 			INNER JOIN employee es ON es.uuid = el.substituted_by
+			LEFT JOIN organization_roles r ON r.role_id = e.role_id
+			LEFT JOIN organization_divisions d ON d.division_id = r.division_id
 			WHERE %s
 			%s
 			ORDER BY el.start_date DESC
@@ -120,6 +132,10 @@ func (r *LeaveManagementRepository) ListEmployeeLeaves(organizationID string, st
 			&it.LeaveID,
 			&it.EmployeeID,
 			&it.SubstitutedBy,
+			&it.CustomerName,
+			&it.Avatar,
+			&it.DivisionName,
+			&it.EmployeeNIP,
 			&startDate,
 			&endDate,
 			&leaveType,
