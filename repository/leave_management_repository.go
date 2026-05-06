@@ -147,3 +147,39 @@ func (r *LeaveManagementRepository) ListEmployeeLeaves(organizationID string, st
 	}
 	return out, nil
 }
+
+func (r *LeaveManagementRepository) EmployeeUUIDExists(organizationID, employeeUUID string) (bool, error) {
+	orgExpr := "organization_id = " + r.getPlaceholder(1)
+	uuidExpr := "uuid = " + r.getPlaceholder(2)
+	if r.driver != "mysql" {
+		orgExpr = "organization_id::text = " + r.getPlaceholder(1)
+		uuidExpr = "uuid::text = " + r.getPlaceholder(2)
+	}
+	query := fmt.Sprintf(`
+		SELECT COUNT(1)
+		FROM employee
+		WHERE %s AND %s AND COALESCE(status, 0) > 0
+	`, orgExpr, uuidExpr)
+
+	var cnt int
+	if err := database.QueryRow(r.db, query, organizationID, employeeUUID).Scan(&cnt); err != nil {
+		return false, err
+	}
+	return cnt > 0, nil
+}
+
+func (r *LeaveManagementRepository) CreateEmployeeLeave(leaveID, organizationID, employeeID, substitutedBy string, startDate, endDate time.Time, leaveType int, createdAt time.Time, createdBy string) error {
+	query := `
+		INSERT INTO employee_leaves (
+			leave_id, organization_id, employee_id, substituted_by,
+			start_date, end_date, leave_type,
+			status, created_at, created_by
+		) VALUES (
+			` + r.getPlaceholder(1) + `, ` + r.getPlaceholder(2) + `, ` + r.getPlaceholder(3) + `, ` + r.getPlaceholder(4) + `,
+			` + r.getPlaceholder(5) + `, ` + r.getPlaceholder(6) + `, ` + r.getPlaceholder(7) + `,
+			1, ` + r.getPlaceholder(8) + `, ` + r.getPlaceholder(9) + `
+		)
+	`
+	_, err := database.Exec(r.db, query, leaveID, organizationID, employeeID, substitutedBy, startDate, endDate, leaveType, createdAt, createdBy)
+	return err
+}

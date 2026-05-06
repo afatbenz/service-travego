@@ -20,4 +20,6 @@ func SetupLeaveManagementRoutes(api fiber.Router, db *sql.DB, driver string) {
 
 	leave.Get("/types", helper.JWTAuthorizationMiddleware(), h.GetLeaveTypes)
 	leave.Get("/list", helper.JWTAuthorizationMiddleware(), h.GetLeaveList)
+	leave.Post("/attachment", helper.JWTAuthorizationMiddleware(), h.UploadAttachment)
+	leave.Post("/create", helper.JWTAuthorizationMiddleware(), h.CreateLeave)
 }
