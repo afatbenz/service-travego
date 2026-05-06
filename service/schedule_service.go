@@ -402,19 +402,19 @@ func (s *ScheduleService) GetScheduleDetailByDate(input model.ScheduleDetailByDa
 	return items, nil
 }
 
-func (s *ScheduleService) GetScheduleOperationAvailability(input model.ScheduleOperationAvailabilityServiceInput) ([]model.ScheduleOperationAvailabilityItem, error) {
-	if strings.TrimSpace(input.StartDate) == "" {
+func (s *ScheduleService) GetScheduleOperationAvailability(organizationID, startDateText, endDateText, employeeID string) ([]model.ScheduleOperationAvailabilityItem, error) {
+	if strings.TrimSpace(startDateText) == "" {
 		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "start_date is required")
 	}
-	if strings.TrimSpace(input.EndDate) == "" {
+	if strings.TrimSpace(endDateText) == "" {
 		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "end_date is required")
 	}
 
-	startDate, startErr := time.Parse("2006-01-02", strings.TrimSpace(input.StartDate))
+	startDate, startErr := time.Parse("2006-01-02", strings.TrimSpace(startDateText))
 	if startErr != nil {
 		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "start_date must be YYYY-MM-DD")
 	}
-	endDate, endErr := time.Parse("2006-01-02", strings.TrimSpace(input.EndDate))
+	endDate, endErr := time.Parse("2006-01-02", strings.TrimSpace(endDateText))
 	if endErr != nil {
 		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "end_date must be YYYY-MM-DD")
 	}
@@ -422,7 +422,7 @@ func (s *ScheduleService) GetScheduleOperationAvailability(input model.ScheduleO
 		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "end_date must be greater than or equal start_date")
 	}
 
-	rows, err := s.repo.ListScheduleOperationAvailabilityEmployees(input.OrganizationID, startDate, endDate)
+	rows, err := s.repo.ListScheduleOperationAvailabilityEmployees(organizationID, startDate, endDate, employeeID)
 	if err != nil {
 		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, s.internalMessage("failed to get operations availability", err))
 	}

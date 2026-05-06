@@ -785,18 +785,27 @@ func (r *ScheduleRepository) ListScheduleDetailsByDate(selectedDate time.Time, o
 	return result, nil
 }
 
-func (r *ScheduleRepository) ListScheduleOperationAvailabilityEmployees(organizationID string, startDate, endDate time.Time) ([]model.ScheduleOperationAvailabilityRow, error) {
+func (r *ScheduleRepository) ListScheduleOperationAvailabilityEmployees(organizationID string, startDate, endDate time.Time, employeeID string) ([]model.ScheduleOperationAvailabilityRow, error) {
 	uuidExpr := "COALESCE(CAST(e.uuid AS CHAR), '')"
 	employeeIDExpr := "COALESCE(CAST(e.employee_id AS CHAR), '')"
 	scheduleIDExpr := "''"
 	orgEmployeeExpr := "e.organization_id = " + r.placeholder(1)
 	orgScheduleExpr := "s.organization_id = " + r.placeholder(1)
+	employeeExpr := "e.uuid = " + r.placeholder(4)
 	if r.driver == "postgres" || r.driver == "pgx" {
 		uuidExpr = "COALESCE(e.uuid::text, '')"
 		employeeIDExpr = "COALESCE(e.employee_id::text, '')"
 		scheduleIDExpr = "''"
 		orgEmployeeExpr = "e.organization_id::text = " + r.placeholder(1)
 		orgScheduleExpr = "s.organization_id::text = " + r.placeholder(1)
+		employeeExpr = "e.uuid::text = " + r.placeholder(4)
+	}
+
+	employeeFilter := ""
+	args := []interface{}{organizationID, endDate, startDate}
+	if strings.TrimSpace(employeeID) != "" {
+		employeeFilter = " AND " + employeeExpr
+		args = append(args, strings.TrimSpace(employeeID))
 	}
 
 	query := `
@@ -809,6 +818,7 @@ func (r *ScheduleRepository) ListScheduleOperationAvailabilityEmployees(organiza
 		FROM employee e
 		WHERE ` + orgEmployeeExpr + `
 		  AND COALESCE(e.status, 0) > 0
+		  ` + employeeFilter + `
 		  AND NOT EXISTS (
 			SELECT 1
 			FROM schedule_fleet_teams st
@@ -823,7 +833,7 @@ func (r *ScheduleRepository) ListScheduleOperationAvailabilityEmployees(organiza
 		ORDER BY e.fullname ASC
 	`
 
-	rows, err := database.Query(r.db, query, organizationID, endDate, startDate)
+	rows, err := database.Query(r.db, query, args...)
 	if err != nil {
 		return nil, err
 	}
