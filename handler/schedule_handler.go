@@ -222,6 +222,7 @@ func (h *ScheduleHandler) GetScheduleOperationAvailability(c *fiber.Ctx) error {
 
 	startDate := strings.TrimSpace(c.Query("start_date"))
 	endDate := strings.TrimSpace(c.Query("end_date"))
+	employeeID := strings.TrimSpace(c.Query("employee_id"))
 	if startDate == "" {
 		return helper.BadRequestResponse(c, "start_date is required")
 	}
@@ -229,11 +230,7 @@ func (h *ScheduleHandler) GetScheduleOperationAvailability(c *fiber.Ctx) error {
 		return helper.BadRequestResponse(c, "end_date is required")
 	}
 
-	result, err := h.service.GetScheduleOperationAvailability(model.ScheduleOperationAvailabilityServiceInput{
-		OrganizationID: orgID,
-		StartDate:      startDate,
-		EndDate:        endDate,
-	})
+	result, err := h.service.GetScheduleOperationAvailability(orgID, startDate, endDate, employeeID)
 	if err != nil {
 		return helper.SendErrorResponse(c, service.GetStatusCode(err), err.Error())
 	}
