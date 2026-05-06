@@ -16,6 +16,10 @@ type LeaveManagementListItem struct {
 	LeaveID        string `json:"leave_id"`
 	EmployeeID     string `json:"employee_id"`
 	SubstitutedBy  string `json:"substituted_by"`
+	CustomerName   string `json:"customer_name"`
+	Avatar         string `json:"avatar"`
+	DivisionName   string `json:"division_name"`
+	EmployeeNIP    string `json:"employee_nip"`
 	StartDate      string `json:"start_date"`
 	EndDate        string `json:"end_date"`
 	LeaveType      int    `json:"leave_type"`
