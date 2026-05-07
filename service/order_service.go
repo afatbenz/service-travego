@@ -625,7 +625,20 @@ func (s *OrderService) CreateServiceOrderPayment(req *model.CreateServiceOrderPa
 		}
 	}
 
-	totalAmount, err := s.fleetRepo.GetOrderTotalAmountByType(req.OrderType, req.OrderID, req.OrganizationID)
+	var (
+		totalAmount float64
+		err         error
+	)
+	if req.OrderType == 1 {
+		if synced, e := s.fleetRepo.SyncFleetOrderTotalAmountFromItems(req.OrderID, req.OrganizationID); e == nil {
+			totalAmount = synced
+			err = nil
+		} else {
+			totalAmount, err = s.fleetRepo.GetOrderTotalAmountByType(req.OrderType, req.OrderID, req.OrganizationID)
+		}
+	} else {
+		totalAmount, err = s.fleetRepo.GetOrderTotalAmountByType(req.OrderType, req.OrderID, req.OrganizationID)
+	}
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, NewServiceError(ErrNotFound, http.StatusNotFound, "order tidak ditemukan")
@@ -670,7 +683,7 @@ func (s *OrderService) CreateServiceOrderPayment(req *model.CreateServiceOrderPa
 		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "remaining_amount tidak valid")
 	}
 
-	paymentID, err := s.fleetRepo.InsertServiceOrderPayment(req, totalAmount, remaining)
+	paymentID, invoiceNumber, err := s.fleetRepo.InsertServiceOrderPayment(req, totalAmount, remaining)
 	if err != nil {
 		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "gagal menyimpan payment order")
 	}
@@ -689,6 +702,7 @@ func (s *OrderService) CreateServiceOrderPayment(req *model.CreateServiceOrderPa
 
 	return &model.ServiceOrderPaymentCreateResult{
 		PaymentID:       paymentID,
+		InvoiceNumber:   invoiceNumber,
 		OrderID:         req.OrderID,
 		OrderType:       req.OrderType,
 		PaymentType:     req.PaymentType,
