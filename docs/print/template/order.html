@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --teal: #0E6E7E;
+    --teal-light: #E1F5EE;
+    --teal-mid: #1D9E75;
+    --navy: #0D2137;
+    --gold: #C9A84C;
+    --slate: #4A5568;
+    --pale: #F7F9FC;
+    --silver: #E8ECF0;
+    --muted: #7A8A99;
+    --green: #1A7A4A;
+    --red: #C0392B;
+    --white: #FFFFFF;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: #EEF0F3;
+    min-height: 100vh;
+    padding: 40px 20px;
+    color: #5c5753;
+  }
+
+  .page {
+    width: 794px;
+    margin: 0 auto;
+    background: white;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.12);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .page.bottom-pack {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .bottom-anchor {
+    margin-top: auto;
+    padding-bottom: 0;
+  }
+
+  /* Decorative corner accent */
+  .page::before {
+    content: '';
+    position: absolute;
+    top: 0; right: 0;
+    width: 180px; height: 180px;
+    background: linen;
+    clip-path: polygon(100% 0, 100% 100%, 0 0);
+    opacity: 0.5;
+  }
+
+  /* ── HEADER ── */
+  .header {
+    padding: 30px 35px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    position: relative;
+  }
+
+  .company-block {}
+
+  .logo-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+
+  .logo-icon {
+    width: 48px;
+    height: 48px;
+    background: #463407;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .logo-icon svg { width: 28px; height: 28px; fill: white; }
+
+  .company-name {
+    font-family: 'DM Serif Display', 'Sans Serif', sans-serif, serif;
+    font-weight: 600;
+    font-size: 20px;
+    color: var(--navy);
+    line-height: 1.1;
+  }
+  .company-sub {
+    font-size: 11px;
+    color: #5c5753;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 500;
+    margin-top: 1px;
+  }
+
+  .company-contact {
+    font-size: 11.5px;
+    color: #5c5753;
+    line-height: 1.9;
+  }
+  .company-contact span { color: #5c5753; font-weight: 500; }
+
+  /* Doc badge (right) */
+  .doc-badge {
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  .doc-type {
+    font-family: 'DM Serif Display', serif;
+    font-size: 18px;
+    color: #5c5753;
+    line-height: 1;
+    letter-spacing: -0.5px;
+  }
+
+  .doc-meta {
+    font-size: 12px;
+    color: #5c5753;
+    line-height: 2;
+  }
+  .doc-meta strong { color: var(--navy); font-weight: 500; }
+  .doc-meta .status-badge {
+    display: inline-block;
+    background: #E6F9EE;
+    color: var(--green);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    padding: 2px 8px;
+    border-radius: 20px;
+    text-transform: uppercase;
+    border: 1px solid #A8DDB8;
+  }
+
+  /* QR area */
+  .qr-area {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 5px;
+  }
+
+  .qr-box {
+    width: 100px;
+    height: 100px;
+    /* border: 2px solid #5c5753; */
+    border-radius: 6px;
+    padding: 0;
+    overflow: hidden;
+    background: #ffffff;
+  }
+
+  .qr-labels {
+    text-align: right;
+  }
+  .qr-labels p {
+    font-size: 10px;
+    color: #5c5753;
+    line-height: 1.6;
+  }
+  .qr-labels p strong { color: #5c5753; font-weight: 500; }
+
+  /* ── GOLD LINE ── */
+  .gold-line {
+    height: 3px;
+    background: linear-gradient(to right, #5c5753, var(--teal-mid), transparent);
+    margin: 0 40px;
+  }
+
+  /* ── SECTION BAR ── */
+  .section-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 40px;
+    background: #D2823C;
+    margin: 0;
+  }
+
+  .section-bar span {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: white;
+  }
+
+  .section-bar::before {
+    content: '';
+    display: block;
+    width: 3px;
+    height: 14px;
+    background: white;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+
+  /* ── CONTENT SECTIONS ── */
+  .section-body {
+    padding: 0 40px;
+    background: var(--pale);
+  }
+
+  .info-grid {
+    display: grid;
+    grid-template-columns: 160px 8px 1fr;
+    gap: 0;
+  }
+
+  .info-row {
+    display: contents;
+  }
+
+  .info-row .lbl {
+    font-size: 12px;
+    font-weight: 500;
+    color: #5c5753;
+    padding: 9px 0;
+    border-bottom: 1px solid #EDF0F4;
+  }
+  .info-row .sep {
+    font-size: 12px;
+    color: #5c5753;
+    padding: 9px 4px;
+    border-bottom: 1px solid #EDF0F4;
+  }
+  .info-row .val {
+    font-size: 12.5px;
+    color: var(--navy);
+    padding: 9px 0;
+    border-bottom: 1px solid #EDF0F4;
+  }
+  .info-row:last-child .lbl,
+  .info-row:last-child .sep,
+  .info-row:last-child .val {
+    border-bottom: none;
+  }
+
+  /* 2-col detail grid */
+  .detail-2col {
+    display: grid;
+    grid-template-columns: 1fr 24px 1fr;
+    gap: 0 0;
+  }
+
+  .detail-pair {
+    display: grid;
+    grid-template-columns: 150px 8px 1fr;
+  }
+
+  .detail-divider { border-left: 1px solid #DDE3EB; margin: 0 20px; }
+
+  .detail-full {
+    display: grid;
+    grid-template-columns: 150px 8px 1fr;
+    border-top: 1px solid #EDF0F4;
+  }
+
+  .pad { padding: 10px 0; }
+  .pad-end { padding: 10px 0 14px; }
+
+  /* ── TABLE ── */
+  .doc-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+
+  .doc-table thead tr {
+    background: #D2823C;
+  }
+
+  .doc-table thead th {
+    color: white;
+    font-weight: 500;
+    font-size: 10.5px;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    padding: 10px 12px;
+    text-align: left;
+    border: none;
+  }
+
+  .doc-table thead th.r { text-align: right; }
+  .doc-table thead th.c { text-align: center; }
+
+  .doc-table tbody tr:nth-child(even) { background: var(--silver); }
+  .doc-table tbody tr:nth-child(odd)  { background: white; }
+
+  .doc-table tbody td {
+    padding: 10px 12px;
+    color: #5c5753;
+    border-bottom: 1px solid #EDF0F4;
+  }
+
+  .doc-table tbody td.r { text-align: right; }
+  .doc-table tbody td.c { text-align: center; }
+  .doc-table tbody td strong { color: var(--navy); }
+  .doc-table tbody td small { display: block; color: #5c5753; font-size: 10.5px; font-style: italic; margin-top: 1px; }
+
+  /* ── SUMMARY TABLE ── */
+  .summary-wrap { padding: 0 40px; background: white; }
+
+  .summary-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+
+  .summary-table tr td:first-child { padding: 8px 0; color: #5c5753; }
+  .summary-table tr td:last-child  { padding: 8px 0; text-align: right; color: var(--navy); }
+  .summary-table tr { border-bottom: 1px solid #EDF0F4; }
+  .summary-table tr:last-child { border-bottom: none; }
+  .summary-table .disc td { color: var(--red); font-style: italic; }
+
+  .total-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--navy);
+    padding: 14px 40px;
+    margin-top: 0;
+  }
+  .total-bar .label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.7);
+  }
+  .total-bar .amount {
+    font-family: 'DM Serif Display', serif;
+    font-size: 22px;
+    color: var(--white);
+    letter-spacing: -0.3px;
+  }
+
+  /* ── PAYMENT + SPECIAL ── */
+  .two-col-section {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    padding: 0 40px;
+    background: #F6F6F6;
+  }
+
+  .pay-block {
+    padding: 16px 20px 16px 0;
+    border-right: 1px solid #DDE3EB;
+  }
+  .pay-block:last-child { padding: 16px 0 16px 20px; border-right: none; }
+
+  .pay-block h4 {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #5c5753;
+    margin-bottom: 10px;
+  }
+
+  .pay-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 12px;
+    margin-bottom: 6px;
+    color: #5c5753;
+  }
+  .pay-row strong { color: var(--navy); font-weight: 500; }
+  .pay-row .due { font-size: 11px; color: #5c5753; }
+
+  .bank-info {
+    margin-top: 10px;
+    padding: 8px 10px;
+    background: white;
+    border-radius: 6px;
+    border-left: 3px solid #5c5753;
+    font-size: 11.5px;
+    line-height: 1.8;
+  }
+  .bank-info strong { color: var(--navy); display: block; font-size: 12px; }
+
+  .special-item {
+    font-size: 12px;
+    color: #5c5753;
+    padding: 5px 0;
+    border-bottom: 1px dashed #DDE3EB;
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+  }
+  .special-item:last-child { border-bottom: none; }
+  .special-item .num {
+    font-size: 10px;
+    font-weight: 600;
+    color: #5c5753;
+    min-width: 16px;
+  }
+
+  /* ── SYARAT ── */
+  .syarat-wrap {
+    padding: 14px 40px;
+    background: var(--pale);
+  }
+
+  .syarat-item {
+    display: flex;
+    gap: 10px;
+    font-size: 11.5px;
+    color: #5c5753;
+    padding: 5px 0;
+    border-bottom: 1px solid #EDF0F4;
+    line-height: 1.5;
+  }
+  .syarat-item:last-child { border-bottom: none; }
+  .syarat-item .idx {
+    min-width: 18px;
+    height: 18px;
+    background: #D2823C;
+    color: white;
+    border-radius: 50%;
+    font-size: 9.5px;
+    font-weight: 600;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  /* ── TTD ── */
+  .ttd-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    padding: 24px 40px 20px;
+    gap: 40px;
+    background: white;
+  }
+
+  .ttd-block { text-align: center; }
+  .ttd-label { font-size: 11.5px; color: #87796d; margin-bottom: 3px; }
+  .ttd-name  { font-size: 12px; font-weight: 500; color: #000; margin-bottom: 70px; }
+  .ttd-line  { border-top: 2.0px solid #DBCFC5; padding-top: 10px; }
+  .ttd-role  { font-size: 11px; color: #bfb4ab; font-style: italic; }
+
+  /* ── FOOTER ── */
+  .footer {
+    background: #EFE9E3;
+    padding: 12px 40px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .footer p { font-size: 11px; color: #D2823C; }
+  .footer a { color: #D2823C; text-decoration: none; font-size: 11px; }
+
+  /* Spacing helpers */
+  .gap-xs { height: 6px; }
+  .gap-md { height: 20px; }
+
+  @media print {
+    body { background: white; padding: 0; }
+    .page { box-shadow: none; width: 100%; overflow: visible; }
+    .no-print { display: none; }
+    .page-break { break-before: page; page-break-before: always; }
+    .page.bottom-pack { min-height: 297mm; }
+    .page.bottom-pack .two-col-section { padding-bottom: 0 !important; }
+    .page.bottom-pack .after-payment-gap { height: 0 !important; }
+  }
+
+  .page-break {
+    break-before: page;
+    page-break-before: always;
+  }
+</style>
+</head>
+<body>
+
+<div class="page {{ page_class }}">
+
+  <!-- ── HEADER ────────────────────────────────── -->
+  <div class="header">
+
+    <!-- Left: Company -->
+    <div class="company-block">
+      <div class="logo-row">
+          <img src="{{ company_logo }}" alt="{{ company_name }}" style="max-height:100px;max-width: 15      0px;height:auto;display:block">
+    </div>
+    <div class="company-contact " style="margin-top: 30px;">
+        <div class="company-name">{{ company_name }}</div>
+        {{ company_address }}<br>
+        {{ company_city_label }}, {{ company_province_label }} {{ company_postal_code }}<br>
+        <span>☎</span> {{ company_phone }} &nbsp;·&nbsp; <span>✉</span> {{ company_email }} &nbsp;·&nbsp; {{ company_website }}<br>
+      </div>
+    </div>
+
+    <!-- Right: Doc Badge + QR -->
+    <div class="doc-badge">
+      <div class="qr-area">
+        <div class="qr-box"><img src="{{ qr_code }}" alt="QR" style="width:100%;height:100%;object-fit:contain"></div>
+        <div class="qr-labels">
+          <p><strong>{{ order_id }}</strong></p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ── INFORMASI PEMESAN ──────────────────────── -->
+  <div class="section-bar"><span>Informasi Pemesan</span></div>
+  <div class="section-body" style="padding-top:2px; padding-bottom:2px;">
+    <div class="info-grid">
+      <div class="info-row">
+        <div class="lbl">Nama Pemesan</div>
+        <div class="sep">:</div>
+        <div class="val"> {{ customer_name }}</div>
+      </div>
+      <div class="info-row">
+        <div class="lbl">Nama Instansi</div>
+        <div class="sep">:</div>
+        <div class="val"> {{ customer_company }}</div>
+      </div>
+      <div class="info-row">
+        <div class="lbl">Alamat</div>
+        <div class="sep">:</div>
+        <div class="val"> {{ customer_address }}</div>
+      </div>
+      <div class="info-row">
+        <div class="lbl">No. Telepon</div>
+        <div class="sep">:</div>
+        <div class="val"> {{ customer_phone }}</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── DETAIL PERJALANAN ──────────────────────── -->
+  <div class="section-bar"><span>Detail Pesanan</span></div>
+  <div class="section-body" style="padding-top:2px; padding-bottom:0;">
+
+    <!-- 2-col rows -->
+    <div class="detail-2col" style="padding-top:10px;">
+      <!-- left pair -->
+      <div style="display:grid; grid-template-columns:150px 8px 1fr;">
+        <div class="lbl pad" style="font-size:12px;font-weight:500;color:#5c5753;">Tanggal Pesanan</div>
+        <div class="sep pad" style="font-size:12px;color:#5c5753;">:</div>
+        <div class="val pad" style="font-size:12.5px;color:var(--navy);">{{ order_date }}</div>
+      </div>
+      <!-- divider -->
+      <div class="detail-divider"></div>
+      <!-- right pair -->
+      <div style="display:grid; grid-template-columns:130px 8px 1fr;">
+        <div class="lbl pad" style="font-size:12px;font-weight:500;color:#5c5753;">Tujuan Perjalanan</div>
+        <div class="sep pad" style="font-size:12px;color:#5c5753;">:</div>
+        <div class="val pad" style="font-size:12.5px;color:var(--navy);">{{ destination }}</div>
+      </div>
+    </div>
+
+    <div class="detail-2col" style="border-top:1px solid #EDF0F4;">
+      <div style="display:grid; grid-template-columns:150px 8px 1fr;">
+        <div class="lbl pad-end" style="font-size:12px;font-weight:500;color:#5c5753;">Tanggal Perjalanan</div>
+        <div class="sep pad-end" style="font-size:12px;color:#5c5753;">:</div>
+        <div class="val pad-end" style="font-size:12.5px;color:var(--navy);">{{ start_date }} – {{ end_date }}</div>
+      </div>
+      <div class="detail-divider"></div>
+      <div style="display:grid; grid-template-columns:130px 8px 1fr;">
+        <div class="lbl pad-end" style="font-size:12px;font-weight:500;color:#5c5753;">Jam Berangkat</div>
+        <div class="sep pad-end" style="font-size:12px;color:#5c5753;">:</div>
+        <div class="val pad-end" style="font-size:12.5px;color:var(--navy);">{{ pickup_time }}</div>
+      </div>
+    </div>
+
+    <!-- Full-width: Titik Keberangkatan -->
+    <div class="detail-full" style="padding-bottom:14px;">
+      <div class="lbl pad" style="font-size:12px;font-weight:500;color:#5c5753;">Titik Keberangkatan</div>
+      <div class="sep pad" style="font-size:12px;color:#5c5753;">:</div>
+      <div class="val pad" style="font-size:12.5px;color:var(--navy);">{{ pickup_address }}, {{ pickup_city }}</div>
+    </div>
+    <div class="detail-full" style="border-top:1px solid #EDF0F4; padding-bottom:14px;">
+      <div class="lbl pad" style="font-size:12px;font-weight:500;color:#5c5753;">Permintaan Khusus</div>
+      <div class="sep pad" style="font-size:12px;color:#5c5753;">:</div>
+      <div class="val pad" style="font-size:12.5px;color:var(--navy);">{{ additional_request }}</div>
+    </div>
+  </div>
+
+  <!-- ── ARMADA ──────────────────────────────────── -->
+  <div style="padding: 0 40px; background: white;">
+    <div class="gap-xs"></div>
+    <table class="doc-table">
+      <thead>
+        <tr>
+          <th style="width:30px">No</th>
+          <th>Nama Armada</th>
+          <th class="c" style="width:70px">Qty</th>
+          <th class="r" style="width:110px">Harga</th>
+          <th class="r" style="width:110px">Subtotal</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{ fleet_items_rows }}
+      </tbody>
+    </table>
+    <div class="gap-xs"></div>
+  </div>
+
+  <!-- ── ESTIMASI BIAYA ─────────────────────────── -->
+  {{ bottom_pack_start }}
+  <div class="summary-wrap" style="padding-bottom:0;">
+    <table class="summary-table">
+      <tbody>
+        <td style="text-align: right;">Biaya Tambahan</td>
+        <td style="width: 200px;">{{ total_additional_fee }}</td>
+      </tbody>
+      {{ addon_rows }}
+      <tr class="">
+        <td style="text-align: right;">Diskon</td>
+        <td style="width: 200px;">{{ total_discount }}</td>
+      </tr>
+      <tr class="">
+        <td style="text-align: right;">Total Tagihan</td>
+        <td style="width: 200px; font-weight: 600; font-size: 16px;">{{ total_amount }}</td>
+      </tr>
+    </table>
+    <div class="gap-xs"></div>
+  </div>
+  <div style="background:white; padding: 6px 40px;">
+    <p style="font-size:10.5px; color:#5c5753; font-style:italic;">* Estimasi biaya dapat berubah sesuai kondisi aktual. Invoice resmi akan diterbitkan terpisah.</p>
+  </div>
+
+  <!-- ── PEMBAYARAN + PERMINTAAN KHUSUS ────────── -->
+  {{ payment_page_break }}
+  <div class="two-col-section" style="padding-top:14px; padding-bottom:16px;">
+
+    <div class="pay-block">
+      <h4>Termin Pembayaran</h4>
+      <div class="pay-row">
+        <span>DP Minimum 20%</span>
+        <div style="text-align:right">
+          <strong>{{ minimum_payment }}</strong>
+          <div class="due">Jatuh tempo: {{ dp_due_date }}</div>
+        </div>
+      </div>
+      <div class="pay-row">
+        <span>Pelunasan</span>
+        <div style="text-align:right">
+          <strong>{{ remaining_amount }}</strong>
+          <div class="due">Jatuh tempo: {{ full_payment_due_date }}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pay-block">
+      <h4>Informasi Pembayaran</h4>
+      <div class="special-item" style="display:block">
+        <div style="font-size:12px; color: var(--navy); line-height:1.5;">
+          <strong>{{ bank_name }} | {{ bank_code }}</strong><br>
+          No. Rek: <strong>{{ bank_account }}</strong><br>
+          A/N: <strong>{{ bank_account_name }}</strong><br>
+          <span style="font-size:10.5px;color:#5c5753">Konfirmasi: WA {{ company_phone }}</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  {{ bottom_pack_end }}
+  <div class="gap-sm after-payment-gap"></div>
+
+  <!-- ── SYARAT & KETENTUAN ─────────────────────── -->
+  {{ terms_page_break }}
+  <div class="section-bar"><span>Syarat &amp; Ketentuan</span></div>
+  <div class="syarat-wrap">
+    <div class="syarat-item">
+      <div class="idx">1</div>
+      <div>Pembayaran DP sebesar 20% wajib dilakukan paling lambat 7 hari sebelum tanggal keberangkatan.</div>
+    </div>
+    <div class="syarat-item">
+      <div class="idx">2</div>
+      <div>Pelunasan dilakukan paling lambat H-1 sebelum keberangkatan.</div>
+    </div>
+    <div class="syarat-item">
+      <div class="idx">3</div>
+      <div>Pembatalan kurang dari 3 hari sebelum keberangkatan dikenakan biaya 20% dari total.</div>
+    </div>
+    <div class="syarat-item">
+      <div class="idx">4</div>
+      <div>Keterlambatan keberangkatan lebih dari 2 jam karena pemesan dikenakan biaya tambahan.</div>
+    </div>
+    <div class="syarat-item">
+      <div class="idx">5</div>
+      <div>Kerusakan fasilitas armada akibat kelalaian penumpang menjadi tanggung jawab pemesan.</div>
+    </div>
+  </div>
+
+  <div class="gap-sm"></div>
+
+  <!-- ── TANDA TANGAN ────────────────────────────── -->
+  <div class="ttd-row">
+    <div class="ttd-block">
+      <div class="ttd-label">Disetujui oleh Pemesan</div>
+      <div class="ttd-name">{{ customer_name }}</div>
+      <div class="ttd-line"></div>
+      <div class="ttd-role">Nama &amp; Tanda Tangan</div>
+    </div>
+    <div class="ttd-block">
+      <div class="ttd-label">Hormat kami,</div>
+      <div class="ttd-name">{{ company_name }}</div>
+      <div class="ttd-line"></div>
+      <div class="ttd-role">Admin / Direktur</div>
+    </div>
+  </div>
+
+  <!-- ── FOOTER ──────────────────────────────────── -->
+  <div class="footer">
+    <p>Surat pesanan ini merupakan bukti reservasi yang sah</p>
+    <a href="#">{{ company_website }}</a>
+  </div>
+
+</div>
+</body>
+</html>

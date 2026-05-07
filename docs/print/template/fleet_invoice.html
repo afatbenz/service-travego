@@ -1,0 +1,564 @@
+<style>
+  .invoice {
+    color: #111827;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 12px;
+    line-height: 1.45;
+    margin: 0 auto;
+    max-width: 900px;
+    padding: 24px;
+  }
+
+  .invoice p {
+    margin: 0 0 4px;
+  }
+
+  .invoice table {
+    border-collapse: collapse;
+    width: 100%;
+  }
+
+  .invoice-header td {
+    vertical-align: top;
+  }
+
+  .invoice-header td:first-child {
+    padding-right: 16px;
+  }
+
+  .invoice-header img {
+    display: block;
+    height: auto;
+    max-width: 190px;
+    width: 100%;
+  }
+
+  .invoice-meta {
+    text-align: right;
+  }
+
+  .invoice-meta-title {
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: 0.3px;
+    margin-bottom: 6px;
+  }
+
+  .invoice-qr {
+    border: 1px solid #e5e7eb;
+    height: 96px;
+    margin: 0 0 10px auto;
+    width: 96px;
+  }
+
+  .section-title {
+    background: #f3f4f6;
+    border: 1px solid #e5e7eb;
+    font-size: 13px;
+    font-weight: 800;
+    margin-top: 16px;
+    padding: 8px 12px;
+  }
+
+  .kv-table {
+    margin-top: 6px;
+  }
+
+  .kv-table td {
+    padding: 4px 6px;
+    vertical-align: top;
+  }
+
+  .kv-table td:first-child {
+    font-weight: 700;
+    white-space: nowrap;
+    width: 170px;
+  }
+
+  .kv-table td:nth-child(2) {
+    width: 14px;
+  }
+
+  .trip-table td {
+    padding: 4px 6px;
+    vertical-align: top;
+  }
+
+  .trip-table td:nth-child(2),
+  .trip-table td:nth-child(6) {
+    width: 14px;
+  }
+
+  .trip-table td:nth-child(4) {
+    width: 24px;
+  }
+
+  .items-table {
+    margin-top: 8px;
+  }
+
+  .items-table th,
+  .items-table td {
+    border: 1px solid #e5e7eb;
+    padding: 8px 10px;
+    vertical-align: top;
+  }
+
+  .items-table th {
+    background: #111827;
+    color: #ffffff;
+    font-weight: 800;
+    text-align: left;
+  }
+
+  .items-table th p,
+  .items-table td p {
+    margin: 0;
+  }
+
+  .items-table th:nth-child(1),
+  .items-table td:nth-child(1) {
+    text-align: center;
+    width: 42px;
+  }
+
+  .items-table th:nth-child(3),
+  .items-table td:nth-child(3) {
+    text-align: center;
+    width: 90px;
+    white-space: nowrap;
+  }
+
+  .items-table th:nth-child(4),
+  .items-table td:nth-child(4) {
+    text-align: center;
+    width: 80px;
+    white-space: nowrap;
+  }
+
+  .items-table th:nth-child(5),
+  .items-table td:nth-child(5),
+  .items-table th:nth-child(6),
+  .items-table td:nth-child(6) {
+    text-align: right;
+    white-space: nowrap;
+    width: 140px;
+  }
+
+  .summary-table {
+    margin-top: 10px;
+    width: 380px;
+    margin-left: auto;
+  }
+
+  .summary-table td {
+    padding: 6px 8px;
+  }
+
+  .summary-table td:last-child {
+    text-align: right;
+    white-space: nowrap;
+    width: 160px;
+  }
+
+  .summary-table tr.total td {
+    border-top: 2px solid #111827;
+    font-size: 13px;
+    font-weight: 800;
+    padding-top: 10px;
+  }
+
+  .payment-table {
+    margin-top: 8px;
+  }
+
+  .payment-table td {
+    border: 1px solid #e5e7eb;
+    padding: 10px 12px;
+    vertical-align: top;
+    width: 50%;
+  }
+
+  .note-box {
+    border: 1px dashed #d1d5db;
+    color: #374151;
+    font-style: italic;
+    margin-top: 8px;
+    padding: 10px 12px;
+  }
+
+  .signature-table {
+    margin-top: 12px;
+  }
+
+  .signature-table td {
+    padding: 18px 6px 8px;
+    vertical-align: top;
+    width: 50%;
+  }
+
+  .footer {
+    color: #6b7280;
+    font-size: 11px;
+    font-style: italic;
+    margin-top: 16px;
+    text-align: center;
+  }
+
+  @media print {
+    .invoice {
+      padding: 0;
+    }
+
+    .section-title,
+    .items-table th {
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+  }
+</style>
+
+<div class="invoice">
+  <table class="invoice-header">
+    <tbody>
+      <tr>
+        <td>
+<p><img src="data:image/png;base64,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" alt="" /></p>
+          <p>Jl. Raya Pariwisata No. 88, Bandung 40123</p>
+          <p>☎ (022) 1234-5678 ✉ info@armadanusantara.co.id</p>
+        </td>
+        <td>
+          <table class="invoice-meta">
+            <tbody>
+              <tr>
+                <td>
+                  <p class="invoice-meta-title">INVOICE</p>
+                </td>
+              </tr>
+              <tr>
+                <td>&nbsp;</td>
+              </tr>
+              <tr>
+                <td>
+                  <div class="invoice-qr">&nbsp;</div>
+                  <p><strong>INV-2024-XXXX</strong></p>
+                  <p>Status <strong>BELUM LUNAS</strong></p>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="section-title">Informasi Pemesan</div>
+  <table class="kv-table">
+    <tbody>
+      <tr>
+        <td>
+          <p>Nama Pemesan</p>
+        </td>
+        <td>
+          <p>:</p>
+        </td>
+        <td>
+          <p>[Nama Lengkap Pemesan]</p>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <p>Nama Instansi</p>
+        </td>
+        <td>
+          <p>:</p>
+        </td>
+        <td>
+          <p>[Instansi / Organisasi / Perusahaan]</p>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <p>Alamat</p>
+        </td>
+        <td>
+          <p>:</p>
+        </td>
+        <td>
+          <p>[Alamat Lengkap Pemesan]</p>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <p>No. Telepon</p>
+        </td>
+        <td>
+          <p>:</p>
+        </td>
+        <td>
+          <p>[08xx-xxxx-xxxx]</p>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="section-title">Detail Perjalanan</div>
+  <table class="trip-table">
+    <tbody>
+      <tr>
+        <td>
+          <p><strong>Tanggal Pesanan</strong></p>
+        </td>
+        <td>
+          <p>:</p>
+        </td>
+        <td>
+          <p>DD/MM/YYYY</p>
+        </td>
+        <td>&nbsp;</td>
+        <td>
+          <p><strong>Jam Berangkat</strong></p>
+        </td>
+        <td>
+          <p>:</p>
+        </td>
+        <td>
+          <p>HH:MM WIB</p>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <p><strong>Tanggal Perjalanan</strong></p>
+        </td>
+        <td>
+          <p>:</p>
+        </td>
+        <td>
+          <p>DD/MM/YYYY &ndash; DD/MM/YYYY</p>
+        </td>
+        <td>&nbsp;</td>
+        <td>
+          <p><strong>Durasi</strong></p>
+        </td>
+        <td>
+          <p>:</p>
+        </td>
+        <td>
+          <p>[X] Hari / [X] Malam</p>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <p><strong>Titik Keberangkatan</strong></p>
+        </td>
+        <td>
+          <p>:</p>
+        </td>
+        <td>
+          <p>[Titik Jemput / Lokasi]</p>
+        </td>
+        <td>&nbsp;</td>
+        <td>
+          <p><strong>Tujuan Perjalanan</strong></p>
+        </td>
+        <td>
+          <p>:</p>
+        </td>
+        <td>
+          <p>[Kota / Destinasi Wisata]</p>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="section-title">Armada yang Dipesan</div>
+  <table class="items-table">
+    <thead>
+      <tr>
+        <th>
+          <p><strong>No.</strong></p>
+        </th>
+        <th>
+          <p><strong>Nama Armada</strong></p>
+        </th>
+        <th>
+          <p><strong>Kapasitas</strong></p>
+        </th>
+        <th>
+          <p><strong>Jml. Unit</strong></p>
+        </th>
+        <th>
+          <p><strong>Harga / Unit</strong></p>
+        </th>
+        <th>
+          <p><strong>Subtotal</strong></p>
+        </th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>
+          <p>1</p>
+        </td>
+        <td>
+          <p><strong>Bus Pariwisata Executive (AC)</strong></p>
+        </td>
+        <td>
+          <p>40 Pax</p>
+        </td>
+        <td>
+          <p>1</p>
+        </td>
+        <td>
+          <p>Rp 5.000.000</p>
+        </td>
+        <td>
+          <p>Rp 5.000.000</p>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <p>2</p>
+        </td>
+        <td>
+          <p><strong>Bus Pariwisata VIP (AC, Reclining)</strong></p>
+        </td>
+        <td>
+          <p>32 Pax</p>
+        </td>
+        <td>
+          <p>1</p>
+        </td>
+        <td>
+          <p>Rp 7.500.000</p>
+        </td>
+        <td>
+          <p>Rp 7.500.000</p>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <p>3</p>
+        </td>
+        <td>
+          <p><strong>[Nama Armada]</strong></p>
+        </td>
+        <td>
+          <p>[XX Pax]</p>
+        </td>
+        <td>
+          <p>[X]</p>
+        </td>
+        <td>
+          <p>Rp &mdash;</p>
+        </td>
+        <td>
+          <p>Rp &mdash;</p>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="section-title">Ringkasan Biaya</div>
+  <table class="summary-table">
+    <tbody>
+      <tr>
+        <td>
+          <p>Subtotal Armada</p>
+        </td>
+        <td>
+          <p>Rp 12.500.000</p>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <p>Biaya Lain-lain (Parkir, Tol, dll.)</p>
+        </td>
+        <td>
+          <p>Rp 500.000</p>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <p>Biaya Penginapan &amp; Uang Makan Supir</p>
+        </td>
+        <td>
+          <p>Rp 250.000</p>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <p>Pajak PPN 11%</p>
+        </td>
+        <td>
+          <p>Rp 1.402.500</p>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <p><em>Diskon (10%)</em></p>
+        </td>
+        <td>
+          <p>&minus; Rp 1.465.250</p>
+        </td>
+      </tr>
+      <tr class="total">
+        <td>
+          <p><strong>TOTAL PEMBAYARAN</strong></p>
+        </td>
+        <td>
+          <p><strong>Rp 13.187.250</strong></p>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="section-title">Informasi Pembayaran</div>
+  <table class="payment-table">
+    <tbody>
+      <tr>
+        <td>
+          <p><strong>Transfer ke Rekening</strong></p>
+          <p>Bank BCA &middot; No. Rek: <strong>1234567890</strong></p>
+          <p>A/N: PT Armada Nusantara Wisata</p>
+          <p><strong>DP 50% : Rp 6.593.625</strong> Jatuh Tempo: DD/MM/YYYY</p>
+          <p><strong>Pelunasan: Rp 6.593.625</strong> Jatuh Tempo: DD/MM/YYYY</p>
+        </td>
+        <td>
+          <p><strong>Konfirmasi Pembayaran</strong></p>
+          <p>WhatsApp : <strong>0812-3456-7890</strong></p>
+          <p>Email : <strong>invoice@armadanusantara.co.id</strong></p>
+          <p><em>* Sertakan No. Invoice saat konfirmasi</em></p>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="section-title">Permintaan Khusus</div>
+  <div class="note-box">
+    <p>
+      [Tuliskan permintaan khusus di sini &mdash; fasilitas tambahan, dekorasi, pemandu wisata, sound system, kebutuhan
+      aksesibilitas, dll.]
+    </p>
+  </div>
+
+  <table class="signature-table">
+    <tbody>
+      <tr>
+        <td>
+          <p>Disetujui oleh Pemesan</p>
+          <p><em>Nama &amp; Tanda Tangan</em></p>
+        </td>
+        <td>
+          <p>Hormat kami,</p>
+          <p><strong>PT Armada Nusantara Wisata</strong></p>
+          <p><em>Admin / Direktur</em></p>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="footer">
+    <p><em>Terima kasih telah mempercayakan perjalanan Anda kepada kami &middot; www.armadanusantara.co.id</em></p>
+  </div>
+</div>

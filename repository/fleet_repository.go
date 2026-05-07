@@ -2330,7 +2330,7 @@ func (r *FleetRepository) GetPartnerOrderFleetItems(organizationId, orderId stri
 	query := fmt.Sprintf(`
 		SELECT oi.order_item_id, oi.order_id, oi.fleet_id, f.fleet_name,
 		tp.label as fleet_type, oi.price_id, p.price, oi.quantity,
-		oi.charge_amount, oi.discount, oi.sub_total
+		COALESCE(oi.charge_amount, 0) as charge_amount, COALESCE(oi.discount, 0) as discount, COALESCE(oi.sub_total, 0) as sub_total
 		FROM fleet_order_items oi
 		INNER JOIN fleet_orders o ON oi.order_id = o.order_id
 		INNER JOIN fleet_prices p ON %[3]s
