@@ -51,4 +51,5 @@ func SetupRoutes(app *fiber.App, cfg *configs.Config) {
 	SetupDashboardRoutes(api, db, cfg.Database.Driver)
 	SetupTourPackageRoutes(api, db, cfg.Database.Driver)
 	SetupLeaveManagementRoutes(api, db, cfg.Database.Driver)
+	SetupPrintManagementRoutes(api, db, cfg.Database.Driver)
 }
