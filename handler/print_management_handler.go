@@ -34,7 +34,28 @@ func (h *PrintManagementHandler) GenerateOrderFleetDocument(c *fiber.Ctx) error 
 	}
 
 	c.Set("Content-Type", "application/pdf")
-	c.Set("Content-Disposition", "inline; filename=order-fleet-"+req.OrderID+".pdf")
+	c.Set("Content-Disposition", "inline; filename=fleet-order-"+req.OrderID+".pdf")
 	return c.Send(pdf)
 }
 
+func (h *PrintManagementHandler) GenerateFleetInvoiceDocument(c *fiber.Ctx) error {
+	var req model.PrintFleetInvoiceRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.BadRequestResponse(c, "Invalid payload")
+	}
+
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Organization not found")
+	}
+
+	pdf, err := h.service.GenerateFleetInvoicePDF(orgID, req.OrderID, req.InvoiceNumber)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	c.Set("Content-Type", "application/pdf")
+	c.Set("Content-Disposition", "inline; filename=fleet-invoice-"+req.OrderID+".pdf")
+	return c.Send(pdf)
+}

@@ -19,6 +19,6 @@ func SetupPrintManagementRoutes(api fiber.Router, db *sql.DB, driver string) {
 	services := api.Group("/services")
 	services.Use(helper.DualAuthMiddleware(orgRepo))
 	pm := services.Group("/print-management")
-	pm.Post("/order-fleet", h.GenerateOrderFleetDocument)
+	pm.Post("/fleet/invoice", h.GenerateFleetInvoiceDocument)
+	pm.Post("/fleet/order", h.GenerateOrderFleetDocument)
 }
-
