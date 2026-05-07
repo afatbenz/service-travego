@@ -718,6 +718,34 @@ func (h *FleetHandler) UpdatePartnerOrder(c *fiber.Ctx) error {
 					if d, ok := mm["discount"]; ok {
 						it.Discount = float64(toInt(d))
 					}
+					if v2, ok := mm["addons"]; ok {
+						if arr2, ok := v2.([]interface{}); ok {
+							addons := make([]string, 0, len(arr2))
+							for _, rawAddon := range arr2 {
+								if s, ok := rawAddon.(string); ok {
+									ss := strings.TrimSpace(s)
+									if ss != "" {
+										addons = append(addons, ss)
+									}
+								}
+							}
+							it.Addons = addons
+						}
+					}
+					if v2, ok := mm["addon_id"]; ok {
+						if arr2, ok := v2.([]interface{}); ok {
+							addons := make([]string, 0, len(arr2))
+							for _, rawAddon := range arr2 {
+								if s, ok := rawAddon.(string); ok {
+									ss := strings.TrimSpace(s)
+									if ss != "" {
+										addons = append(addons, ss)
+									}
+								}
+							}
+							it.Addons = addons
+						}
+					}
 					items = append(items, it)
 				}
 				req.Fleets = items
@@ -855,6 +883,9 @@ func (h *FleetHandler) CreatePartnerOrder(c *fiber.Ctx) error {
 		if v, ok := m["discount_amount"]; ok {
 			req.DiscountAmount = float64(toInt(v))
 		}
+		if v, ok := m["additional_amount"]; ok {
+			req.AdditionalAmount = float64(toInt(v))
+		}
 		if v, ok := m["additional_request"].(string); ok {
 			req.AdditionalRequest = v
 		}
@@ -932,6 +963,39 @@ func (h *FleetHandler) CreatePartnerOrder(c *fiber.Ctx) error {
 					}
 					if d, ok := mm["discount"]; ok {
 						it.Discount = float64(toInt(d))
+					}
+					if v2, ok := mm["addons"]; ok {
+						if arr2, ok := v2.([]interface{}); ok {
+							addons := make([]string, 0, len(arr2))
+							for _, rawAddon := range arr2 {
+								if s, ok := rawAddon.(string); ok {
+									ss := strings.TrimSpace(s)
+									if ss != "" {
+										addons = append(addons, ss)
+									}
+								}
+							}
+							it.Addons = addons
+						}
+					}
+					if v2, ok := mm["addon_id"]; ok {
+						switch vv := v2.(type) {
+						case []interface{}:
+							addons := make([]string, 0, len(vv))
+							for _, rawAddon := range vv {
+								if s, ok := rawAddon.(string); ok {
+									ss := strings.TrimSpace(s)
+									if ss != "" {
+										addons = append(addons, ss)
+									}
+								}
+							}
+							if len(addons) > 0 {
+								it.Addons = addons
+							}
+						case string:
+							it.AddonID = vv
+						}
 					}
 					fleetItems = append(fleetItems, it)
 				}

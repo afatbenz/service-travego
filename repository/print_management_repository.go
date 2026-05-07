@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"service-travego/database"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -32,6 +33,7 @@ type PrintCustomerInfo struct {
 	CustomerAddress string
 	CustomerCity    string
 	CustomerPhone   string
+	CustomerEmail   string
 }
 
 type PrintFleetOrderInfo struct {
@@ -64,6 +66,15 @@ type PrintOrganizationBank struct {
 	BankCode        string
 	BankAccount     string
 	BankAccountName string
+}
+
+type PrintPaymentOrderInfo struct {
+	InvoiceNumber   string
+	PaymentType     int
+	PaymentMethod   int
+	PaymentAmount   float64
+	RemainingAmount float64
+	CreatedAt       time.Time
 }
 
 func NewPrintManagementRepository(db *sql.DB, driver string) *PrintManagementRepository {
@@ -169,7 +180,8 @@ func (r *PrintManagementRepository) GetCustomerInfo(orderID, organizationID stri
 		       COALESCE(c.customer_address, '') as customer_address,
 		       %s as customer_city,
 		       COALESCE(c.customer_phone, '') as customer_phone,
-		       COALESCE(c.company_name, '') as customer_company
+		       COALESCE(c.company_name, '') as customer_company,
+		       COALESCE(c.customer_email, '') as customer_email
 		FROM customer_orders co
 		INNER JOIN customers c ON %s AND %s
 		WHERE %s AND %s
@@ -184,11 +196,63 @@ func (r *PrintManagementRepository) GetCustomerInfo(orderID, organizationID stri
 		&customerCity,
 		&out.CustomerPhone,
 		&out.CustomerCompany,
+		&out.CustomerEmail,
 	); err != nil {
 		return nil, err
 	}
 	if customerCity.Valid {
 		out.CustomerCity = customerCity.String
+	}
+	return &out, nil
+}
+
+func (r *PrintManagementRepository) GetPaymentOrderForInvoice(organizationID, orderID string, invoiceNumber *string) (*PrintPaymentOrderInfo, error) {
+	orgExpr := "organization_id = " + r.placeholder(1)
+	orderExpr := "order_id = " + r.placeholder(2)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		orgExpr = "organization_id::text = " + r.placeholder(1)
+		orderExpr = "order_id::text = " + r.placeholder(2)
+	}
+
+	args := []interface{}{organizationID, orderID}
+	where := fmt.Sprintf("WHERE %s AND %s AND COALESCE(status, 0) > 0", orgExpr, orderExpr)
+
+	if invoiceNumber != nil {
+		invExpr := "invoice_number = " + r.placeholder(3)
+		if r.driver == "postgres" || r.driver == "pgx" {
+			invExpr = "invoice_number::text = " + r.placeholder(3)
+		}
+		where += " AND " + invExpr
+		args = append(args, strings.TrimSpace(*invoiceNumber))
+	}
+
+	query := fmt.Sprintf(`
+		SELECT COALESCE(invoice_number, '') as invoice_number,
+		       COALESCE(payment_type, 0) as payment_type,
+		       COALESCE(payment_method, 0) as payment_method,
+		       COALESCE(payment_amount, 0) as payment_amount,
+		       COALESCE(remaining_amount, 0) as remaining_amount,
+		       created_at
+		FROM payment_orders
+		%s
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, where)
+
+	var out PrintPaymentOrderInfo
+	var inv sql.NullString
+	if err := database.QueryRow(r.db, query, args...).Scan(
+		&inv,
+		&out.PaymentType,
+		&out.PaymentMethod,
+		&out.PaymentAmount,
+		&out.RemainingAmount,
+		&out.CreatedAt,
+	); err != nil {
+		return nil, err
+	}
+	if inv.Valid {
+		out.InvoiceNumber = inv.String
 	}
 	return &out, nil
 }
@@ -338,4 +402,17 @@ func (r *PrintManagementRepository) GetOrganizationBankAccount(organizationID st
 		return nil, err
 	}
 	return &out, nil
+}
+
+func (r *PrintManagementRepository) CountPaymentOrdersByOrganization(organizationID string) (int, error) {
+	orgExpr := "organization_id = " + r.placeholder(1)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		orgExpr = "organization_id::text = " + r.placeholder(1)
+	}
+	query := fmt.Sprintf(`SELECT COUNT(1) FROM payment_orders WHERE %s AND COALESCE(status, 0) > 0`, orgExpr)
+	var count int
+	if err := database.QueryRow(r.db, query, organizationID).Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
 }

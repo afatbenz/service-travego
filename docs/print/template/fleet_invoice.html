@@ -1,564 +1,538 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Invoice — Calista Prima Wisata</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,700;1,600&display=swap" rel="stylesheet">
 <style>
-  .invoice {
-    color: #111827;
-    font-family: Arial, Helvetica, sans-serif;
+  :root {
+    --navy: #1B2A3B;
+    --teal: #2A7F7F;
+    --teal-light: #E8F4F4;
+    --gold: #C8941A;
+    --gold-light: #FDF5E4;
+    --paper: #FFFFFF;
+    --bg: #F0F2F5;
+    --muted: #6B7280;
+    --border: #E5E7EB;
+    --ink: #1F2937;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  @media print {
+    body { background: white !important; padding: 0 !important; }
+    .no-print { display: none !important; }
+    .page { box-shadow: none !important; margin: 0 !important; max-width: 100% !important; }
+  }
+
+  body {
+    background: var(--bg);
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    color: var(--ink);
+    padding: 2rem;
+    min-height: 100vh;
+  }
+
+  .toolbar {
+    max-width: 820px;
+    margin: 0 auto 1.2rem;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .btn {
     font-size: 12px;
-    line-height: 1.45;
+    font-weight: 600;
+    padding: 8px 20px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all .15s;
+  }
+  .btn-outline { background: white; border: 1.5px solid #4b2c04; color: #4b2c04; }
+  .btn-outline:hover { background: #4b2c04; color: white; }
+  .btn-solid { background: #4b2c04; border: 1.5px solid #4b2c04; color: white; }
+  .btn-solid:hover { background: #206868; }
+
+  .page {
+    background: var(--paper);
+    max-width: 820px;
     margin: 0 auto;
-    max-width: 900px;
-    padding: 24px;
+    box-shadow: 0 2px 32px rgba(0,0,0,.12);
+    border-radius: 4px;
+    overflow: hidden;
   }
 
-  .invoice p {
-    margin: 0 0 4px;
+  /* ─── HEADER ─── */
+  .page-header {
+    padding: 28px 40px 24px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: start;
+    border-bottom: 3px solid #4b2c04;
+  }
+  .company-logo-area {}
+  .logo-text {
+    font-family: 'Playfair Display', serif;
+    font-size: 30px;
+    font-weight: 700;
+    color: #4b2c04;
+    line-height: 1;
+  }
+  .logo-text span { color: #4b2c04; }
+  .logo-sub {
+    font-size: 11px;
+    color: #4b2c04;
+    font-weight: 600;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    margin-top: 4px;
+  }
+  .company-info {
+    margin-top: 10px;
+    font-size: 11.5px;
+    color: var(--muted);
+    line-height: 1.8;
   }
 
-  .invoice table {
-    border-collapse: collapse;
-    width: 100%;
+  .header-right { text-align: right; }
+  .invoice-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 36px;
+    font-style: italic;
+    color: #4b2c04;
+    line-height: 1;
   }
-
-  .invoice-header td {
-    vertical-align: top;
-  }
-
-  .invoice-header td:first-child {
-    padding-right: 16px;
-  }
-
-  .invoice-header img {
-    display: block;
-    height: auto;
-    max-width: 190px;
-    width: 100%;
-  }
-
   .invoice-meta {
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.9;
     text-align: right;
   }
-
-  .invoice-meta-title {
-    font-size: 18px;
-    font-weight: 800;
-    letter-spacing: 0.3px;
+  .invoice-meta strong { color: var(--ink); font-weight: 600; }
+  .inv-badge {
+    display: inline-block;
+    background: #4b2c04;
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    padding: 3px 10px;
+    border-radius: 3px;
     margin-bottom: 6px;
   }
 
-  .invoice-qr {
-    border: 1px solid #e5e7eb;
-    height: 96px;
-    margin: 0 0 10px auto;
-    width: 96px;
+  /* ─── STATUS BAR ─── */
+  .status-bar {
+    background: var(--gold-light);
+    border-top: 1px solid #EDD896;
+    border-bottom: 1px solid #EDD896;
+    padding: 8px 40px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
   }
-
-  .section-title {
-    background: #f3f4f6;
-    border: 1px solid #e5e7eb;
-    font-size: 13px;
-    font-weight: 800;
-    margin-top: 16px;
-    padding: 8px 12px;
-  }
-
-  .kv-table {
-    margin-top: 6px;
-  }
-
-  .kv-table td {
-    padding: 4px 6px;
-    vertical-align: top;
-  }
-
-  .kv-table td:first-child {
+  .status-bar .ref { color: var(--muted); font-weight: 500; }
+  .status-bar .ref span { color: var(--ink); font-weight: 600; }
+  .status-pill {
+    background: #FEF3C7;
+    border: 1px solid var(--gold);
+    color: #70510A;
     font-weight: 700;
-    white-space: nowrap;
-    width: 170px;
+    font-size: 10px;
+    letter-spacing: .1em;
+    padding: 3px 12px;
+    border-radius: 99px;
+    text-transform: uppercase;
   }
 
-  .kv-table td:nth-child(2) {
-    width: 14px;
+  /* ─── BODY ─── */
+  .body { padding: 32px 40px; }
+
+  /* Parties */
+  .parties {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin-bottom: 28px;
+  }
+  .party-box {
+    background: var(--bg);
+    border-radius: 6px;
+    padding: 16px 18px;
+    border-left: 3px solid #4b2c04;
+  }
+  .party-box.right { border-left-color: #4b2c04; }
+  .party-label {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: #4b2c04;
+    margin-bottom: 8px;
+  }
+  .party-box.right .party-label { color: #4b2c04; }
+  .party-name { font-size: 14px; font-weight: 700; color: var(--ink); margin-bottom: 4px; }
+  .party-detail { font-size: 11.5px; color: var(--muted); line-height: 1.75; }
+
+  /* Section header */
+  .sec-header {
+    background: #4b2c04;
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    padding: 7px 14px;
+    border-radius: 4px 4px 0 0;
+    margin-bottom: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .sec-header::before {
+    content: '';
+    width: 3px; height: 12px;
+    background: #e1a900;
+    border-radius: 2px;
+    display: inline-block;
   }
 
-  .trip-table td {
-    padding: 4px 6px;
-    vertical-align: top;
+  /* Info grid */
+  .info-grid-wrap {
+    border: 1px solid var(--border);
+    border-top: none;
+    border-radius: 0 0 6px 6px;
+    overflow: hidden;
+    margin-bottom: 24px;
   }
-
-  .trip-table td:nth-child(2),
-  .trip-table td:nth-child(6) {
-    width: 14px;
+  .info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
   }
-
-  .trip-table td:nth-child(4) {
-    width: 24px;
+  .info-row {
+    display: flex;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12.5px;
   }
+  .info-row:last-child { border-bottom: none; }
+  .info-row.full { grid-column: 1 / -1; }
+  .info-label { color: var(--muted); width: 140px; flex-shrink: 0; font-weight: 500; }
+  .info-val { color: var(--ink); font-weight: 500; }
+  .info-row:nth-child(even) { background: #FAFAFA; }
 
-  .items-table {
-    margin-top: 8px;
+  /* Table */
+  .tbl-wrap {
+    border: 1px solid var(--border);
+    border-top: none;
+    border-radius: 0 0 6px 6px;
+    overflow: hidden;
+    margin-bottom: 24px;
   }
-
-  .items-table th,
-  .items-table td {
-    border: 1px solid #e5e7eb;
-    padding: 8px 10px;
-    vertical-align: top;
-  }
-
-  .items-table th {
-    background: #111827;
-    color: #ffffff;
-    font-weight: 800;
+  table { width: 100%; border-collapse: collapse; }
+  thead tr { background: #4b2c04; }
+  thead th {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: white;
+    padding: 10px 14px;
     text-align: left;
   }
-
-  .items-table th p,
-  .items-table td p {
-    margin: 0;
-  }
-
-  .items-table th:nth-child(1),
-  .items-table td:nth-child(1) {
-    text-align: center;
-    width: 42px;
-  }
-
-  .items-table th:nth-child(3),
-  .items-table td:nth-child(3) {
-    text-align: center;
-    width: 90px;
-    white-space: nowrap;
-  }
-
-  .items-table th:nth-child(4),
-  .items-table td:nth-child(4) {
-    text-align: center;
-    width: 80px;
-    white-space: nowrap;
-  }
-
-  .items-table th:nth-child(5),
-  .items-table td:nth-child(5),
-  .items-table th:nth-child(6),
-  .items-table td:nth-child(6) {
-    text-align: right;
-    white-space: nowrap;
-    width: 140px;
-  }
-
-  .summary-table {
-    margin-top: 10px;
-    width: 380px;
-    margin-left: auto;
-  }
-
-  .summary-table td {
-    padding: 6px 8px;
-  }
-
-  .summary-table td:last-child {
-    text-align: right;
-    white-space: nowrap;
-    width: 160px;
-  }
-
-  .summary-table tr.total td {
-    border-top: 2px solid #111827;
+  thead th:last-child, thead th.r { text-align: right; }
+  thead th.c { text-align: center; }
+  tbody tr:nth-child(even) { background: #F9FAFB; }
+  tbody tr:hover { background: var(--teal-light); }
+  tbody td, tfoot td {
+    padding: 5px 5px;
     font-size: 13px;
-    font-weight: 800;
-    padding-top: 10px;
+    color: var(--ink);
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
   }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody td.r { text-align: right; }
+  tbody td.c { text-align: center; }
 
-  .payment-table {
-    margin-top: 8px;
-  }
+  .vehicle-name { font-weight: 700; font-size: 13.5px; }
+  .vehicle-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
 
-  .payment-table td {
-    border: 1px solid #e5e7eb;
-    padding: 10px 12px;
-    vertical-align: top;
-    width: 50%;
+  /* Totals */
+  .totals-area {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin-bottom: 28px;
   }
 
   .note-box {
-    border: 1px dashed #d1d5db;
-    color: #374151;
-    font-style: italic;
-    margin-top: 8px;
-    padding: 10px 12px;
+    background: var(--gold-light);
+    border: 1px solid #EDD896;
+    border-radius: 6px;
+    padding: 16px 18px;
   }
+  .note-label {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--gold);
+    margin-bottom: 8px;
+  }
+  .note-text { font-size: 11.5px; color: #92400E; line-height: 1.7; font-style: italic; }
 
-  .signature-table {
+  .totals-box {}
+  .total-line {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    font-size: 13px;
+    border-bottom: 1px dashed var(--border);
+  }
+  .total-line:last-of-type { border-bottom: none; }
+  .total-line .lbl { color: var(--muted); }
+  .total-line .amt { font-weight: 600; color: var(--ink); }
+  .total-grand {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #4b2c04;
+    color: white;
+    padding: 14px 18px;
+    border-radius: 6px;
     margin-top: 12px;
   }
+  .total-grand .lbl { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+  .total-grand .amt { font-family: 'Playfair Display', serif; font-size: 24px; }
 
-  .signature-table td {
-    padding: 18px 6px 8px;
-    vertical-align: top;
-    width: 50%;
+  /* Payment */
+  .payment-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 28px;
   }
+  .pay-box {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .pay-head {
+    background: #4b2c04;
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    padding: 7px 14px;
+  }
+  .pay-body { padding: 14px; }
+  .pay-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    padding: 6px 0;
+    border-bottom: 1px dashed var(--border);
+  }
+  .pay-row:last-child { border-bottom: none; }
+  .pay-row .lbl { color: var(--muted); }
+  .pay-row .amt { font-weight: 600; color: var(--ink); }
+  .pay-row .due { font-size: 10px; color: var(--muted); margin-top: 2px; }
 
-  .footer {
-    color: #6b7280;
-    font-size: 11px;
-    font-style: italic;
-    margin-top: 16px;
+  .bank-box, .sign-box {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .bank-head { background: #4b2c04; color: white; font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; padding: 7px 14px; }
+  .bank-body, .sign-body { padding: 14px; font-size: 12px; line-height: 2; }
+  .bank-body strong { color: var(--ink); font-weight: 700; display: block; }
+  .bank-body span { color: var(--muted); }
+  .sign-body {
     text-align: center;
   }
-
-  @media print {
-    .invoice {
-      padding: 0;
-    }
-
-    .section-title,
-    .items-table th {
-      -webkit-print-color-adjust: exact;
-      print-color-adjust: exact;
-    }
+  .sign-line {
+    border-top: 2.0px solid #DBCFC5;
+    padding-top: 10px;
+    margin-top: 80px;
+    margin-bottom: 0px;
+    padding-bottom: 0px;
+    line-height: 0px;
   }
+  /* Footer */
+  .page-footer {
+    background: #4b2c04;
+    padding: 18px 40px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .footer-brand { font-family: 'Playfair Display', serif; font-size: 16px; color: white; font-style: italic; }
+  .footer-note { font-size: 11px; color: rgba(255,255,255,.5); }
+  .footer-ref { font-family: monospace; font-size: 10px; color: rgba(255,255,255,.4); }
 </style>
+</head>
+<body>
 
-<div class="invoice">
-  <table class="invoice-header">
-    <tbody>
-      <tr>
-        <td>
-<p><img src="data:image/png;base64,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" alt="" /></p>
-          <p>Jl. Raya Pariwisata No. 88, Bandung 40123</p>
-          <p>☎ (022) 1234-5678 ✉ info@armadanusantara.co.id</p>
-        </td>
-        <td>
-          <table class="invoice-meta">
-            <tbody>
-              <tr>
-                <td>
-                  <p class="invoice-meta-title">INVOICE</p>
-                </td>
-              </tr>
-              <tr>
-                <td>&nbsp;</td>
-              </tr>
-              <tr>
-                <td>
-                  <div class="invoice-qr">&nbsp;</div>
-                  <p><strong>INV-2024-XXXX</strong></p>
-                  <p>Status <strong>BELUM LUNAS</strong></p>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </td>
-      </tr>
-    </tbody>
-  </table>
+<div class="page">
 
-  <div class="section-title">Informasi Pemesan</div>
-  <table class="kv-table">
-    <tbody>
-      <tr>
-        <td>
-          <p>Nama Pemesan</p>
-        </td>
-        <td>
-          <p>:</p>
-        </td>
-        <td>
-          <p>[Nama Lengkap Pemesan]</p>
-        </td>
-      </tr>
-      <tr>
-        <td>
-          <p>Nama Instansi</p>
-        </td>
-        <td>
-          <p>:</p>
-        </td>
-        <td>
-          <p>[Instansi / Organisasi / Perusahaan]</p>
-        </td>
-      </tr>
-      <tr>
-        <td>
-          <p>Alamat</p>
-        </td>
-        <td>
-          <p>:</p>
-        </td>
-        <td>
-          <p>[Alamat Lengkap Pemesan]</p>
-        </td>
-      </tr>
-      <tr>
-        <td>
-          <p>No. Telepon</p>
-        </td>
-        <td>
-          <p>:</p>
-        </td>
-        <td>
-          <p>[08xx-xxxx-xxxx]</p>
-        </td>
-      </tr>
-    </tbody>
-  </table>
-
-  <div class="section-title">Detail Perjalanan</div>
-  <table class="trip-table">
-    <tbody>
-      <tr>
-        <td>
-          <p><strong>Tanggal Pesanan</strong></p>
-        </td>
-        <td>
-          <p>:</p>
-        </td>
-        <td>
-          <p>DD/MM/YYYY</p>
-        </td>
-        <td>&nbsp;</td>
-        <td>
-          <p><strong>Jam Berangkat</strong></p>
-        </td>
-        <td>
-          <p>:</p>
-        </td>
-        <td>
-          <p>HH:MM WIB</p>
-        </td>
-      </tr>
-      <tr>
-        <td>
-          <p><strong>Tanggal Perjalanan</strong></p>
-        </td>
-        <td>
-          <p>:</p>
-        </td>
-        <td>
-          <p>DD/MM/YYYY &ndash; DD/MM/YYYY</p>
-        </td>
-        <td>&nbsp;</td>
-        <td>
-          <p><strong>Durasi</strong></p>
-        </td>
-        <td>
-          <p>:</p>
-        </td>
-        <td>
-          <p>[X] Hari / [X] Malam</p>
-        </td>
-      </tr>
-      <tr>
-        <td>
-          <p><strong>Titik Keberangkatan</strong></p>
-        </td>
-        <td>
-          <p>:</p>
-        </td>
-        <td>
-          <p>[Titik Jemput / Lokasi]</p>
-        </td>
-        <td>&nbsp;</td>
-        <td>
-          <p><strong>Tujuan Perjalanan</strong></p>
-        </td>
-        <td>
-          <p>:</p>
-        </td>
-        <td>
-          <p>[Kota / Destinasi Wisata]</p>
-        </td>
-      </tr>
-    </tbody>
-  </table>
-
-  <div class="section-title">Armada yang Dipesan</div>
-  <table class="items-table">
-    <thead>
-      <tr>
-        <th>
-          <p><strong>No.</strong></p>
-        </th>
-        <th>
-          <p><strong>Nama Armada</strong></p>
-        </th>
-        <th>
-          <p><strong>Kapasitas</strong></p>
-        </th>
-        <th>
-          <p><strong>Jml. Unit</strong></p>
-        </th>
-        <th>
-          <p><strong>Harga / Unit</strong></p>
-        </th>
-        <th>
-          <p><strong>Subtotal</strong></p>
-        </th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td>
-          <p>1</p>
-        </td>
-        <td>
-          <p><strong>Bus Pariwisata Executive (AC)</strong></p>
-        </td>
-        <td>
-          <p>40 Pax</p>
-        </td>
-        <td>
-          <p>1</p>
-        </td>
-        <td>
-          <p>Rp 5.000.000</p>
-        </td>
-        <td>
-          <p>Rp 5.000.000</p>
-        </td>
-      </tr>
-      <tr>
-        <td>
-          <p>2</p>
-        </td>
-        <td>
-          <p><strong>Bus Pariwisata VIP (AC, Reclining)</strong></p>
-        </td>
-        <td>
-          <p>32 Pax</p>
-        </td>
-        <td>
-          <p>1</p>
-        </td>
-        <td>
-          <p>Rp 7.500.000</p>
-        </td>
-        <td>
-          <p>Rp 7.500.000</p>
-        </td>
-      </tr>
-      <tr>
-        <td>
-          <p>3</p>
-        </td>
-        <td>
-          <p><strong>[Nama Armada]</strong></p>
-        </td>
-        <td>
-          <p>[XX Pax]</p>
-        </td>
-        <td>
-          <p>[X]</p>
-        </td>
-        <td>
-          <p>Rp &mdash;</p>
-        </td>
-        <td>
-          <p>Rp &mdash;</p>
-        </td>
-      </tr>
-    </tbody>
-  </table>
-
-  <div class="section-title">Ringkasan Biaya</div>
-  <table class="summary-table">
-    <tbody>
-      <tr>
-        <td>
-          <p>Subtotal Armada</p>
-        </td>
-        <td>
-          <p>Rp 12.500.000</p>
-        </td>
-      </tr>
-      <tr>
-        <td>
-          <p>Biaya Lain-lain (Parkir, Tol, dll.)</p>
-        </td>
-        <td>
-          <p>Rp 500.000</p>
-        </td>
-      </tr>
-      <tr>
-        <td>
-          <p>Biaya Penginapan &amp; Uang Makan Supir</p>
-        </td>
-        <td>
-          <p>Rp 250.000</p>
-        </td>
-      </tr>
-      <tr>
-        <td>
-          <p>Pajak PPN 11%</p>
-        </td>
-        <td>
-          <p>Rp 1.402.500</p>
-        </td>
-      </tr>
-      <tr>
-        <td>
-          <p><em>Diskon (10%)</em></p>
-        </td>
-        <td>
-          <p>&minus; Rp 1.465.250</p>
-        </td>
-      </tr>
-      <tr class="total">
-        <td>
-          <p><strong>TOTAL PEMBAYARAN</strong></p>
-        </td>
-        <td>
-          <p><strong>Rp 13.187.250</strong></p>
-        </td>
-      </tr>
-    </tbody>
-  </table>
-
-  <div class="section-title">Informasi Pembayaran</div>
-  <table class="payment-table">
-    <tbody>
-      <tr>
-        <td>
-          <p><strong>Transfer ke Rekening</strong></p>
-          <p>Bank BCA &middot; No. Rek: <strong>1234567890</strong></p>
-          <p>A/N: PT Armada Nusantara Wisata</p>
-          <p><strong>DP 50% : Rp 6.593.625</strong> Jatuh Tempo: DD/MM/YYYY</p>
-          <p><strong>Pelunasan: Rp 6.593.625</strong> Jatuh Tempo: DD/MM/YYYY</p>
-        </td>
-        <td>
-          <p><strong>Konfirmasi Pembayaran</strong></p>
-          <p>WhatsApp : <strong>0812-3456-7890</strong></p>
-          <p>Email : <strong>invoice@armadanusantara.co.id</strong></p>
-          <p><em>* Sertakan No. Invoice saat konfirmasi</em></p>
-        </td>
-      </tr>
-    </tbody>
-  </table>
-
-  <div class="section-title">Permintaan Khusus</div>
-  <div class="note-box">
-    <p>
-      [Tuliskan permintaan khusus di sini &mdash; fasilitas tambahan, dekorasi, pemandu wisata, sound system, kebutuhan
-      aksesibilitas, dll.]
-    </p>
+  <!-- HEADER -->
+  <div class="page-header">
+    <div class="company-logo-area">
+      <div class="logo-text">
+        <img src="{{ company_logo }}" alt="{{ company_name }}" width="100px">
+      </div>
+      <div class="company-info">
+        {{ company_name }}<br>
+        {{ company_address }}, {{ company_city }}, {{ company_province }}<br>
+        📞 {{ company_phone }} &nbsp;·&nbsp; ✉ {{ company_email }} &nbsp;·&nbsp; {{ company_website }}
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="invoice-title">Invoice</div>
+      <div class="invoice-meta">
+        No. Invoice: <strong>{{ invoice_number }}</strong><br>
+        Tgl. Invoice: <strong>{{ invoice_date }}</strong><br>
+      </div>
+    </div>
   </div>
 
-  <table class="signature-table">
-    <tbody>
-      <tr>
-        <td>
-          <p>Disetujui oleh Pemesan</p>
-          <p><em>Nama &amp; Tanda Tangan</em></p>
-        </td>
-        <td>
-          <p>Hormat kami,</p>
-          <p><strong>PT Armada Nusantara Wisata</strong></p>
-          <p><em>Admin / Direktur</em></p>
-        </td>
-      </tr>
-    </tbody>
-  </table>
-
-  <div class="footer">
-    <p><em>Terima kasih telah mempercayakan perjalanan Anda kepada kami &middot; www.armadanusantara.co.id</em></p>
+  <!-- STATUS BAR -->
+  <div class="status-bar">
+    <span class="ref">No.Order : <span>{{ order_number }}</span> &nbsp;·&nbsp; Tgl. Pesanan: <span>{{ order_date }}</span></span>
+    <span class="status-pill">{{ payment_status }}</span>
   </div>
+
+  <div class="body">
+    <!-- DETAIL PERJALANAN -->
+    <div class="info-grid-wrap">
+      <div class="info-grid">
+        <div class="info-row">
+          <span class="info-label">Nama Pelanggan</span>
+          <span class="info-val">{{ customer_name }}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Instansi</span>
+          <span class="info-val">{{ customer_company }}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">No. Telepon</span>
+          <span class="info-val">{{ customer_phone }}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Email</span>
+          <span class="info-val">{{ customer_email }}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Tanggal Perjalanan</span>
+          <span class="info-val">{{ start_date }} - {{ end_date }}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Tujuan Perjalanan</span>
+          <span class="info-val">{{ destination }}</span>
+        </div>
+        <div class="info-row full">
+          <span class="info-label">Titik Keberangkatan</span>
+          <span class="info-val">{{ pickup_address }}, {{ pickup_city }}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- DETAIL ARMADA -->
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:40px">No</th>
+            <th>Nama Armada</th>
+            <th class="c" style="width:70px">QTY</th>
+            <th class="r" style="width:130px">Harga</th>
+            <th class="r" style="width:140px">Subtotal</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{ fleet_items_rows }}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="3"></td>
+            <td>Biaya Tambahan</td>
+            <td class="r" style="text-align: right;">Rp {{ additional_charges }}</td>
+          </tr>
+          <tr>
+            <td colspan="3"></td>
+            <td>Biaya lain lain</td>
+            <td class="r" style="text-align: right;">Rp {{ total_addon }}</td>
+          </tr>
+          <tr>
+            <td colspan="3"></td>
+            <td>Discount</td>
+            <td class="r" style="text-align: right;">Rp {{ total_discount }}</td>
+          </tr>
+          <tr>
+            <td colspan="3"></td>
+            <td>Total Tagihan</td>
+            <td class="r" style="font-weight: 600; text-align: right;">Rp {{ total_amount }}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+    <!-- TOTALS AREA -->
+
+    <!-- PAYMENT -->
+    <div class="payment-grid">
+      <div class="pay-box">
+        <div class="pay-head">Informasi Pembayaran</div>
+        <div class="pay-body">
+          <div class="pay-row">
+            <div>
+              <div class="lbl">Tipe Pembayaran</div>
+            </div>
+            <span class="amt">{{ payment_type }}</span>
+          </div>
+          <div class="pay-row">
+            <div>
+              <div class="lbl">Nominal</div>
+            </div>
+            <span class="amt">Rp {{ payment_amount }}</span>
+          </div>
+          <div class="pay-row">
+            <div>
+              <div class="lbl">Sisa Tagihan</div>
+            </div>
+            <span class="amt">Rp {{ remaining_amount }}</span>
+          </div>
+          <div class="pay-row">
+            <div>
+              <div class="lbl">Metode Pembayaran</div>
+            </div>
+            <span class="amt">{{ payment_method }}</span>
+          </div>
+        </div>
+      </div>
+      <div class="sign-box">
+        <div class="sign-body">
+          <strong style="margin-bottom: 70px;">{{ company_city }}, {{ current_date }}</strong>
+          <div class="sign-line"></div>
+          <span style="margin-top:0px;display:block;line-height: 0px;">{{ customer_name }}</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- FOOTER -->
+  <div class="page-footer">
+    <div class="footer-note" style="text-align: center; width: 100%;">Terima kasih atas kepercayaan Anda</div>
+  </div>
+
 </div>
+
+</body>
+</html>

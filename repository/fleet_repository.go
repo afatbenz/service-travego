@@ -730,6 +730,8 @@ func (r *FleetRepository) CreatePartnerOrder(orderID, fleetID, startDate, endDat
 		return err
 	}
 
+	_ = addons
+
 	defer func() {
 		if err != nil {
 			tx.Rollback()
@@ -853,68 +855,12 @@ func (r *FleetRepository) CreatePartnerOrder(orderID, fleetID, startDate, endDat
 		}
 	}
 
-	if len(addons) > 0 {
-		mode := 0
-		addonWithCreatedBy := fmt.Sprintf(`
-			INSERT INTO fleet_order_addons (order_addon_id, order_id, organization_id, addon_id, addon_price, addon_qty, created_at, created_by)
-			SELECT %s, %s, %s, uuid, addon_price, %s, %s, %s FROM fleet_addon WHERE uuid = %s
-		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7))
-		addonWithoutCreatedBy := fmt.Sprintf(`
-			INSERT INTO fleet_order_addons (order_addon_id, order_id, organization_id, addon_id, addon_price, addon_qty, created_at)
-			SELECT %s, %s, %s, uuid, addon_price, %s, %s FROM fleet_addon WHERE uuid = %s
-		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6))
-		addonLegacy := fmt.Sprintf(`
-			INSERT INTO fleet_order_addons (order_addon_id, order_id, addon_id, addon_price, created_at)
-			SELECT %s, %s, uuid, addon_price, %s FROM fleet_addon WHERE uuid = %s
-		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))
-
-		for _, a := range addons {
-			if a.AddonID == "" {
-				continue
-			}
-			addonQty := a.Quantity
-			if addonQty <= 0 {
-				addonQty = 1
-			}
-			id := uuid2()
-			var res sql.Result
-			for {
-				_, _ = database.TxExec(tx, "SAVEPOINT sp_addon")
-				if mode == 0 {
-					res, err = database.TxExec(tx, addonWithCreatedBy, id, orderID, orgID, addonQty, now, createdBy, a.AddonID)
-				} else if mode == 1 {
-					res, err = database.TxExec(tx, addonWithoutCreatedBy, id, orderID, orgID, addonQty, now, a.AddonID)
-				} else {
-					res, err = database.TxExec(tx, addonLegacy, id, orderID, now, a.AddonID)
-				}
-				if err == nil {
-					_, _ = database.TxExec(tx, "RELEASE SAVEPOINT sp_addon")
-					break
-				}
-				errMsg := strings.ToLower(err.Error())
-				if mode == 0 && (strings.Contains(errMsg, "unknown column") || strings.Contains(errMsg, "does not exist")) {
-					_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_addon")
-					mode = 1
-					continue
-				}
-				if mode == 1 && (strings.Contains(errMsg, "unknown column") || strings.Contains(errMsg, "does not exist")) {
-					_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_addon")
-					mode = 2
-					continue
-				}
-				return fmt.Errorf("insert addons: %w", err)
-			}
-			rows, _ := res.RowsAffected()
-			if rows == 0 {
-				return fmt.Errorf("addon not found: %s", a.AddonID)
-			}
-		}
-	}
-
 	// Insert fleet_order_items
 	if err := r.CreateFleetOrderItems(tx, orderID, orgID, createdBy, fleets); err != nil {
 		return err
 	}
+
+	_, _ = r.RecalculateFleetOrderTotal(tx, orderID, orgID)
 
 	if err = tx.Commit(); err != nil {
 		return err
@@ -930,15 +876,49 @@ func (r *FleetRepository) CreateFleetOrderItems(tx *sql.Tx, orderID, orgID, crea
 
 	now := time.Now()
 
+	priceIDs := make([]string, 0, len(fleets))
+	addonIDs := make([]string, 0)
+	for _, f := range fleets {
+		if strings.TrimSpace(f.PriceID) != "" {
+			priceIDs = append(priceIDs, f.PriceID)
+		}
+		for _, a := range f.Addons {
+			a = strings.TrimSpace(a)
+			if a != "" {
+				addonIDs = append(addonIDs, a)
+			}
+		}
+		if strings.TrimSpace(f.AddonID) != "" {
+			addonIDs = append(addonIDs, strings.TrimSpace(f.AddonID))
+		}
+	}
+	priceMap, _ := r.GetFleetPricesByIDs(priceIDs)
+	addonPriceMap, err := r.GetAddonPrices(addonIDs)
+	if err != nil {
+		return err
+	}
+
 	// Try with all columns first
 	insertWithAll := fmt.Sprintf(`
+		INSERT INTO fleet_order_items (order_item_id, organization_id, order_id, fleet_id, price_id, quantity, charge_amount, addon_amount, discount, sub_total, create_at, created_by, status)
+		VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
+		r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12))
+
+	// Fallback without created_by
+	insertWithoutCreatedBy := fmt.Sprintf(`
+		INSERT INTO fleet_order_items (order_item_id, organization_id, order_id, fleet_id, price_id, quantity, charge_amount, addon_amount, discount, sub_total, create_at, status)
+		VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
+		r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11))
+
+	insertWithAllNoAddon := fmt.Sprintf(`
 		INSERT INTO fleet_order_items (order_item_id, organization_id, order_id, fleet_id, price_id, quantity, charge_amount, discount, sub_total, create_at, created_by, status)
 		VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
 		r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11))
 
-	// Fallback without created_by
-	insertWithoutCreatedBy := fmt.Sprintf(`
+	insertWithoutCreatedByNoAddon := fmt.Sprintf(`
 		INSERT INTO fleet_order_items (order_item_id, organization_id, order_id, fleet_id, price_id, quantity, charge_amount, discount, sub_total, create_at, status)
 		VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
@@ -947,31 +927,311 @@ func (r *FleetRepository) CreateFleetOrderItems(tx *sql.Tx, orderID, orgID, crea
 	mode := 0
 	for _, f := range fleets {
 		id := uuid2()
-		subTotal := (float64(f.Qty) * 0) + f.BiayaLain - f.Discount // price will be fetched from fleet_prices if needed
+		q := f.Qty
+		if q <= 0 {
+			q = 1
+		}
+		unitPrice := 0.0
+		if strings.TrimSpace(f.PriceID) != "" {
+			if p, ok := priceMap[strings.TrimSpace(f.PriceID)]; ok {
+				unitPrice = p
+			} else {
+				p, _, e := r.GetPriceByID(strings.TrimSpace(f.PriceID))
+				if e == nil {
+					unitPrice = p
+				}
+			}
+		}
+
+		addonIDsForItem := normalizeAddonIDs(f.Addons, f.AddonID)
+		addonAmount := 0.0
+		for _, a := range addonIDsForItem {
+			addonAmount += addonPriceMap[a]
+		}
+
+		subTotal := (unitPrice * float64(q)) + (f.BiayaLain * float64(q)) + (addonAmount * float64(q)) - (f.Discount * float64(q))
+		if subTotal < 0 {
+			subTotal = 0
+		}
 
 		for {
 			_, _ = database.TxExec(tx, "SAVEPOINT sp_fleet_items")
 			var err error
 			if mode == 0 {
-				_, err = database.TxExec(tx, insertWithAll, id, orgID, orderID, f.ArmadaID, f.PriceID, f.Qty, f.BiayaLain, f.Discount, subTotal, now, createdBy)
+				_, err = database.TxExec(tx, insertWithAll, id, orgID, orderID, f.ArmadaID, f.PriceID, q, f.BiayaLain, addonAmount, f.Discount, subTotal, now, createdBy)
+			} else if mode == 1 {
+				_, err = database.TxExec(tx, insertWithoutCreatedBy, id, orgID, orderID, f.ArmadaID, f.PriceID, q, f.BiayaLain, addonAmount, f.Discount, subTotal, now)
+			} else if mode == 2 {
+				_, err = database.TxExec(tx, insertWithAllNoAddon, id, orgID, orderID, f.ArmadaID, f.PriceID, q, f.BiayaLain, f.Discount, subTotal, now, createdBy)
 			} else {
-				_, err = database.TxExec(tx, insertWithoutCreatedBy, id, orgID, orderID, f.ArmadaID, f.PriceID, f.Qty, f.BiayaLain, f.Discount, subTotal, now)
+				_, err = database.TxExec(tx, insertWithoutCreatedByNoAddon, id, orgID, orderID, f.ArmadaID, f.PriceID, q, f.BiayaLain, f.Discount, subTotal, now)
 			}
 			if err == nil {
 				_, _ = database.TxExec(tx, "RELEASE SAVEPOINT sp_fleet_items")
 				break
 			}
 			errMsg := strings.ToLower(err.Error())
-			if mode == 0 && (strings.Contains(errMsg, "unknown column") || strings.Contains(errMsg, "does not exist")) {
+			if mode < 3 && (strings.Contains(errMsg, "unknown column") || strings.Contains(errMsg, "does not exist")) {
 				_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_fleet_items")
-				mode = 1
+				mode++
 				continue
 			}
 			return fmt.Errorf("insert fleet_order_items: %w", err)
 		}
+
+		if err := r.replaceFleetOrderItemAddons(tx, orderID, orgID, createdBy, id, addonIDsForItem, now, false); err != nil {
+			return err
+		}
 	}
 
 	return nil
+}
+
+func normalizeAddonIDs(addons []string, addonID string) []string {
+	seen := make(map[string]struct{}, len(addons)+1)
+	out := make([]string, 0, len(addons)+1)
+	for _, a := range addons {
+		a = strings.TrimSpace(a)
+		if a == "" {
+			continue
+		}
+		if _, ok := seen[a]; ok {
+			continue
+		}
+		seen[a] = struct{}{}
+		out = append(out, a)
+	}
+	addonID = strings.TrimSpace(addonID)
+	if addonID != "" {
+		if _, ok := seen[addonID]; !ok {
+			out = append(out, addonID)
+		}
+	}
+	return out
+}
+
+func (r *FleetRepository) replaceFleetOrderItemAddons(tx *sql.Tx, orderID, orgID, createdBy, orderItemID string, addonIDs []string, now time.Time, deleteFirst bool) error {
+	if len(addonIDs) == 0 {
+		if !deleteFirst {
+			return nil
+		}
+	}
+
+	orgExpr := "organization_id = " + r.getPlaceholder(3)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		orgExpr = "organization_id::text = " + r.getPlaceholder(3)
+	}
+
+	if deleteFirst {
+		delCandidates := []struct {
+			query string
+			args  []interface{}
+		}{
+			{
+				query: fmt.Sprintf(`DELETE FROM fleet_order_addons WHERE order_item_id = %s AND order_id = %s AND %s`, r.getPlaceholder(1), r.getPlaceholder(2), orgExpr),
+				args:  []interface{}{orderItemID, orderID, orgID},
+			},
+			{
+				query: fmt.Sprintf(`DELETE FROM fleet_order_addons WHERE order_item_id = %s AND order_id = %s`, r.getPlaceholder(1), r.getPlaceholder(2)),
+				args:  []interface{}{orderItemID, orderID},
+			},
+		}
+		var deleted bool
+		for _, c := range delCandidates {
+			_, _ = database.TxExec(tx, "SAVEPOINT sp_del_addons_item")
+			_, e := database.TxExec(tx, c.query, c.args...)
+			if e == nil {
+				_, _ = database.TxExec(tx, "RELEASE SAVEPOINT sp_del_addons_item")
+				deleted = true
+				break
+			}
+			_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_del_addons_item")
+			msg := strings.ToLower(e.Error())
+			if strings.Contains(msg, "unknown column") || strings.Contains(msg, "does not exist") || strings.Contains(msg, "column") {
+				continue
+			}
+			return e
+		}
+		_ = deleted
+	}
+
+	if len(addonIDs) == 0 {
+		return nil
+	}
+
+	addonWithCreatedBy := fmt.Sprintf(`
+		INSERT INTO fleet_order_addons (order_addon_id, order_id, order_item_id, organization_id, addon_id, addon_price, created_at, created_by)
+		SELECT %s, %s, %s, %s, uuid, addon_price, %s, %s FROM fleet_addon WHERE uuid = %s
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7))
+	addonWithoutCreatedBy := fmt.Sprintf(`
+		INSERT INTO fleet_order_addons (order_addon_id, order_id, order_item_id, organization_id, addon_id, addon_price, created_at)
+		SELECT %s, %s, %s, %s, uuid, addon_price, %s FROM fleet_addon WHERE uuid = %s
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6))
+
+	addonWithCreatedByQty := fmt.Sprintf(`
+		INSERT INTO fleet_order_addons (order_addon_id, order_id, order_item_id, organization_id, addon_id, addon_price, addon_qty, created_at, created_by)
+		SELECT %s, %s, %s, %s, uuid, addon_price, %s, %s, %s FROM fleet_addon WHERE uuid = %s
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8))
+	addonWithoutCreatedByQty := fmt.Sprintf(`
+		INSERT INTO fleet_order_addons (order_addon_id, order_id, order_item_id, organization_id, addon_id, addon_price, addon_qty, created_at)
+		SELECT %s, %s, %s, %s, uuid, addon_price, %s, %s FROM fleet_addon WHERE uuid = %s
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7))
+
+	for _, a := range addonIDs {
+		if strings.TrimSpace(a) == "" {
+			continue
+		}
+		id := uuid2()
+		_, _ = database.TxExec(tx, "SAVEPOINT sp_ins_addon_item")
+		res, execErr := database.TxExec(tx, addonWithCreatedBy, id, orderID, orderItemID, orgID, now, createdBy, a)
+		if execErr != nil {
+			msg := strings.ToLower(execErr.Error())
+			if strings.Contains(msg, "unknown column") || strings.Contains(msg, "does not exist") || strings.Contains(msg, "column") {
+				_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_ins_addon_item")
+				res2, execErr2 := database.TxExec(tx, addonWithoutCreatedBy, id, orderID, orderItemID, orgID, now, a)
+				if execErr2 == nil {
+					_, _ = database.TxExec(tx, "RELEASE SAVEPOINT sp_ins_addon_item")
+					rows2, _ := res2.RowsAffected()
+					if rows2 == 0 {
+						return fmt.Errorf("addon not found: %s", a)
+					}
+					continue
+				}
+
+				msg2 := strings.ToLower(execErr2.Error())
+				if strings.Contains(msg2, "unknown column") || strings.Contains(msg2, "does not exist") || strings.Contains(msg2, "column") {
+					_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_ins_addon_item")
+					addonQty := 1
+					res3, execErr3 := database.TxExec(tx, addonWithCreatedByQty, id, orderID, orderItemID, orgID, addonQty, now, createdBy, a)
+					if execErr3 == nil {
+						_, _ = database.TxExec(tx, "RELEASE SAVEPOINT sp_ins_addon_item")
+						rows3, _ := res3.RowsAffected()
+						if rows3 == 0 {
+							return fmt.Errorf("addon not found: %s", a)
+						}
+						continue
+					}
+					msg3 := strings.ToLower(execErr3.Error())
+					if strings.Contains(msg3, "unknown column") || strings.Contains(msg3, "does not exist") || strings.Contains(msg3, "column") {
+						_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_ins_addon_item")
+						res4, execErr4 := database.TxExec(tx, addonWithoutCreatedByQty, id, orderID, orderItemID, orgID, addonQty, now, a)
+						if execErr4 != nil {
+							return fmt.Errorf("insert addons: %w", execErr4)
+						}
+						_, _ = database.TxExec(tx, "RELEASE SAVEPOINT sp_ins_addon_item")
+						rows4, _ := res4.RowsAffected()
+						if rows4 == 0 {
+							return fmt.Errorf("addon not found: %s", a)
+						}
+						continue
+					}
+					return fmt.Errorf("insert addons: %w", execErr3)
+				}
+				return fmt.Errorf("insert addons: %w", execErr2)
+			}
+			return fmt.Errorf("insert addons: %w", execErr)
+		}
+		_, _ = database.TxExec(tx, "RELEASE SAVEPOINT sp_ins_addon_item")
+		rows, _ := res.RowsAffected()
+		if rows == 0 {
+			return fmt.Errorf("addon not found: %s", a)
+		}
+	}
+	return nil
+}
+
+func (r *FleetRepository) getFleetOrderAddonIDsByItem(tx *sql.Tx, orderID, orgID, orderItemID string) (map[string]struct{}, error) {
+	out := map[string]struct{}{}
+	orderItemID = strings.TrimSpace(orderItemID)
+	if orderItemID == "" {
+		return out, nil
+	}
+
+	orgExpr := "organization_id = " + r.getPlaceholder(3)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		orgExpr = "organization_id::text = " + r.getPlaceholder(3)
+	}
+
+	candidates := []struct {
+		query string
+		args  []interface{}
+	}{
+		{
+			query: fmt.Sprintf(`SELECT addon_id FROM fleet_order_addons WHERE order_item_id = %s AND order_id = %s AND %s`, r.getPlaceholder(1), r.getPlaceholder(2), orgExpr),
+			args:  []interface{}{orderItemID, orderID, orgID},
+		},
+		{
+			query: fmt.Sprintf(`SELECT addon_id FROM fleet_order_addons WHERE order_item_id = %s AND order_id = %s`, r.getPlaceholder(1), r.getPlaceholder(2)),
+			args:  []interface{}{orderItemID, orderID},
+		},
+	}
+
+	for _, c := range candidates {
+		rows, err := database.TxQuery(tx, c.query, c.args...)
+		if err != nil {
+			msg := strings.ToLower(err.Error())
+			if strings.Contains(msg, "unknown column") || strings.Contains(msg, "does not exist") || strings.Contains(msg, "column") {
+				continue
+			}
+			return nil, err
+		}
+		for rows.Next() {
+			var id sql.NullString
+			if err := rows.Scan(&id); err != nil {
+				_ = rows.Close()
+				return nil, err
+			}
+			if id.Valid && strings.TrimSpace(id.String) != "" {
+				out[strings.TrimSpace(id.String)] = struct{}{}
+			}
+		}
+		_ = rows.Close()
+		return out, nil
+	}
+
+	return out, nil
+}
+
+func addonIDsEqual(existing map[string]struct{}, requested []string) bool {
+	if len(existing) != len(requested) {
+		return false
+	}
+	for _, id := range requested {
+		if _, ok := existing[id]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func (r *FleetRepository) RecalculateFleetOrderTotal(tx *sql.Tx, orderID, organizationID string) (float64, error) {
+	orgExpr := "organization_id = " + r.getPlaceholder(2)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		orgExpr = "organization_id::text = " + r.getPlaceholder(2)
+	}
+
+	sumQuery := fmt.Sprintf(`SELECT COALESCE(SUM(sub_total), 0), COUNT(1) FROM fleet_order_items WHERE order_id = %s AND %s`, r.getPlaceholder(1), orgExpr)
+	var sumSubTotal float64
+	var count int
+	if err := database.TxQueryRow(tx, sumQuery, orderID, organizationID).Scan(&sumSubTotal, &count); err != nil {
+		return 0, err
+	}
+	if count == 0 {
+		return 0, sql.ErrNoRows
+	}
+	if sumSubTotal < 0 {
+		sumSubTotal = 0
+	}
+	total := sumSubTotal
+	if total < 0 {
+		total = 0
+	}
+
+	updateQuery := fmt.Sprintf(`UPDATE fleet_orders SET total_amount = %s WHERE order_id = %s AND %s`, r.getPlaceholder(1), r.getPlaceholder(2), orgExpr)
+	if _, err := database.TxExec(tx, updateQuery, total, orderID, organizationID); err != nil {
+		return 0, err
+	}
+	return total, nil
 }
 
 type UpdatePartnerOrderInput struct {
@@ -1001,8 +1261,10 @@ type UpdatePartnerOrderFleetItem struct {
 	PriceID      string
 	Qty          int
 	ChargeAmount float64
+	AddonAmount  float64
 	Discount     float64
 	SubTotal     float64
+	Addons       []string
 }
 
 type UpdatePartnerOrderItineraryItem struct {
@@ -1296,41 +1558,102 @@ func (r *FleetRepository) UpdatePartnerOrder(in UpdatePartnerOrderInput) (err er
 		if q <= 0 {
 			q = 1
 		}
+		addonIDsForItem := normalizeAddonIDs(f.Addons, "")
 		if strings.TrimSpace(f.OrderItemID) == "" {
 			id := uuid2()
 			insertWithAll := fmt.Sprintf(`
+				INSERT INTO fleet_order_items (order_item_id, organization_id, order_id, fleet_id, price_id, quantity, charge_amount, addon_amount, discount, sub_total, create_at, created_by, status)
+				VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
+			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
+				r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12))
+			insertWithoutCreatedBy := fmt.Sprintf(`
+				INSERT INTO fleet_order_items (order_item_id, organization_id, order_id, fleet_id, price_id, quantity, charge_amount, addon_amount, discount, sub_total, create_at, status)
+				VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
+			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
+				r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11))
+			insertWithAllNoAddon := fmt.Sprintf(`
 				INSERT INTO fleet_order_items (order_item_id, organization_id, order_id, fleet_id, price_id, quantity, charge_amount, discount, sub_total, create_at, created_by, status)
 				VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
 			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
 				r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11))
-			insertWithoutCreatedBy := fmt.Sprintf(`
+			insertWithoutCreatedByNoAddon := fmt.Sprintf(`
 				INSERT INTO fleet_order_items (order_item_id, organization_id, order_id, fleet_id, price_id, quantity, charge_amount, discount, sub_total, create_at, status)
 				VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
 			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
 				r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10))
 
 			_, _ = database.TxExec(tx, "SAVEPOINT sp_ins_item")
-			_, e := database.TxExec(tx, insertWithAll, id, in.OrganizationID, in.OrderID, f.FleetID, f.PriceID, q, f.ChargeAmount, f.Discount, f.SubTotal, now, in.UpdatedBy)
+			_, e := database.TxExec(tx, insertWithAll, id, in.OrganizationID, in.OrderID, f.FleetID, f.PriceID, q, f.ChargeAmount, f.AddonAmount, f.Discount, f.SubTotal, now, in.UpdatedBy)
 			if e != nil {
 				msg := strings.ToLower(e.Error())
 				if strings.Contains(msg, "unknown column") || strings.Contains(msg, "does not exist") || strings.Contains(msg, "column") {
 					_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_ins_item")
-					_, e2 := database.TxExec(tx, insertWithoutCreatedBy, id, in.OrganizationID, in.OrderID, f.FleetID, f.PriceID, q, f.ChargeAmount, f.Discount, f.SubTotal, now)
+					_, e2 := database.TxExec(tx, insertWithoutCreatedBy, id, in.OrganizationID, in.OrderID, f.FleetID, f.PriceID, q, f.ChargeAmount, f.AddonAmount, f.Discount, f.SubTotal, now)
 					if e2 != nil {
-						return e2
+						msg2 := strings.ToLower(e2.Error())
+						if strings.Contains(msg2, "unknown column") || strings.Contains(msg2, "does not exist") || strings.Contains(msg2, "column") {
+							_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_ins_item")
+							_, e3 := database.TxExec(tx, insertWithAllNoAddon, id, in.OrganizationID, in.OrderID, f.FleetID, f.PriceID, q, f.ChargeAmount, f.Discount, f.SubTotal, now, in.UpdatedBy)
+							if e3 != nil {
+								msg3 := strings.ToLower(e3.Error())
+								if strings.Contains(msg3, "unknown column") || strings.Contains(msg3, "does not exist") || strings.Contains(msg3, "column") {
+									_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_ins_item")
+									_, e4 := database.TxExec(tx, insertWithoutCreatedByNoAddon, id, in.OrganizationID, in.OrderID, f.FleetID, f.PriceID, q, f.ChargeAmount, f.Discount, f.SubTotal, now)
+									if e4 != nil {
+										return e4
+									}
+								} else {
+									return e3
+								}
+							}
+						} else {
+							return e2
+						}
 					}
 				} else {
 					return e
 				}
 			}
 			_, _ = database.TxExec(tx, "RELEASE SAVEPOINT sp_ins_item")
+
+			if err := r.replaceFleetOrderItemAddons(tx, in.OrderID, in.OrganizationID, in.UpdatedBy, id, addonIDsForItem, now, false); err != nil {
+				return err
+			}
 			continue
+		}
+
+		existingAddonSet, err := r.getFleetOrderAddonIDsByItem(tx, in.OrderID, in.OrganizationID, strings.TrimSpace(f.OrderItemID))
+		if err != nil {
+			return err
+		}
+		if !addonIDsEqual(existingAddonSet, addonIDsForItem) {
+			if err := r.replaceFleetOrderItemAddons(tx, in.OrderID, in.OrganizationID, in.UpdatedBy, strings.TrimSpace(f.OrderItemID), addonIDsForItem, now, true); err != nil {
+				return err
+			}
 		}
 
 		updateItemCandidates := []struct {
 			query string
 			args  []interface{}
 		}{
+			{
+				query: fmt.Sprintf(`
+					UPDATE fleet_order_items
+					SET fleet_id = %s, price_id = %s, quantity = %s, charge_amount = %s, addon_amount = %s, discount = %s, sub_total = %s, updated_at = %s, updated_by = %s
+					WHERE order_item_id = %s AND order_id = %s AND %s
+				`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7),
+					r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11), orgWhereAt(12)),
+				args: []interface{}{f.FleetID, f.PriceID, q, f.ChargeAmount, f.AddonAmount, f.Discount, f.SubTotal, now, in.UpdatedBy, f.OrderItemID, in.OrderID, in.OrganizationID},
+			},
+			{
+				query: fmt.Sprintf(`
+					UPDATE fleet_order_items
+					SET fleet_id = %s, price_id = %s, quantity = %s, charge_amount = %s, addon_amount = %s, discount = %s, sub_total = %s
+					WHERE order_item_id = %s AND order_id = %s AND %s
+				`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7),
+					r.getPlaceholder(8), r.getPlaceholder(9), orgWhereAt(10)),
+				args: []interface{}{f.FleetID, f.PriceID, q, f.ChargeAmount, f.AddonAmount, f.Discount, f.SubTotal, f.OrderItemID, in.OrderID, in.OrganizationID},
+			},
 			{
 				query: fmt.Sprintf(`
 					UPDATE fleet_order_items
@@ -1376,14 +1699,14 @@ func (r *FleetRepository) UpdatePartnerOrder(in UpdatePartnerOrderInput) (err er
 	if r.driver == "postgres" || r.driver == "pgx" {
 		sumOrgExpr = "organization_id::text = " + r.getPlaceholder(2)
 	}
-	sumQuery := fmt.Sprintf(`SELECT COALESCE(SUM(sub_total), 0), COALESCE(SUM(discount), 0) FROM fleet_order_items WHERE order_id = %s AND %s`, r.getPlaceholder(1), sumOrgExpr)
+	sumQuery := fmt.Sprintf(`SELECT COALESCE(SUM(sub_total), 0), COALESCE(SUM(COALESCE(discount, 0) * COALESCE(quantity, 0)), 0) FROM fleet_order_items WHERE order_id = %s AND %s`, r.getPlaceholder(1), sumOrgExpr)
 	var sumSubTotal, sumDiscount float64
 	sumErr := database.TxQueryRow(tx, sumQuery, in.OrderID, in.OrganizationID).Scan(&sumSubTotal, &sumDiscount)
 	finalTotal := in.TotalAmount
 	finalDiscount := in.DiscountTotal
 	if sumErr == nil {
 		finalDiscount = in.DiscountAmount + sumDiscount
-		finalTotal = sumSubTotal + in.AdditionalAmount - in.DiscountAmount
+		finalTotal = sumSubTotal
 		if finalTotal < 0 {
 			finalTotal = 0
 		}
@@ -1816,7 +2139,7 @@ func (r *FleetRepository) FindOrderDetail(orderID, organizationID string) (*mode
 
 	// Addons
 	addonQuery := fmt.Sprintf(`
-        SELECT fa.addon_name, fa.addon_price
+        SELECT fa.addon_name, fa.addon_desc, fa.addon_price
         FROM fleet_order_addons foa 
         JOIN fleet_addon fa ON foa.addon_id = fa.uuid 
         WHERE foa.order_id = %s
@@ -1828,7 +2151,7 @@ func (r *FleetRepository) FindOrderDetail(orderID, organizationID string) (*mode
 	defer aRows.Close()
 	for aRows.Next() {
 		var a model.OrderDetailAddon
-		if err := aRows.Scan(&a.AddonName, &a.AddonPrice); err == nil {
+		if err := aRows.Scan(&a.AddonName, &a.AddonDesc, &a.AddonPrice); err == nil {
 			res.Addon = append(res.Addon, a)
 		}
 	}
@@ -1908,6 +2231,121 @@ func (r *FleetRepository) UpdatePaymentEvidence(orderID, organizationID, filePat
 	return err
 }
 
+func (r *FleetRepository) SyncFleetOrderTotalAmountFromItems(orderID, organizationID string) (float64, error) {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	orderExpr := "order_id = " + r.getPlaceholder(1)
+	orgExpr := "organization_id = " + r.getPlaceholder(2)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		orderExpr = "order_id::text = " + r.getPlaceholder(1)
+		orgExpr = "organization_id::text = " + r.getPlaceholder(2)
+	}
+
+	lockQuery := fmt.Sprintf("SELECT total_amount FROM fleet_orders WHERE %s AND %s FOR UPDATE", orderExpr, orgExpr)
+	var oldTotal float64
+	if e := database.TxQueryRow(tx, lockQuery, orderID, organizationID).Scan(&oldTotal); e != nil {
+		err = e
+		return 0, err
+	}
+
+	countQuery := fmt.Sprintf("SELECT COUNT(1) FROM fleet_order_items WHERE %s AND %s AND COALESCE(status, 1) > 0", orderExpr, orgExpr)
+	var itemCount int
+	if e := database.TxQueryRow(tx, countQuery, orderID, organizationID).Scan(&itemCount); e != nil {
+		err = e
+		return 0, err
+	}
+	if itemCount == 0 {
+		err = sql.ErrNoRows
+		return 0, err
+	}
+
+	joinExpr := "fp.uuid = oi.price_id"
+	if r.driver == "postgres" || r.driver == "pgx" {
+		joinExpr = "fp.uuid::text = oi.price_id::text"
+	}
+	var sumItems float64
+	useLegacyAddonSum := false
+	itemsQueryNew := fmt.Sprintf(`
+		SELECT COALESCE(SUM(
+			(COALESCE(fp.price, 0) * COALESCE(oi.quantity, 0)) +
+			(COALESCE(oi.charge_amount, 0) * COALESCE(oi.quantity, 0)) +
+			(COALESCE(oi.addon_amount, 0) * COALESCE(oi.quantity, 0)) -
+			(COALESCE(oi.discount, 0) * COALESCE(oi.quantity, 0))
+		), 0)
+		FROM fleet_order_items oi
+		LEFT JOIN fleet_prices fp ON %s
+		WHERE %s AND %s AND COALESCE(oi.status, 1) > 0
+	`, joinExpr, "oi."+orderExpr, "oi."+orgExpr)
+	if e := database.TxQueryRow(tx, itemsQueryNew, orderID, organizationID).Scan(&sumItems); e != nil {
+		msg := strings.ToLower(e.Error())
+		if strings.Contains(msg, "unknown column") || strings.Contains(msg, "does not exist") || strings.Contains(msg, "column") {
+			useLegacyAddonSum = true
+			itemsQueryOld := fmt.Sprintf(`
+				SELECT COALESCE(SUM((COALESCE(fp.price, 0) * COALESCE(oi.quantity, 0)) + COALESCE(oi.charge_amount, 0) - COALESCE(oi.discount, 0)), 0)
+				FROM fleet_order_items oi
+				LEFT JOIN fleet_prices fp ON %s
+				WHERE %s AND %s AND COALESCE(oi.status, 1) > 0
+			`, joinExpr, "oi."+orderExpr, "oi."+orgExpr)
+			if e2 := database.TxQueryRow(tx, itemsQueryOld, orderID, organizationID).Scan(&sumItems); e2 != nil {
+				err = e2
+				return 0, err
+			}
+		} else {
+			err = e
+			return 0, err
+		}
+	}
+	if sumItems < 0 {
+		sumItems = 0
+	}
+
+	var sumAddons float64
+	if useLegacyAddonSum {
+		addonsQuery := fmt.Sprintf(`SELECT COALESCE(SUM(COALESCE(addon_price, 0) * COALESCE(addon_qty, 1)), 0) FROM fleet_order_addons WHERE %s AND %s`, orderExpr, orgExpr)
+		_ = database.TxQueryRow(tx, addonsQuery, orderID, organizationID).Scan(&sumAddons)
+		if sumAddons < 0 {
+			sumAddons = 0
+		}
+	}
+
+	total := sumItems + sumAddons
+	if total < 0 {
+		total = 0
+	}
+
+	diff := total - oldTotal
+	if diff < 0 {
+		diff = -diff
+	}
+	if diff > 0.0001 {
+		updOrderExpr := "order_id = " + r.getPlaceholder(2)
+		updOrgExpr := "organization_id = " + r.getPlaceholder(3)
+		if r.driver == "postgres" || r.driver == "pgx" {
+			updOrderExpr = "order_id::text = " + r.getPlaceholder(2)
+			updOrgExpr = "organization_id::text = " + r.getPlaceholder(3)
+		}
+		updateQuery := fmt.Sprintf("UPDATE fleet_orders SET total_amount = %s WHERE %s AND %s", r.getPlaceholder(1), updOrderExpr, updOrgExpr)
+		if _, e := database.TxExec(tx, updateQuery, total, orderID, organizationID); e != nil {
+			err = e
+			return 0, err
+		}
+	}
+
+	if e := tx.Commit(); e != nil {
+		err = e
+		return 0, err
+	}
+	return total, nil
+}
+
 func (r *FleetRepository) GetOrderTotalAmountByType(orderType int, orderID, organizationID string) (float64, error) {
 	var query string
 	switch orderType {
@@ -1959,23 +2397,53 @@ func (r *FleetRepository) GetServiceOrderPaymentStats(orderID, organizationID st
 	}, nil
 }
 
-func (r *FleetRepository) InsertServiceOrderPayment(req *model.CreateServiceOrderPaymentRequest, totalAmount, remainingAmount float64) (string, error) {
+func (r *FleetRepository) generatePaymentOrderInvoiceNumber(tx *sql.Tx, orderType int, organizationID string, now time.Time) (string, error) {
+	orgExpr := "organization_id = " + r.getPlaceholder(1)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		orgExpr = "organization_id::text = " + r.getPlaceholder(1)
+	}
+	query := fmt.Sprintf(`SELECT COUNT(1) FROM payment_orders WHERE %s`, orgExpr)
+	var count int
+	if err := database.TxQueryRow(tx, query, organizationID).Scan(&count); err != nil {
+		return "", err
+	}
+	seq := count + 1
+	datePart := now.Format("01200602")
+	return fmt.Sprintf("INV-%d%s-%d", orderType, datePart, seq), nil
+}
+
+func (r *FleetRepository) InsertServiceOrderPayment(req *model.CreateServiceOrderPaymentRequest, totalAmount, remainingAmount float64) (string, string, error) {
 	paymentID := uuid.New().String()
 	now := time.Now()
+	tx, err := r.db.Begin()
+	if err != nil {
+		return "", "", err
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+
+	invoiceNumber, err := r.generatePaymentOrderInvoiceNumber(tx, req.OrderType, req.OrganizationID, now)
+	if err != nil {
+		return "", "", err
+	}
 
 	query := fmt.Sprintf(`
 		INSERT INTO payment_orders
-			(payment_id, order_type, order_id, organization_id, payment_type, payment_method, bank_id, bank_account, payment_amount, total_amount, remaining_amount, evidence_file, status, created_at, created_by)
+			(payment_id, invoice_number, order_type, order_id, organization_id, payment_type, payment_method, bank_id, bank_account, payment_amount, total_amount, remaining_amount, evidence_file, status, created_at, created_by)
 		VALUES
-			(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, %s)
+			(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, %s)
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
 		r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10),
-		r.getPlaceholder(11), r.getPlaceholder(12), r.getPlaceholder(13), r.getPlaceholder(14))
+		r.getPlaceholder(11), r.getPlaceholder(12), r.getPlaceholder(13), r.getPlaceholder(14), r.getPlaceholder(15))
 
-	_, err := database.Exec(
-		r.db,
+	_, err = database.TxExec(
+		tx,
 		query,
 		paymentID,
+		invoiceNumber,
 		req.OrderType,
 		req.OrderID,
 		req.OrganizationID,
@@ -1991,9 +2459,12 @@ func (r *FleetRepository) InsertServiceOrderPayment(req *model.CreateServiceOrde
 		req.CreatedBy,
 	)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	return paymentID, nil
+	if err := tx.Commit(); err != nil {
+		return "", "", err
+	}
+	return paymentID, invoiceNumber, nil
 }
 
 func (r *FleetRepository) ListPaymentOrders(orderID string, orderType int, organizationID string) ([]model.PaymentOrderRow, error) {
@@ -2371,6 +2842,60 @@ func (r *FleetRepository) GetPartnerOrderFleetItems(organizationId, orderId stri
 		}
 		items = append(items, item)
 	}
+
+	if len(items) == 0 {
+		return items, nil
+	}
+
+	orgExpr := "oi.organization_id = " + r.getPlaceholder(1)
+	orderExpr := "oi.order_id = " + r.getPlaceholder(2)
+	itemJoinExpr := "oi.order_item_id = foa.order_item_id"
+	addonJoinExpr := "foa.addon_id = a.uuid"
+	if r.driver == "postgres" || r.driver == "pgx" {
+		orgExpr = "oi.organization_id::text = " + r.getPlaceholder(1)
+		orderExpr = "oi.order_id::text = " + r.getPlaceholder(2)
+		itemJoinExpr = "oi.order_item_id::text = foa.order_item_id::text"
+		addonJoinExpr = "foa.addon_id::text = a.uuid::text"
+	}
+
+	addonsQuery := fmt.Sprintf(`
+		SELECT oi.order_item_id, COALESCE(a.addon_name, ''), COALESCE(a.addon_desc, ''), COALESCE(foa.addon_price, 0)
+		FROM fleet_order_items oi
+		INNER JOIN fleet_order_addons foa ON %s
+		INNER JOIN fleet_addon a ON %s
+		WHERE %s AND %s
+	`, itemJoinExpr, addonJoinExpr, orgExpr, orderExpr)
+
+	aRows, err := database.Query(r.db, addonsQuery, organizationId, orderId)
+	if err != nil {
+		return nil, err
+	}
+	defer aRows.Close()
+
+	addonsByItem := make(map[string][]model.OrderDetailAddon)
+	addonAmountByItem := make(map[string]float64)
+	for aRows.Next() {
+		var orderItemID string
+		var a model.OrderDetailAddon
+		if err := aRows.Scan(&orderItemID, &a.AddonName, &a.AddonDesc, &a.AddonPrice); err != nil {
+			return nil, err
+		}
+		addonsByItem[orderItemID] = append(addonsByItem[orderItemID], a)
+		addonAmountByItem[orderItemID] += a.AddonPrice
+	}
+	if err := aRows.Err(); err != nil {
+		return nil, err
+	}
+
+	for i := range items {
+		if v, ok := addonsByItem[items[i].OrderItemID]; ok {
+			items[i].Addons = v
+		}
+		if v, ok := addonAmountByItem[items[i].OrderItemID]; ok {
+			items[i].AddonAmount = v
+		}
+	}
+
 	return items, nil
 }
 
@@ -2504,7 +3029,7 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 
 	// Addons
 	addonQuery := fmt.Sprintf(`
-        SELECT fa.addon_name, fa.addon_price
+        SELECT fa.addon_name, fa.addon_desc, foa.addon_price
         FROM fleet_order_addons foa 
         JOIN fleet_addon fa ON foa.addon_id = fa.uuid 
         WHERE foa.order_id = %s
@@ -2514,7 +3039,7 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 		defer aRows.Close()
 		for aRows.Next() {
 			var a model.OrderDetailAddon
-			if err := aRows.Scan(&a.AddonName, &a.AddonPrice); err == nil {
+			if err := aRows.Scan(&a.AddonName, &a.AddonDesc, &a.AddonPrice); err == nil {
 				res.Addon = append(res.Addon, a)
 			}
 		}
@@ -2990,7 +3515,7 @@ func (r *FleetRepository) GetFleetAvailibility(orgID string, reqStart time.Time,
 }
 
 func (r *FleetRepository) getPlaceholder(pos int) string {
-	if r.driver == "postgres" {
+	if r.driver == "postgres" || r.driver == "pgx" {
 		return fmt.Sprintf("$%d", pos)
 	}
 	return "?"

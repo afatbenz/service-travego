@@ -43,12 +43,13 @@ type FleetOrderUpdateRequest struct {
 }
 
 type FleetOrderUpdateFleetItem struct {
-	OrderItemID string  `json:"order_item_id"`
-	ArmadaID    string  `json:"armada_id"`
-	PriceID     string  `json:"price_id"`
-	Qty         int     `json:"qty"`
-	BiayaLain   float64 `json:"biaya_lain"`
-	Discount    float64 `json:"discount"`
+	OrderItemID string   `json:"order_item_id"`
+	ArmadaID    string   `json:"armada_id"`
+	PriceID     string   `json:"price_id"`
+	Qty         int      `json:"qty"`
+	BiayaLain   float64  `json:"biaya_lain"`
+	Discount    float64  `json:"discount"`
+	Addons      []string `json:"addons"`
 }
 
 type FleetOrderUpdateItineraryItem struct {
@@ -481,6 +482,38 @@ func (s *FleetService) CreatePartnerOrder(orgID, userID string, req *model.Fleet
 		qty = 1
 	}
 
+	if len(req.Fleets) == 0 {
+		req.Fleets = []model.FleetOrderFleetItem{
+			{
+				ArmadaID: strings.TrimSpace(req.FleetID),
+				PriceID:  strings.TrimSpace(req.PriceID),
+				Qty:      qty,
+			},
+		}
+	}
+
+	if len(req.Addons) > 0 {
+		legacyAddonIDs := make([]string, 0, len(req.Addons))
+		for _, a := range req.Addons {
+			if strings.TrimSpace(a.AddonID) == "" {
+				continue
+			}
+			legacyAddonIDs = append(legacyAddonIDs, strings.TrimSpace(a.AddonID))
+		}
+		if len(legacyAddonIDs) > 0 && len(req.Fleets) > 0 {
+			hasPerFleetAddons := false
+			for _, f := range req.Fleets {
+				if len(f.Addons) > 0 || strings.TrimSpace(f.AddonID) != "" {
+					hasPerFleetAddons = true
+					break
+				}
+			}
+			if !hasPerFleetAddons {
+				req.Fleets[0].Addons = legacyAddonIDs
+			}
+		}
+	}
+
 	pickupLoc := strings.TrimSpace(req.PickupLocation)
 	if pickupLoc == "" {
 		pickupLoc = strings.TrimSpace(req.PickupAddress)
@@ -512,30 +545,73 @@ func (s *FleetService) CreatePartnerOrder(orgID, userID string, req *model.Fleet
 			}
 		}
 	}
-	addonTotal := 0.0
-	if len(req.Addons) > 0 {
-		addonIDs := make([]string, 0, len(req.Addons))
-		qtyByID := make(map[string]int, len(req.Addons))
-		for _, a := range req.Addons {
-			if a.AddonID == "" {
-				continue
-			}
-			addonIDs = append(addonIDs, a.AddonID)
-			q := a.Quantity
-			if q <= 0 {
-				q = 1
-			}
-			qtyByID[a.AddonID] += q
+
+	priceIDs := make([]string, 0, len(req.Fleets))
+	addonIDs := make([]string, 0)
+	for _, f := range req.Fleets {
+		if strings.TrimSpace(f.PriceID) != "" {
+			priceIDs = append(priceIDs, strings.TrimSpace(f.PriceID))
 		}
-		prices, err := s.repo.GetAddonPrices(addonIDs)
-		if err != nil {
-			return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to calc addons")
+		for _, id := range f.Addons {
+			id = strings.TrimSpace(id)
+			if id != "" {
+				addonIDs = append(addonIDs, id)
+			}
 		}
-		for id, q := range qtyByID {
-			addonTotal += prices[id] * float64(q)
+		if strings.TrimSpace(f.AddonID) != "" {
+			addonIDs = append(addonIDs, strings.TrimSpace(f.AddonID))
 		}
 	}
-	totalAmount := (float64(qty) * price) + addonTotal + req.AdditionalAmount - req.DiscountAmount
+
+	priceMap, _ := s.repo.GetFleetPricesByIDs(priceIDs)
+	addonPriceMap, err := s.repo.GetAddonPrices(addonIDs)
+	if err != nil {
+		return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to calc addons")
+	}
+
+	itemsTotal := 0.0
+	for _, f := range req.Fleets {
+		q := f.Qty
+		if q <= 0 {
+			q = 1
+		}
+		unitPrice := price
+		if strings.TrimSpace(f.PriceID) != "" {
+			if p, ok := priceMap[strings.TrimSpace(f.PriceID)]; ok {
+				unitPrice = p
+			} else if p, _, e := s.repo.GetPriceByID(strings.TrimSpace(f.PriceID)); e == nil {
+				unitPrice = p
+			}
+		}
+
+		ids := make([]string, 0, len(f.Addons)+1)
+		for _, id := range f.Addons {
+			id = strings.TrimSpace(id)
+			if id != "" {
+				ids = append(ids, id)
+			}
+		}
+		if strings.TrimSpace(f.AddonID) != "" {
+			ids = append(ids, strings.TrimSpace(f.AddonID))
+		}
+		seen := make(map[string]struct{}, len(ids))
+		addonAmount := 0.0
+		for _, id := range ids {
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			addonAmount += addonPriceMap[id]
+		}
+
+		subTotal := (unitPrice * float64(q)) + (f.BiayaLain * float64(q)) + (addonAmount * float64(q)) - (f.Discount * float64(q))
+		if subTotal < 0 {
+			subTotal = 0
+		}
+		itemsTotal += subTotal
+	}
+
+	totalAmount := itemsTotal
 	if totalAmount < 0 {
 		totalAmount = 0
 	}
@@ -561,7 +637,12 @@ func (s *FleetService) CreatePartnerOrder(orgID, userID string, req *model.Fleet
 	orderID := fmt.Sprintf("%s%s%d-FRT", truncatedCode, timePart, count+1)
 
 	if err := s.repo.CreatePartnerOrder(orderID, req.FleetID, startDate, endDate, req.PickupCityID, pickupLoc, qty, req.PriceID, totalAmount, req.AdditionalAmount, req.CustomerID, orgID, userID, req.Itinerary, req.Addons, req.AdditionalRequest, req.Fleets); err != nil {
-		return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create order")
+		msg := "failed to create order"
+		env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+		if env != "production" && env != "prod" {
+			msg = fmt.Sprintf("%s: %v", msg, err)
+		}
+		return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, msg)
 	}
 	return orderID, nil
 }
@@ -599,15 +680,26 @@ func (s *FleetService) UpdatePartnerOrder(orgID, userID string, req *FleetOrderU
 	updateItems := make([]repository.UpdatePartnerOrderFleetItem, 0, len(req.Fleets))
 	if len(req.Fleets) > 0 {
 		priceIDs := make([]string, 0, len(req.Fleets))
+		addonIDs := make([]string, 0)
 		for _, it := range req.Fleets {
 			if strings.TrimSpace(it.PriceID) != "" {
 				priceIDs = append(priceIDs, it.PriceID)
 			}
-			totalDiscountItems += it.Discount
+			for _, id := range it.Addons {
+				id = strings.TrimSpace(id)
+				if id != "" {
+					addonIDs = append(addonIDs, id)
+				}
+			}
 		}
 		priceMap, err := s.repo.GetFleetPricesByIDs(priceIDs)
 		if err != nil {
 			return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to calc prices")
+		}
+
+		addonPriceMap, err := s.repo.GetAddonPrices(addonIDs)
+		if err != nil {
+			return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to calc addons")
 		}
 
 		for _, it := range req.Fleets {
@@ -615,6 +707,7 @@ func (s *FleetService) UpdatePartnerOrder(orgID, userID string, req *FleetOrderU
 			if q <= 0 {
 				q = 1
 			}
+			totalDiscountItems += it.Discount * float64(q)
 			unitPrice := 0.0
 			if strings.TrimSpace(it.PriceID) != "" {
 				if p, ok := priceMap[it.PriceID]; ok {
@@ -626,7 +719,21 @@ func (s *FleetService) UpdatePartnerOrder(orgID, userID string, req *FleetOrderU
 					}
 				}
 			}
-			subTotal := (float64(q) * unitPrice) + it.BiayaLain - it.Discount
+			seen := make(map[string]struct{}, len(it.Addons))
+			addonAmount := 0.0
+			for _, id := range it.Addons {
+				id = strings.TrimSpace(id)
+				if id == "" {
+					continue
+				}
+				if _, ok := seen[id]; ok {
+					continue
+				}
+				seen[id] = struct{}{}
+				addonAmount += addonPriceMap[id]
+			}
+
+			subTotal := (unitPrice * float64(q)) + (it.BiayaLain * float64(q)) + (addonAmount * float64(q)) - (it.Discount * float64(q))
 			if subTotal < 0 {
 				subTotal = 0
 			}
@@ -638,8 +745,10 @@ func (s *FleetService) UpdatePartnerOrder(orgID, userID string, req *FleetOrderU
 				PriceID:      strings.TrimSpace(it.PriceID),
 				Qty:          q,
 				ChargeAmount: it.BiayaLain,
+				AddonAmount:  addonAmount,
 				Discount:     it.Discount,
 				SubTotal:     subTotal,
+				Addons:       it.Addons,
 			})
 		}
 	} else {
@@ -662,7 +771,7 @@ func (s *FleetService) UpdatePartnerOrder(orgID, userID string, req *FleetOrderU
 		itemsTotal = float64(unitQty) * price
 	}
 
-	totalAmount := itemsTotal + req.AdditionalAmount - req.DiscountAmount
+	totalAmount := itemsTotal
 	if totalAmount < 0 {
 		totalAmount = 0
 	}
@@ -704,7 +813,12 @@ func (s *FleetService) UpdatePartnerOrder(orgID, userID string, req *FleetOrderU
 		if err == sql.ErrNoRows {
 			return NewServiceError(ErrNotFound, http.StatusNotFound, "order not found")
 		}
-		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to update order")
+		msg := "failed to update order"
+		env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+		if env != "production" && env != "prod" {
+			msg = fmt.Sprintf("%s: %v", msg, err)
+		}
+		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, msg)
 	}
 	return nil
 }

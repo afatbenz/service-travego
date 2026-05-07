@@ -220,6 +220,7 @@ type OrderDetailDest struct {
 
 type OrderDetailAddon struct {
 	AddonName  string  `json:"addon_name"`
+	AddonDesc  string  `json:"addon_desc"`
 	AddonPrice float64 `json:"addon_price"`
 }
 
@@ -233,8 +234,10 @@ type OrderDetailFleetItem struct {
 	Price        float64 `json:"price"`
 	Quantity     int     `json:"quantity"`
 	ChargeAmount float64 `json:"charge_amount"`
+	AddonAmount  float64 `json:"addon_amount"`
 	Discount     float64 `json:"discount"`
 	SubTotal     float64 `json:"sub_total"`
+	Addons       []OrderDetailAddon `json:"addons"`
 }
 
 type CreatePaymentRequest struct {
@@ -326,6 +329,7 @@ type CreateServiceOrderPaymentRequest struct {
 
 type ServiceOrderPaymentCreateResult struct {
 	PaymentID       string  `json:"payment_id"`
+	InvoiceNumber   string  `json:"invoice_number"`
 	OrderID         string  `json:"order_id"`
 	OrderType       int     `json:"order_type"`
 	PaymentType     int     `json:"payment_type"`
