@@ -7,6 +7,7 @@ import (
 	"service-travego/configs"
 	"service-travego/database"
 	"service-travego/model"
+	"service-travego/utils"
 	"strings"
 	"time"
 
@@ -2409,8 +2410,7 @@ func (r *FleetRepository) generatePaymentOrderInvoiceNumber(tx *sql.Tx, orderTyp
 		return "", err
 	}
 	seq := count + 1
-	datePart := now.Format("01200602")
-	return fmt.Sprintf("INV-%d%s-000%d", orderType, datePart, seq), nil
+	return utils.GenerateInvoiceNumber(orderType, now, seq), nil
 }
 
 func (r *FleetRepository) InsertServiceOrderPayment(req *model.CreateServiceOrderPaymentRequest, totalAmount, remainingAmount float64) (string, string, error) {
