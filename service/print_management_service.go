@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"service-travego/model"
 	"service-travego/repository"
+	"service-travego/utils"
 	"strconv"
 	"strings"
 	"sync"
@@ -524,7 +525,7 @@ func (s *PrintManagementService) GenerateFleetInvoicePDF(organizationID, orderID
 	if inv == "" {
 		cnt, err := s.repo.CountPaymentOrdersByOrganization(organizationID)
 		if err == nil {
-			inv = generateInvoiceNumber(1, time.Now(), cnt+1)
+			inv = utils.GenerateInvoiceNumber(1, time.Now(), cnt+1)
 		}
 		if inv == "" {
 			inv = "-"
@@ -988,9 +989,4 @@ func formatThousand(v int64) string {
 	return b.String()
 }
 
-func generateInvoiceNumber(orderType int, now time.Time, sequence int) string {
-	if sequence < 1 {
-		sequence = 1
-	}
-	return fmt.Sprintf("INV-%d%s-000%d", orderType, now.Format("01200602"), sequence)
-}
+
