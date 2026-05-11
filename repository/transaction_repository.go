@@ -79,8 +79,11 @@ func (r *TransactionRepository) ListAllIncome(orgID string, req *model.Transacti
 			t.order_type,
 			t.invoice_number,
 			t.description,
-			t.transaction_date,
+			t.transaction_type,
+			t.transaction_mark,
 			t.status,
+			COALESCE(t.amount, 0) as amount,
+			t.transaction_date,
 			t.created_at,
 			COALESCE(u.fullname, '') as created_by
 		FROM transactions t
@@ -103,8 +106,11 @@ func (r *TransactionRepository) ListAllIncome(orgID string, req *model.Transacti
 			&it.OrderType,
 			&it.InvoiceNumber,
 			&it.Description,
-			&it.TransactionDate,
+			&it.TransactionType,
+			&it.TransactionMark,
 			&it.Status,
+			&it.Amount,
+			&it.TransactionDate,
 			&it.CreatedAt,
 			&it.CreatedBy,
 		); err != nil {
