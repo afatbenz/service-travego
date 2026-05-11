@@ -2410,7 +2410,7 @@ func (r *FleetRepository) generatePaymentOrderInvoiceNumber(tx *sql.Tx, orderTyp
 	}
 	seq := count + 1
 	datePart := now.Format("01200602")
-	return fmt.Sprintf("INV-%d%s-%d", orderType, datePart, seq), nil
+	return fmt.Sprintf("INV-%d%s-000%d", orderType, datePart, seq), nil
 }
 
 func (r *FleetRepository) InsertServiceOrderPayment(req *model.CreateServiceOrderPaymentRequest, totalAmount, remainingAmount float64) (string, string, error) {
@@ -2486,7 +2486,7 @@ func (r *FleetRepository) InsertServiceOrderPayment(req *model.CreateServiceOrde
 
 	description := ""
 	if transactionOrderType == 1 || transactionOrderType == 2 {
-		description = "Order ID " + req.OrderID
+		description = "Transaction with Order ID " + req.OrderID
 	}
 
 	transactionQuery := fmt.Sprintf(`
