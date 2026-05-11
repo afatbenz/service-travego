@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"fmt"
+	"os"
 	"service-travego/database"
 	"strconv"
 	"strings"
@@ -49,6 +50,7 @@ type PrintFleetOrderInfo struct {
 }
 
 type PrintFleetOrderItem struct {
+	OrderItemID      string
 	FleetName        string
 	FleetPrice       float64
 	FleetQty         int
@@ -57,9 +59,10 @@ type PrintFleetOrderItem struct {
 }
 
 type PrintFleetOrderAddon struct {
-	AddonName  string
-	AddonDesc  string
-	AddonPrice float64
+	OrderItemID string
+	AddonName   string
+	AddonDesc   string
+	AddonPrice  float64
 }
 
 type PrintOrganizationBank struct {
@@ -308,25 +311,33 @@ func (r *PrintManagementRepository) GetFleetOrderItems(orderID, organizationID s
 	orgExpr := "fo.organization_id = " + r.placeholder(2)
 	fleetJoinExpr := "f.uuid = fo.fleet_id"
 	priceJoinExpr := "fp.uuid = fo.price_id"
+	orderItemIDExpr := "COALESCE(fo.order_item_id, '')"
 	if r.driver == "postgres" || r.driver == "pgx" {
 		orderExpr = "fo.order_id::text = " + r.placeholder(1)
 		orgExpr = "fo.organization_id::text = " + r.placeholder(2)
 		fleetJoinExpr = "f.uuid::text = fo.fleet_id::text"
 		priceJoinExpr = "fp.uuid::text = fo.price_id::text"
+		orderItemIDExpr = "COALESCE(fo.order_item_id::text, '')"
 	}
 
 	query := fmt.Sprintf(`
-		SELECT COALESCE(f.fleet_name, '') as fleet_name,
+		SELECT %s as order_item_id,
+		       COALESCE(f.fleet_name, '') as fleet_name,
 		       COALESCE(fp.price, 0) as fleet_price,
 		       COALESCE(fo.quantity, 0) as fleet_qty,
 		       COALESCE(fo.discount, 0) as fleet_discount,
 		       COALESCE(fo.charge_amount, 0) as additional_amount
 		FROM fleet_order_items fo
-		INNER JOIN fleets f ON %s
-		INNER JOIN fleet_prices fp ON %s
+		LEFT JOIN fleets f ON %s
+		LEFT JOIN fleet_prices fp ON %s
 		WHERE %s AND %s
-		ORDER BY f.fleet_name ASC
-	`, fleetJoinExpr, priceJoinExpr, orderExpr, orgExpr)
+		ORDER BY COALESCE(f.fleet_name, '') ASC
+	`, orderItemIDExpr, fleetJoinExpr, priceJoinExpr, orderExpr, orgExpr)
+
+	if env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV"))); env != "production" && env != "prod" {
+		fmt.Println("GetFleetOrderItems query:", query)
+		fmt.Println("GetFleetOrderItems args:", orderID, organizationID)
+	}
 
 	rows, err := database.Query(r.db, query, orderID, organizationID)
 	if err != nil {
@@ -337,35 +348,85 @@ func (r *PrintManagementRepository) GetFleetOrderItems(orderID, organizationID s
 	var items []PrintFleetOrderItem
 	for rows.Next() {
 		var it PrintFleetOrderItem
-		if err := rows.Scan(&it.FleetName, &it.FleetPrice, &it.FleetQty, &it.FleetDiscount, &it.AdditionalAmount); err != nil {
+		if err := rows.Scan(&it.OrderItemID, &it.FleetName, &it.FleetPrice, &it.FleetQty, &it.FleetDiscount, &it.AdditionalAmount); err != nil {
 			return nil, err
 		}
 		items = append(items, it)
 	}
-	return items, nil
+	if len(items) > 0 {
+		return items, nil
+	}
+
+	orderExpr = "fo.order_id = " + r.placeholder(1)
+	orgExpr = "fo.organization_id = " + r.placeholder(2)
+	fleetJoinExpr = "f.uuid = fo.fleet_id"
+	priceJoinExpr = "fp.uuid = fo.price_id"
+	if r.driver == "postgres" || r.driver == "pgx" {
+		orderExpr = "fo.order_id::text = " + r.placeholder(1)
+		orgExpr = "fo.organization_id::text = " + r.placeholder(2)
+		fleetJoinExpr = "f.uuid::text = fo.fleet_id::text"
+		priceJoinExpr = "fp.uuid::text = fo.price_id::text"
+	}
+
+	fallbackQuery := fmt.Sprintf(`
+		SELECT
+			COALESCE(f.fleet_name, '') as fleet_name,
+			COALESCE(fp.price, 0) as fleet_price,
+			COALESCE(fo.unit_qty, 0) as fleet_qty,
+			COALESCE(fo.additional_amount, 0) as additional_amount
+		FROM fleet_orders fo
+		LEFT JOIN fleets f ON %s
+		LEFT JOIN fleet_prices fp ON %s
+		WHERE %s AND %s
+		LIMIT 1
+	`, fleetJoinExpr, priceJoinExpr, orderExpr, orgExpr)
+
+	if env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV"))); env != "production" && env != "prod" {
+		fmt.Println("GetFleetOrderItems fallback query:", fallbackQuery)
+		fmt.Println("GetFleetOrderItems fallback args:", orderID, organizationID)
+	}
+
+	var it PrintFleetOrderItem
+	it.OrderItemID = strings.TrimSpace(orderID)
+	it.FleetDiscount = 0
+	if err := database.QueryRow(r.db, fallbackQuery, orderID, organizationID).Scan(&it.FleetName, &it.FleetPrice, &it.FleetQty, &it.AdditionalAmount); err != nil {
+		return nil, err
+	}
+	return []PrintFleetOrderItem{it}, nil
 }
 
 func (r *PrintManagementRepository) GetFleetOrderAddons(orderID, organizationID string) ([]PrintFleetOrderAddon, error) {
-	orderExpr := "foa.order_id = " + r.placeholder(1)
-	orgExpr := "foa.organization_id = " + r.placeholder(2)
-	joinExpr := "fa.uuid = foa.addon_id"
+	orgExpr := "oi.organization_id = " + r.placeholder(1)
+	orderExpr := "oi.order_id = " + r.placeholder(2)
+	addonJoinExpr := "fa.uuid = foa.addon_id"
+	itemJoinExpr := "oi.order_item_id = foa.order_item_id"
+	orderItemIDExpr := "COALESCE(foa.order_item_id, '')"
 	if r.driver == "postgres" || r.driver == "pgx" {
-		orderExpr = "foa.order_id::text = " + r.placeholder(1)
-		orgExpr = "foa.organization_id::text = " + r.placeholder(2)
-		joinExpr = "fa.uuid::text = foa.addon_id::text"
+		orgExpr = "oi.organization_id::text = " + r.placeholder(1)
+		orderExpr = "oi.order_id::text = " + r.placeholder(2)
+		addonJoinExpr = "fa.uuid::text = foa.addon_id::text"
+		itemJoinExpr = "oi.order_item_id::text = foa.order_item_id::text"
+		orderItemIDExpr = "COALESCE(foa.order_item_id::text, '')"
 	}
 
 	query := fmt.Sprintf(`
-		SELECT COALESCE(fa.addon_name, '') as addon_name,
+		SELECT %s as order_item_id,
+		       COALESCE(fa.addon_name, '') as addon_name,
 		       COALESCE(fa.addon_desc, '') as addon_desc,
-		       COALESCE(fa.addon_price, 0) as addon_price
+		       COALESCE(foa.addon_price, 0) as addon_price
 		FROM fleet_order_addons foa
+		INNER JOIN fleet_order_items oi ON %s
 		INNER JOIN fleet_addon fa ON %s
 		WHERE %s AND %s
 		ORDER BY fa.addon_name ASC
-	`, joinExpr, orderExpr, orgExpr)
+	`, orderItemIDExpr, itemJoinExpr, addonJoinExpr, orgExpr, orderExpr)
 
-	rows, err := database.Query(r.db, query, orderID, organizationID)
+	if env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV"))); env != "production" && env != "prod" {
+		fmt.Println("GetFleetOrderAddons query:", query)
+		fmt.Println("GetFleetOrderAddons args:", organizationID, orderID)
+	}
+
+	rows, err := database.Query(r.db, query, organizationID, orderID)
 	if err != nil {
 		return nil, err
 	}
@@ -374,12 +435,58 @@ func (r *PrintManagementRepository) GetFleetOrderAddons(orderID, organizationID 
 	var items []PrintFleetOrderAddon
 	for rows.Next() {
 		var it PrintFleetOrderAddon
-		if err := rows.Scan(&it.AddonName, &it.AddonDesc, &it.AddonPrice); err != nil {
+		if err := rows.Scan(&it.OrderItemID, &it.AddonName, &it.AddonDesc, &it.AddonPrice); err != nil {
 			return nil, err
 		}
 		items = append(items, it)
 	}
-	return items, nil
+	if len(items) > 0 {
+		return items, nil
+	}
+
+	orderExpr = "foa.order_id = " + r.placeholder(1)
+	addonJoinExpr = "fa.uuid = foa.addon_id"
+	if r.driver == "postgres" || r.driver == "pgx" {
+		orderExpr = "foa.order_id::text = " + r.placeholder(1)
+		addonJoinExpr = "fa.uuid::text = foa.addon_id::text"
+	}
+
+	fallbackQuery := fmt.Sprintf(`
+		SELECT
+			COALESCE(fa.addon_name, '') as addon_name,
+			COALESCE(fa.addon_desc, '') as addon_desc,
+			COALESCE(foa.addon_price, 0) as addon_price
+		FROM fleet_order_addons foa
+		INNER JOIN fleet_addon fa ON %s
+		WHERE %s
+		ORDER BY fa.addon_name ASC
+	`, addonJoinExpr, orderExpr)
+
+	if env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV"))); env != "production" && env != "prod" {
+		fmt.Println("GetFleetOrderAddons fallback query:", fallbackQuery)
+		fmt.Println("GetFleetOrderAddons fallback args:", orderID)
+		_ = organizationID
+	}
+
+	fRows, err := database.Query(r.db, fallbackQuery, orderID)
+	if err != nil {
+		return nil, err
+	}
+	defer fRows.Close()
+
+	fallbackItems := make([]PrintFleetOrderAddon, 0)
+	for fRows.Next() {
+		var it PrintFleetOrderAddon
+		it.OrderItemID = strings.TrimSpace(orderID)
+		if err := fRows.Scan(&it.AddonName, &it.AddonDesc, &it.AddonPrice); err != nil {
+			return nil, err
+		}
+		fallbackItems = append(fallbackItems, it)
+	}
+	if err := fRows.Err(); err != nil {
+		return nil, err
+	}
+	return fallbackItems, nil
 }
 
 func (r *PrintManagementRepository) GetOrganizationBankAccount(organizationID string) (*PrintOrganizationBank, error) {

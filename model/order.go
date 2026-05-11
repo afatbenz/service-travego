@@ -225,18 +225,18 @@ type OrderDetailAddon struct {
 }
 
 type OrderDetailFleetItem struct {
-	OrderItemID  string  `json:"order_item_id"`
-	OrderID      string  `json:"order_id"`
-	FleetID      string  `json:"fleet_id"`
-	FleetName    string  `json:"fleet_name"`
-	FleetType    string  `json:"fleet_type"`
-	PriceID      string  `json:"price_id"`
-	Price        float64 `json:"price"`
-	Quantity     int     `json:"quantity"`
-	ChargeAmount float64 `json:"charge_amount"`
-	AddonAmount  float64 `json:"addon_amount"`
-	Discount     float64 `json:"discount"`
-	SubTotal     float64 `json:"sub_total"`
+	OrderItemID  string             `json:"order_item_id"`
+	OrderID      string             `json:"order_id"`
+	FleetID      string             `json:"fleet_id"`
+	FleetName    string             `json:"fleet_name"`
+	FleetType    string             `json:"fleet_type"`
+	PriceID      string             `json:"price_id"`
+	Price        float64            `json:"price"`
+	Quantity     int                `json:"quantity"`
+	ChargeAmount float64            `json:"charge_amount"`
+	AddonAmount  float64            `json:"addon_amount"`
+	Discount     float64            `json:"discount"`
+	SubTotal     float64            `json:"sub_total"`
 	Addons       []OrderDetailAddon `json:"addons"`
 }
 
@@ -263,6 +263,42 @@ type PaymentMethod int
 const (
 	PaymentMethodBank PaymentMethod = 1
 	PaymentMethodQris PaymentMethod = 2
+)
+
+type TransactionMark int
+
+const (
+	TransactionMarkIncome  TransactionMark = 1
+	TransactionMarkExpense TransactionMark = 2
+)
+
+type TransactionType int
+
+const (
+	TransactionTypeIncomeRental      TransactionType = 1
+	TransactionTypeIncomeTourPackage TransactionType = 2
+	TransactionTypeIncomeComission   TransactionType = 3
+	TransactionTypeIncomeOtherIncome TransactionType = 4
+	TransactionTypeIncomeAds         TransactionType = 5
+
+	TransactionTypeExpenseFuel             TransactionType = 101
+	TransactionTypeExpenseTol              TransactionType = 102
+	TransactionTypeExpenseDriverAllowance  TransactionType = 103
+	TransactionTypeExpenseGuideFee         TransactionType = 104
+	TransactionTypeExpenseCrewMeal         TransactionType = 105
+	TransactionTypeExpenseVehicleService   TransactionType = 106
+	TransactionTypeExpenseVehicleTax       TransactionType = 107
+	TransactionTypeExpenseVehicleInsurance TransactionType = 108
+	TransactionTypeExpenseHotel            TransactionType = 109
+	TransactionTypeExpenseRestaurant       TransactionType = 110
+	TransactionTypeExpenseAttractionTicket TransactionType = 111
+	TransactionTypeExpenseSalary           TransactionType = 112
+	TransactionTypeExpenseOfficeRent       TransactionType = 113
+	TransactionTypeExpenseUtility          TransactionType = 114
+	TransactionTypeExpenseMarketing        TransactionType = 115
+	TransactionTypeExpenseBankCharge       TransactionType = 116
+	TransactionTypeExpenseOtherExpenses    TransactionType = 117
+	TransactionTypeExpenseCommission       TransactionType = 118
 )
 
 type FleetOrderPayment struct {
