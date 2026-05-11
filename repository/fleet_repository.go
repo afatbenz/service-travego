@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"fmt"
+	"math"
 	"service-travego/configs"
 	"service-travego/database"
 	"service-travego/model"
@@ -2430,14 +2431,19 @@ func (r *FleetRepository) InsertServiceOrderPayment(req *model.CreateServiceOrde
 		return "", "", err
 	}
 
+	status := req.PaymentType
+	if math.Abs(remainingAmount) < 0.0001 {
+		status = 1001
+	}
+
 	query := fmt.Sprintf(`
 		INSERT INTO payment_orders
 			(payment_id, invoice_number, order_type, order_id, organization_id, payment_type, payment_method, bank_id, bank_account, payment_amount, total_amount, remaining_amount, evidence_file, status, created_at, created_by)
 		VALUES
-			(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, %s)
+			(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
 		r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10),
-		r.getPlaceholder(11), r.getPlaceholder(12), r.getPlaceholder(13), r.getPlaceholder(14), r.getPlaceholder(15))
+		r.getPlaceholder(11), r.getPlaceholder(12), r.getPlaceholder(13), r.getPlaceholder(14), r.getPlaceholder(15), r.getPlaceholder(16))
 
 	_, err = database.TxExec(
 		tx,
@@ -2455,6 +2461,54 @@ func (r *FleetRepository) InsertServiceOrderPayment(req *model.CreateServiceOrde
 		totalAmount,
 		remainingAmount,
 		req.EvidenceFile,
+		status,
+		now,
+		req.CreatedBy,
+	)
+	if err != nil {
+		return "", "", err
+	}
+
+	transactionOrderType := 3
+	switch req.OrderType {
+	case 1:
+		transactionOrderType = 1
+	case 2:
+		transactionOrderType = 2
+	}
+
+	transactionType := int(model.TransactionTypeIncomeOtherIncome)
+	if transactionOrderType == 1 {
+		transactionType = int(model.TransactionTypeIncomeRental)
+	} else if transactionOrderType == 2 {
+		transactionType = int(model.TransactionTypeIncomeTourPackage)
+	}
+
+	description := ""
+	if transactionOrderType == 1 || transactionOrderType == 2 {
+		description = "Transaction with Order ID " + req.OrderID
+	}
+
+	transactionQuery := fmt.Sprintf(`
+		INSERT INTO transactions
+			(transaction_id, order_type, invoice_number, description, transaction_date, status, organization_id, transaction_type, transaction_mark, created_at, created_by)
+		VALUES
+			(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6),
+		r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11))
+
+	_, err = database.TxExec(
+		tx,
+		transactionQuery,
+		uuid.New().String(),
+		transactionOrderType,
+		invoiceNumber,
+		description,
+		now,
+		status,
+		req.OrganizationID,
+		transactionType,
+		int(model.TransactionMarkIncome),
 		now,
 		req.CreatedBy,
 	)

@@ -172,6 +172,23 @@ func (s *PrintManagementService) GenerateOrderFleetPDF(organizationID, orderID s
 	if err != nil && err != sql.ErrNoRows {
 		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to fetch addons")
 	}
+	addonsByItem := make(map[string][]repository.PrintFleetOrderAddon)
+	for _, a := range addons {
+		if strings.TrimSpace(a.OrderItemID) == "" {
+			continue
+		}
+		addonsByItem[a.OrderItemID] = append(addonsByItem[a.OrderItemID], a)
+	}
+	if len(items) == 1 {
+		ordKey := strings.TrimSpace(orderID)
+		itemKey := strings.TrimSpace(items[0].OrderItemID)
+		if ordKey != "" && itemKey != "" && ordKey != itemKey {
+			if v, ok := addonsByItem[ordKey]; ok && len(v) > 0 {
+				addonsByItem[itemKey] = append(addonsByItem[itemKey], v...)
+				delete(addonsByItem, ordKey)
+			}
+		}
+	}
 
 	bank, err := s.repo.GetOrganizationBankAccount(organizationID)
 	if err != nil && err != sql.ErrNoRows {
@@ -204,7 +221,7 @@ func (s *PrintManagementService) GenerateOrderFleetPDF(organizationID, orderID s
 	var subtotalFleet float64
 	var totalAdditionalFee float64
 	var totalDiscount float64
-	fleetRows, rowSubtotals := buildFleetRows(items)
+	fleetRows, rowSubtotals := buildFleetRows(items, addonsByItem)
 	for _, v := range rowSubtotals {
 		subtotalFleet += v
 	}
@@ -212,10 +229,7 @@ func (s *PrintManagementService) GenerateOrderFleetPDF(organizationID, orderID s
 		totalAdditionalFee += it.AdditionalAmount
 		totalDiscount += it.FleetDiscount
 	}
-
-	var addonTotal float64
-	addonRows := buildAddonRows(addons, &addonTotal)
-	totalLineItems := len(items) + len(addons)
+	totalLineItems := len(items)
 	termsPageBreak := ""
 	paymentPageBreak := ""
 	pageClass := ""
@@ -234,7 +248,7 @@ func (s *PrintManagementService) GenerateOrderFleetPDF(organizationID, orderID s
 		termsPageBreak = `<div class="page-break"></div>`
 	}
 
-	totalAmount := subtotalFleet + totalAdditionalFee + addonTotal - totalDiscount
+	totalAmount := subtotalFleet + totalAdditionalFee - totalDiscount
 	if totalAmount < 0 {
 		totalAmount = 0
 	}
@@ -321,7 +335,7 @@ func (s *PrintManagementService) GenerateOrderFleetPDF(organizationID, orderID s
 		"subtotal_fleet":         html.EscapeString(formatIDR(subtotalFleet)),
 		"total_additional_fee":   html.EscapeString(formatIDR(totalAdditionalFee)),
 		"total_discount":         html.EscapeString(formatIDRNegative(totalDiscount)),
-		"addon_rows":             addonRows,
+		"addon_rows":             "",
 		"terms_page_break":       termsPageBreak,
 		"payment_page_break":     paymentPageBreak,
 		"page_class":             html.EscapeString(pageClass),
@@ -403,6 +417,23 @@ func (s *PrintManagementService) GenerateFleetInvoicePDF(organizationID, orderID
 	if err != nil && err != sql.ErrNoRows {
 		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to fetch addons")
 	}
+	addonsByItem := make(map[string][]repository.PrintFleetOrderAddon)
+	for _, a := range addons {
+		if strings.TrimSpace(a.OrderItemID) == "" {
+			continue
+		}
+		addonsByItem[a.OrderItemID] = append(addonsByItem[a.OrderItemID], a)
+	}
+	if len(items) == 1 {
+		ordKey := strings.TrimSpace(orderID)
+		itemKey := strings.TrimSpace(items[0].OrderItemID)
+		if ordKey != "" && itemKey != "" && ordKey != itemKey {
+			if v, ok := addonsByItem[ordKey]; ok && len(v) > 0 {
+				addonsByItem[itemKey] = append(addonsByItem[itemKey], v...)
+				delete(addonsByItem, ordKey)
+			}
+		}
+	}
 
 	pay, err := s.repo.GetPaymentOrderForInvoice(organizationID, orderID, invoiceNumber)
 	if err != nil {
@@ -432,21 +463,25 @@ func (s *PrintManagementService) GenerateFleetInvoicePDF(organizationID, orderID
 		pickupCityLabel = order.PickupCityID
 	}
 
-	fleetRows, rowSubtotals := buildFleetInvoiceRows(items)
+	fleetRows, rowSubtotals := buildFleetInvoiceRows(items, addonsByItem)
 	var subtotalFleet float64
 	var totalAdditionalFee float64
 	var totalDiscount float64
+	var totalAddon float64
 	for _, v := range rowSubtotals {
 		subtotalFleet += v
 	}
 	for _, it := range items {
 		totalAdditionalFee += it.AdditionalAmount
 		totalDiscount += it.FleetDiscount
+		if v, ok := addonsByItem[strings.TrimSpace(it.OrderItemID)]; ok && len(v) > 0 {
+			for _, a := range v {
+				totalAddon += a.AddonPrice * float64(it.FleetQty)
+			}
+		}
 	}
-	var addonTotal float64
-	_ = buildAddonRows(addons, &addonTotal)
 
-	totalAmount := subtotalFleet + totalAdditionalFee + addonTotal - totalDiscount
+	totalAmount := subtotalFleet + totalAdditionalFee - totalDiscount
 	if totalAmount < 0 {
 		totalAmount = 0
 	}
@@ -527,7 +562,7 @@ func (s *PrintManagementService) GenerateFleetInvoicePDF(organizationID, orderID
 		"pickup_city":        html.EscapeString(pickupCityLabel),
 		"fleet_items_rows":   fleetRows,
 		"additional_charges": html.EscapeString(formatNumberIDR(totalAdditionalFee)),
-		"total_addon":        html.EscapeString(formatNumberIDR(addonTotal)),
+		"total_addon":        html.EscapeString(formatNumberIDR(totalAddon)),
 		"total_discount":     html.EscapeString(formatNumberIDR(totalDiscount)),
 		"total_amount":       html.EscapeString(formatNumberIDR(totalAmount)),
 		"payment_type":       html.EscapeString(paymentTypeLabel),
@@ -560,7 +595,7 @@ func applyTemplateVars(tpl string, vars map[string]string) string {
 	})
 }
 
-func buildFleetRows(items []repository.PrintFleetOrderItem) (string, []float64) {
+func buildFleetRows(items []repository.PrintFleetOrderItem, addonsByItem map[string][]repository.PrintFleetOrderAddon) (string, []float64) {
 	if len(items) == 0 {
 		return `<tr><td class="c" style="color:var(--muted)">1</td><td><strong>-</strong></td><td class="c">0</td><td class="r">Rp 0</td><td class="r"><strong>Rp 0</strong></td></tr>`, []float64{0}
 	}
@@ -568,7 +603,13 @@ func buildFleetRows(items []repository.PrintFleetOrderItem) (string, []float64) 
 	var b strings.Builder
 	subtotals := make([]float64, 0, len(items))
 	for i, it := range items {
-		sub := it.FleetPrice * float64(it.FleetQty)
+		addonSum := 0.0
+		if v, ok := addonsByItem[strings.TrimSpace(it.OrderItemID)]; ok {
+			for _, a := range v {
+				addonSum += a.AddonPrice
+			}
+		}
+		sub := (it.FleetPrice * float64(it.FleetQty)) + (addonSum * float64(it.FleetQty))
 		if sub < 0 {
 			sub = 0
 		}
@@ -579,12 +620,35 @@ func buildFleetRows(items []repository.PrintFleetOrderItem) (string, []float64) 
 		b.WriteString("</td>")
 		b.WriteString("<td><strong>")
 		b.WriteString(html.EscapeString(it.FleetName))
-		b.WriteString("</strong></td>")
+		b.WriteString("</strong>")
+		if v, ok := addonsByItem[strings.TrimSpace(it.OrderItemID)]; ok && len(v) > 0 {
+			for _, a := range v {
+				label := strings.TrimSpace(a.AddonName)
+				desc := strings.TrimSpace(a.AddonDesc)
+				if desc != "" {
+					label = label + " - " + desc
+				}
+				if strings.TrimSpace(label) == "" {
+					continue
+				}
+				b.WriteString(`<div style="font-size:9px;opacity:0.6;margin-top:2px;">`)
+				b.WriteString(html.EscapeString(label))
+				b.WriteString("</div>")
+			}
+		}
+		b.WriteString("</td>")
 		b.WriteString(`<td class="c">`)
 		b.WriteString(strconv.Itoa(it.FleetQty))
-		b.WriteString("unit </td>")
+		b.WriteString(" unit </td>")
 		b.WriteString(`<td class="r">`)
 		b.WriteString(html.EscapeString(formatIDR(it.FleetPrice)))
+		if v, ok := addonsByItem[strings.TrimSpace(it.OrderItemID)]; ok && len(v) > 0 {
+			for _, a := range v {
+				b.WriteString(`<div style="font-size:9px;opacity:0.6;margin-top:2px;">`)
+				b.WriteString(html.EscapeString(formatIDR(a.AddonPrice)))
+				b.WriteString("</div>")
+			}
+		}
 		b.WriteString("</td>")
 		b.WriteString(`<td class="r"><strong>`)
 		b.WriteString(html.EscapeString(formatIDR(sub)))
@@ -594,7 +658,7 @@ func buildFleetRows(items []repository.PrintFleetOrderItem) (string, []float64) 
 	return b.String(), subtotals
 }
 
-func buildFleetInvoiceRows(items []repository.PrintFleetOrderItem) (string, []float64) {
+func buildFleetInvoiceRows(items []repository.PrintFleetOrderItem, addonsByItem map[string][]repository.PrintFleetOrderAddon) (string, []float64) {
 	if len(items) == 0 {
 		return `<tr><td class="c">1</td><td>-</td><td class="c">0 unit</td><td class="r">Rp 0</td><td class="r"><strong>Rp 0</strong></td></tr>`, []float64{0}
 	}
@@ -602,7 +666,13 @@ func buildFleetInvoiceRows(items []repository.PrintFleetOrderItem) (string, []fl
 	var b strings.Builder
 	subtotals := make([]float64, 0, len(items))
 	for i, it := range items {
-		sub := it.FleetPrice * float64(it.FleetQty)
+		addonSum := 0.0
+		if v, ok := addonsByItem[strings.TrimSpace(it.OrderItemID)]; ok {
+			for _, a := range v {
+				addonSum += a.AddonPrice
+			}
+		}
+		sub := (it.FleetPrice * float64(it.FleetQty)) + (addonSum * float64(it.FleetQty))
 		if sub < 0 {
 			sub = 0
 		}
@@ -613,12 +683,34 @@ func buildFleetInvoiceRows(items []repository.PrintFleetOrderItem) (string, []fl
 		b.WriteString("</td>")
 		b.WriteString("<td>")
 		b.WriteString(html.EscapeString(it.FleetName))
+		if v, ok := addonsByItem[strings.TrimSpace(it.OrderItemID)]; ok && len(v) > 0 {
+			for _, a := range v {
+				label := strings.TrimSpace(a.AddonName)
+				desc := strings.TrimSpace(a.AddonDesc)
+				if desc != "" {
+					label = label + " | " + desc
+				}
+				if strings.TrimSpace(label) == "" {
+					continue
+				}
+				b.WriteString(`<div style="font-size:11px;opacity:0.6;margin-top:2px;">`)
+				b.WriteString(html.EscapeString(label))
+				b.WriteString("</div>")
+			}
+		}
 		b.WriteString("</td>")
 		b.WriteString(`<td class="c">`)
 		b.WriteString(strconv.Itoa(it.FleetQty))
 		b.WriteString(" unit</td>")
 		b.WriteString(`<td class="r">Rp `)
 		b.WriteString(html.EscapeString(formatNumberIDR(it.FleetPrice)))
+		if v, ok := addonsByItem[strings.TrimSpace(it.OrderItemID)]; ok && len(v) > 0 {
+			for _, a := range v {
+				b.WriteString(`<div style="font-size:11px;opacity:0.6;margin-top:2px;">Rp `)
+				b.WriteString(html.EscapeString(formatNumberIDR(a.AddonPrice)))
+				b.WriteString("</div>")
+			}
+		}
 		b.WriteString("</td>")
 		b.WriteString(`<td class="r"><strong>Rp `)
 		b.WriteString(html.EscapeString(formatNumberIDR(sub)))
@@ -626,36 +718,6 @@ func buildFleetInvoiceRows(items []repository.PrintFleetOrderItem) (string, []fl
 		b.WriteString("</tr>")
 	}
 	return b.String(), subtotals
-}
-
-func buildAddonRows(items []repository.PrintFleetOrderAddon, total *float64) string {
-	if total != nil {
-		*total = 0
-	}
-	if len(items) == 0 {
-		return ""
-	}
-
-	var b strings.Builder
-	for _, it := range items {
-		if total != nil {
-			*total += it.AddonPrice
-		}
-		label := strings.TrimSpace(it.AddonName)
-		desc := strings.TrimSpace(it.AddonDesc)
-		if desc != "" {
-			label = label + " — " + desc
-		}
-		b.WriteString("<tr>")
-		b.WriteString("<td>")
-		b.WriteString(html.EscapeString(label))
-		b.WriteString("</td>")
-		b.WriteString("<td>")
-		b.WriteString(html.EscapeString(formatIDR(it.AddonPrice)))
-		b.WriteString("</td>")
-		b.WriteString("</tr>")
-	}
-	return b.String()
 }
 
 func computeDueDates(createdAt, startDate time.Time) (time.Time, time.Time) {

@@ -1,0 +1,48 @@
+package service
+
+import (
+	"net/http"
+	"service-travego/model"
+	"service-travego/repository"
+	"strings"
+)
+
+type TransactionService struct {
+	repo *repository.TransactionRepository
+}
+
+func NewTransactionService(repo *repository.TransactionRepository) *TransactionService {
+	return &TransactionService{repo: repo}
+}
+
+func (s *TransactionService) ListAllIncome(orgID string, req *model.TransactionListRequest) ([]model.TransactionListItem, error) {
+	if strings.TrimSpace(orgID) == "" {
+		return nil, NewServiceError(ErrUnauthorized, http.StatusUnauthorized, "Organization not found")
+	}
+	if req.Month < 0 || req.Month > 12 {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "month tidak valid")
+	}
+	if req.Year < 0 {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "year tidak valid")
+	}
+
+	rows, err := s.repo.ListAllIncome(orgID, req)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]model.TransactionListItem, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, model.TransactionListItem{
+			TransactionID:   r.TransactionID,
+			OrderType:       r.OrderType,
+			InvoiceNumber:   r.InvoiceNumber,
+			Description:     r.Description,
+			TransactionDate: r.TransactionDate.Format("2006-01-02"),
+			Status:          r.Status,
+			CreatedAt:       r.CreatedAt.Format("2006-01-02 15:04:05"),
+			CreatedBy:       r.CreatedBy,
+		})
+	}
+	return out, nil
+}
