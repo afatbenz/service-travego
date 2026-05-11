@@ -2410,7 +2410,7 @@ func (r *FleetRepository) generatePaymentOrderInvoiceNumber(tx *sql.Tx, orderTyp
 	}
 	seq := count + 1
 	datePart := now.Format("01200602")
-	return fmt.Sprintf("INV-%d%s-%d", orderType, datePart, seq), nil
+	return fmt.Sprintf("INV-%d%s-000%d", orderType, datePart, seq), nil
 }
 
 func (r *FleetRepository) InsertServiceOrderPayment(req *model.CreateServiceOrderPaymentRequest, totalAmount, remainingAmount float64) (string, string, error) {
@@ -2491,11 +2491,11 @@ func (r *FleetRepository) InsertServiceOrderPayment(req *model.CreateServiceOrde
 
 	transactionQuery := fmt.Sprintf(`
 		INSERT INTO transactions
-			(transaction_id, order_type, invoice_number, description, transaction_date, status, organization_id, transaction_type, transaction_mark, created_at, created_by)
+			(transaction_id, order_type, invoice_number, description, transaction_date, status, amount, organization_id, transaction_type, transaction_mark, created_at, created_by)
 		VALUES
-			(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+			(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6),
-		r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11))
+		r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12))
 
 	_, err = database.TxExec(
 		tx,
@@ -2506,6 +2506,7 @@ func (r *FleetRepository) InsertServiceOrderPayment(req *model.CreateServiceOrde
 		description,
 		now,
 		status,
+		req.PaymentAmount,
 		req.OrganizationID,
 		transactionType,
 		int(model.TransactionMarkIncome),

@@ -38,8 +38,11 @@ func (s *TransactionService) ListAllIncome(orgID string, req *model.TransactionL
 			OrderType:       r.OrderType,
 			InvoiceNumber:   r.InvoiceNumber,
 			Description:     r.Description,
+			TransactionType: r.TransactionType,
+			TransactionMark: r.TransactionMark,
 			TransactionDate: r.TransactionDate.Format("2006-01-02"),
-			Status:          r.Status,
+			Status:          int(r.Status),
+			Amount:          r.Amount,
 			CreatedAt:       r.CreatedAt.Format("2006-01-02 15:04:05"),
 			CreatedBy:       r.CreatedBy,
 		})
