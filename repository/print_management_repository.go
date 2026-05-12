@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"service-travego/database"
+	"service-travego/utils"
 	"strconv"
 	"strings"
 	"time"
@@ -522,4 +523,8 @@ func (r *PrintManagementRepository) CountPaymentOrdersByOrganization(organizatio
 		return 0, err
 	}
 	return count, nil
+}
+
+func (r *PrintManagementRepository) GenerateInvoiceNumber(orderType int, organizationID string, now time.Time) (string, error) {
+	return utils.GenerateInvoiceNumber(r.db, r.driver, organizationID, orderType, now)
 }

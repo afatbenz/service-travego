@@ -49,3 +49,24 @@ func (s *TransactionService) ListAllIncome(orgID string, req *model.TransactionL
 	}
 	return out, nil
 }
+
+func (s *TransactionService) CreateManualRevenue(orgID, userID string, req *model.CreateManualRevenueRequest) error {
+	if strings.TrimSpace(orgID) == "" {
+		return NewServiceError(ErrUnauthorized, http.StatusUnauthorized, "Organization not found")
+	}
+	if strings.TrimSpace(userID) == "" {
+		return NewServiceError(ErrUnauthorized, http.StatusUnauthorized, "User not found")
+	}
+
+	err := s.repo.CreateManualTransaction(orgID, userID, &repository.CreateManualTransactionRequest{
+		Description:     req.Description,
+		TransactionDate: req.TransactionDate,
+		Status:          req.Status,
+		TransactionType: req.TransactionType,
+		Amount:          req.Amount,
+		PaymentMethod:   req.PaymentMethod,
+		BankAccount:     req.BankAccount,
+		BankCode:        req.BankCode,
+	})
+	return err
+}

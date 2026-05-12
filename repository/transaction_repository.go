@@ -5,7 +5,11 @@ import (
 	"fmt"
 	"service-travego/database"
 	"service-travego/model"
+	"service-travego/utils"
 	"strings"
+	"time"
+
+	"github.com/google/uuid"
 )
 
 type TransactionRepository struct {
@@ -122,4 +126,87 @@ func (r *TransactionRepository) ListAllIncome(orgID string, req *model.Transacti
 		return nil, err
 	}
 	return out, nil
+}
+
+type CreateManualTransactionRequest struct {
+	Description     string
+	TransactionDate string
+	Status          int
+	TransactionType int
+	Amount          float64
+	PaymentMethod   int
+	BankAccount     string
+	BankCode        string
+}
+
+func (r *TransactionRepository) CreateManualTransaction(orgID, userID string, req *CreateManualTransactionRequest) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	transactionID, err := uuid.NewV7()
+	if err != nil {
+		return err
+	}
+
+	invoiceNumber, err := utils.GenerateInvoiceNumberTx(tx, r.driver, orgID, 3, time.Now())
+	if err != nil {
+		return err
+	}
+
+	placeholder := r.getPlaceholder
+	args := make([]interface{}, 0, 15)
+
+	query := fmt.Sprintf(`
+		INSERT INTO transactions (
+			transaction_id,
+			order_type,
+			invoice_number,
+			description,
+			transaction_date,
+			status,
+			transaction_type,
+			transaction_mark,
+			amount,
+			created_by,
+			organization_id,
+			payment_method,
+			bank_account,
+			bank_code,
+			created_at
+		) VALUES (
+			%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+		)
+	`,
+		placeholder(1), placeholder(2), placeholder(3), placeholder(4), placeholder(5),
+		placeholder(6), placeholder(7), placeholder(8), placeholder(9), placeholder(10),
+		placeholder(11), placeholder(12), placeholder(13), placeholder(14), placeholder(15),
+	)
+
+	args = append(args,
+		transactionID.String(),
+		3,
+		invoiceNumber,
+		req.Description,
+		req.TransactionDate,
+		req.Status,
+		req.TransactionType,
+		1,
+		req.Amount,
+		userID,
+		orgID,
+		req.PaymentMethod,
+		req.BankAccount,
+		req.BankCode,
+		time.Now(),
+	)
+
+	_, err = tx.Exec(query, args...)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
