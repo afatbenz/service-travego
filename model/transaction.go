@@ -40,3 +40,14 @@ type TransactionListItem struct {
 	CreatedBy            string  `json:"created_by"`
 	Amount               float64 `json:"amount"`
 }
+
+type CreateManualRevenueRequest struct {
+	Description     string `json:"description"`
+	TransactionDate string `json:"transaction_date"`
+	Status          int    `json:"status"`
+	TransactionType int    `json:"transaction_type"`
+	Amount          float64 `json:"amount"`
+	PaymentMethod   int    `json:"payment_method"`
+	BankAccount     string `json:"bank_account,omitempty"`
+	BankCode        string `json:"bank_code,omitempty"`
+}

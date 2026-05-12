@@ -2400,17 +2400,7 @@ func (r *FleetRepository) GetServiceOrderPaymentStats(orderID, organizationID st
 }
 
 func (r *FleetRepository) generatePaymentOrderInvoiceNumber(tx *sql.Tx, orderType int, organizationID string, now time.Time) (string, error) {
-	orgExpr := "organization_id = " + r.getPlaceholder(1)
-	if r.driver == "postgres" || r.driver == "pgx" {
-		orgExpr = "organization_id::text = " + r.getPlaceholder(1)
-	}
-	query := fmt.Sprintf(`SELECT COUNT(1) FROM payment_orders WHERE %s`, orgExpr)
-	var count int
-	if err := database.TxQueryRow(tx, query, organizationID).Scan(&count); err != nil {
-		return "", err
-	}
-	seq := count + 1
-	return utils.GenerateInvoiceNumber(orderType, now, seq), nil
+	return utils.GenerateInvoiceNumberTx(tx, r.driver, organizationID, orderType, now)
 }
 
 func (r *FleetRepository) InsertServiceOrderPayment(req *model.CreateServiceOrderPaymentRequest, totalAmount, remainingAmount float64) (string, string, error) {

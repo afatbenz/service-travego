@@ -6,7 +6,9 @@ import (
 	"service-travego/helper"
 	"service-travego/model"
 	"service-travego/service"
+	"sort"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/gofiber/fiber/v2"
@@ -138,4 +140,93 @@ func (h *TransactionHandler) ListAllIncome(c *fiber.Ctx) error {
 	}
 
 	return helper.SuccessResponse(c, fiber.StatusOK, "Transactions retrieved", transformedRes)
+}
+
+func (h *TransactionHandler) CreateManualRevenue(c *fiber.Ctx) error {
+	var req struct {
+		Description     string  `json:"description"`
+		TransactionDate string  `json:"transaction_date"`
+		Status          int     `json:"status"`
+		TransactionType int     `json:"transaction_type"`
+		Amount          float64 `json:"amount"`
+		PaymentMethod   int     `json:"payment_method"`
+		BankAccount     string  `json:"bank_account,omitempty"`
+		BankCode        string  `json:"bank_code,omitempty"`
+	}
+
+	if err := c.BodyParser(&req); err != nil {
+		return helper.BadRequestResponse(c, "Invalid request body")
+	}
+
+	if req.Description == "" || req.TransactionDate == "" || req.Status == 0 || req.TransactionType == 0 || req.Amount <= 0 {
+		return helper.BadRequestResponse(c, "Missing required fields: description, transaction_date, status, transaction_type, amount must be greater than 0")
+	}
+
+	if req.PaymentMethod == 1002 {
+		if req.BankAccount == "" || req.BankCode == "" {
+			return helper.BadRequestResponse(c, "bank_account and bank_code are required for payment method 1002")
+		}
+	}
+
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Organization not found")
+	}
+
+	userID, ok := c.Locals("user_id").(string)
+	if !ok || userID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "User not found")
+	}
+
+	err := h.service.CreateManualRevenue(orgID, userID, &model.CreateManualRevenueRequest{
+		Description:     req.Description,
+		TransactionDate: req.TransactionDate,
+		Status:          req.Status,
+		TransactionType: req.TransactionType,
+		Amount:          req.Amount,
+		PaymentMethod:   req.PaymentMethod,
+		BankAccount:     req.BankAccount,
+		BankCode:        req.BankCode,
+	})
+
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusCreated, "Manual revenue created successfully", nil)
+}
+
+func (h *TransactionHandler) ListTransactionTypes(c *fiber.Ctx) error {
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Organization not found")
+	}
+
+	filteredBy := strings.ToLower(strings.TrimSpace(c.Query("filteredby")))
+	if filteredBy == "expnse" {
+		filteredBy = "expense"
+	}
+
+	keys := make([]int, 0, len(transactionTypeMap))
+	for id := range transactionTypeMap {
+		if filteredBy == "income" && id > 100 {
+			continue
+		}
+		if filteredBy == "expense" && id <= 100 {
+			continue
+		}
+		keys = append(keys, id)
+	}
+	sort.Ints(keys)
+
+	types := make([]map[string]interface{}, 0, len(keys))
+	for _, id := range keys {
+		types = append(types, map[string]interface{}{
+			"id":    id,
+			"label": transactionTypeMap[id],
+		})
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Transaction types retrieved", types)
 }
