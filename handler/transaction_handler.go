@@ -24,24 +24,24 @@ var transactionTypeMap = map[int]string{
 	int(model.TransactionTypeIncomeOtherIncome): "Income Other Income",
 	int(model.TransactionTypeIncomeAds):         "Income Ads",
 
-	int(model.TransactionTypeExpenseFuel):             "Expense Fuel",
-	int(model.TransactionTypeExpenseTol):              "Expense Toll",
-	int(model.TransactionTypeExpenseDriverAllowance):  "Expense Driver Allowance",
-	int(model.TransactionTypeExpenseGuideFee):         "Expense Guide Fee",
-	int(model.TransactionTypeExpenseCrewMeal):         "Expense Crew Meal",
-	int(model.TransactionTypeExpenseVehicleService):   "Expense Vehicle Service",
-	int(model.TransactionTypeExpenseVehicleTax):       "Expense Vehicle Tax",
-	int(model.TransactionTypeExpenseVehicleInsurance): "Expense Vehicle Insurance",
-	int(model.TransactionTypeExpenseHotel):            "Expense Hotel",
-	int(model.TransactionTypeExpenseRestaurant):       "Expense Restaurant",
-	int(model.TransactionTypeExpenseAttractionTicket): "Expense Attraction Ticket",
-	int(model.TransactionTypeExpenseSalary):           "Expense Salary",
-	int(model.TransactionTypeExpenseOfficeRent):       "Expense Office Rent",
-	int(model.TransactionTypeExpenseUtility):          "Expense Utility",
-	int(model.TransactionTypeExpenseMarketing):        "Expense Marketing",
-	int(model.TransactionTypeExpenseBankCharge):       "Expense Bank Charge",
-	int(model.TransactionTypeExpenseOtherExpenses):    "Expense Other Expenses",
-	int(model.TransactionTypeExpenseCommission):       "Expense Commission",
+	int(model.TransactionTypeExpenseFuel):               "Expense Fuel",
+	int(model.TransactionTypeExpenseTol):                "Expense Toll",
+	int(model.TransactionTypeExpenseDriverAllowance):    "Expense Driver Allowance",
+	int(model.TransactionTypeExpenseGuideFee):           "Expense Guide Fee",
+	int(model.TransactionTypeExpenseCrewMeal):           "Expense Crew Meal",
+	int(model.TransactionTypeExpenseVehicleMaintenance): "Expense Vehicle Maintenance",
+	int(model.TransactionTypeExpenseVehicleTax):         "Expense Vehicle Tax",
+	int(model.TransactionTypeExpenseVehicleInsurance):   "Expense Vehicle Insurance",
+	int(model.TransactionTypeExpenseHotel):              "Expense Hotel",
+	int(model.TransactionTypeExpenseRestaurant):         "Expense Restaurant",
+	int(model.TransactionTypeExpenseAttractionTicket):   "Expense Attraction Ticket",
+	int(model.TransactionTypeExpenseSalary):             "Expense Salary",
+	int(model.TransactionTypeExpenseOfficeRent):         "Expense Office Rent",
+	int(model.TransactionTypeExpenseUtility):            "Expense Utility",
+	int(model.TransactionTypeExpenseMarketing):          "Expense Marketing",
+	int(model.TransactionTypeExpenseBankCharge):         "Expense Bank Charge",
+	int(model.TransactionTypeExpenseOtherExpenses):      "Expense Other Expenses",
+	int(model.TransactionTypeExpenseCommission):         "Expense Commission",
 }
 
 type TransactionHandler struct {
@@ -71,7 +71,15 @@ func ensurePaymentStatusLoaded() {
 	})
 }
 
-func (h *TransactionHandler) ListAllIncome(c *fiber.Ctx) error {
+func (h *TransactionHandler) ListAllRevenue(c *fiber.Ctx) error {
+	return h.listTransactions(c, "revenue")
+}
+
+func (h *TransactionHandler) ListAllExpenses(c *fiber.Ctx) error {
+	return h.listTransactions(c, "expenses")
+}
+
+func (h *TransactionHandler) listTransactions(c *fiber.Ctx, mode string) error {
 	var req model.TransactionListRequest
 	if err := c.QueryParser(&req); err != nil {
 		return helper.BadRequestResponse(c, "Invalid query parameters")
@@ -82,7 +90,15 @@ func (h *TransactionHandler) ListAllIncome(c *fiber.Ctx) error {
 		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Organization not found")
 	}
 
-	rows, err := h.service.ListAllIncome(orgID, &req)
+	var rows []model.TransactionListItem
+	var err error
+
+	if mode == "revenue" {
+		rows, err = h.service.ListAllRevenue(orgID, &req)
+	} else {
+		rows, err = h.service.ListAllExpenses(orgID, &req)
+	}
+
 	if err != nil {
 		code := service.GetStatusCode(err)
 		return helper.SendErrorResponse(c, code, err.Error())
@@ -139,7 +155,14 @@ func (h *TransactionHandler) ListAllIncome(c *fiber.Ctx) error {
 		}
 	}
 
-	return helper.SuccessResponse(c, fiber.StatusOK, "Transactions retrieved", transformedRes)
+	msg := "Transactions retrieved"
+	if mode == "revenue" {
+		msg = "Revenue transactions retrieved"
+	} else {
+		msg = "Expense transactions retrieved"
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, msg, transformedRes)
 }
 
 func (h *TransactionHandler) CreateManualRevenue(c *fiber.Ctx) error {
@@ -152,6 +175,8 @@ func (h *TransactionHandler) CreateManualRevenue(c *fiber.Ctx) error {
 		PaymentMethod   int     `json:"payment_method"`
 		BankAccount     string  `json:"bank_account,omitempty"`
 		BankCode        string  `json:"bank_code,omitempty"`
+		OrderType       int     `json:"order_type"`
+		OrderID         string  `json:"order_id"`
 	}
 
 	if err := c.BodyParser(&req); err != nil {
@@ -187,6 +212,8 @@ func (h *TransactionHandler) CreateManualRevenue(c *fiber.Ctx) error {
 		PaymentMethod:   req.PaymentMethod,
 		BankAccount:     req.BankAccount,
 		BankCode:        req.BankCode,
+		OrderType:       req.OrderType,
+		OrderID:         req.OrderID,
 	})
 
 	if err != nil {
@@ -197,7 +224,7 @@ func (h *TransactionHandler) CreateManualRevenue(c *fiber.Ctx) error {
 	return helper.SuccessResponse(c, fiber.StatusCreated, "Manual revenue created successfully", nil)
 }
 
-func (h *TransactionHandler) ListTransactionTypes(c *fiber.Ctx) error {
+func (h *TransactionHandler) ListTransactionLabels(c *fiber.Ctx) error {
 	orgID, ok := c.Locals("organization_id").(string)
 	if !ok || orgID == "" {
 		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Organization not found")
@@ -229,4 +256,23 @@ func (h *TransactionHandler) ListTransactionTypes(c *fiber.Ctx) error {
 	}
 
 	return helper.SuccessResponse(c, fiber.StatusOK, "Transaction types retrieved", types)
+}
+
+// GetOrderTypes returns all order types with their labels
+func (h *TransactionHandler) GetOrderTypes(c *fiber.Ctx) error {
+	// Get all order types from the service map
+	orderTypes := make([]map[string]interface{}, 0, len(service.OrderTypeLabel))
+	for id, label := range service.OrderTypeLabel {
+		orderTypes = append(orderTypes, map[string]interface{}{
+			"id":    id,
+			"label": label,
+		})
+	}
+
+	// Sort by order type id
+	sort.Slice(orderTypes, func(i, j int) bool {
+		return orderTypes[i]["id"].(int) < orderTypes[j]["id"].(int)
+	})
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Order types retrieved successfully", orderTypes)
 }

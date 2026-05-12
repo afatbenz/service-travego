@@ -31,41 +31,34 @@ func (r *TransactionRepository) getPlaceholder(pos int) string {
 	return "?"
 }
 
-func (r *TransactionRepository) ListAllIncome(orgID string, req *model.TransactionListRequest) ([]model.TransactionListRow, error) {
+func (r *TransactionRepository) ListAllRevenue(orgID string, req *model.TransactionListRequest) ([]model.TransactionListRow, error) {
+	return r.listTransactions(orgID, 1, req)
+}
+
+func (r *TransactionRepository) ListAllExpenses(orgID string, req *model.TransactionListRequest) ([]model.TransactionListRow, error) {
+	return r.listTransactions(orgID, 2, req)
+}
+
+func (r *TransactionRepository) listTransactions(orgID string, transactionMark int, req *model.TransactionListRequest) ([]model.TransactionListRow, error) {
 	where := make([]string, 0, 8)
 	args := make([]interface{}, 0, 8)
 
-	where = append(where, "t.transaction_mark = 1")
+	where = append(where, "t.transaction_mark = "+r.getPlaceholder(len(args)+1))
+	args = append(args, transactionMark)
 
-	if r.driver == "postgres" || r.driver == "pgx" {
-		where = append(where, "t.organization_id::text = "+r.getPlaceholder(len(args)+1))
-	} else {
-		where = append(where, "t.organization_id = "+r.getPlaceholder(len(args)+1))
-	}
+	where = append(where, "t.organization_id::text = "+r.getPlaceholder(len(args)+1))
 	args = append(args, orgID)
 
 	if req.Month > 0 {
-		if r.driver == "postgres" || r.driver == "pgx" {
-			where = append(where, "EXTRACT(MONTH FROM t.transaction_date) = "+r.getPlaceholder(len(args)+1))
-		} else {
-			where = append(where, "MONTH(t.transaction_date) = "+r.getPlaceholder(len(args)+1))
-		}
+		where = append(where, "EXTRACT(MONTH FROM t.transaction_date) = "+r.getPlaceholder(len(args)+1))
 		args = append(args, req.Month)
 	}
 	if req.Year > 0 {
-		if r.driver == "postgres" || r.driver == "pgx" {
-			where = append(where, "EXTRACT(YEAR FROM t.transaction_date) = "+r.getPlaceholder(len(args)+1))
-		} else {
-			where = append(where, "YEAR(t.transaction_date) = "+r.getPlaceholder(len(args)+1))
-		}
+		where = append(where, "EXTRACT(YEAR FROM t.transaction_date) = "+r.getPlaceholder(len(args)+1))
 		args = append(args, req.Year)
 	}
 	if strings.TrimSpace(req.NoInvoice) != "" {
-		if r.driver == "postgres" || r.driver == "pgx" {
-			where = append(where, "t.invoice_number ILIKE "+r.getPlaceholder(len(args)+1))
-		} else {
-			where = append(where, "t.invoice_number LIKE "+r.getPlaceholder(len(args)+1))
-		}
+		where = append(where, "t.invoice_number ILIKE "+r.getPlaceholder(len(args)+1))
 		args = append(args, "%"+strings.TrimSpace(req.NoInvoice)+"%")
 	}
 	if req.Source > 0 {
@@ -95,7 +88,6 @@ func (r *TransactionRepository) ListAllIncome(orgID string, req *model.Transacti
 		WHERE %s
 		ORDER BY t.created_at DESC
 	`, strings.Join(where, " AND "))
-
 	rows, err := database.Query(r.db, query, args...)
 	if err != nil {
 		return nil, err
@@ -129,6 +121,8 @@ func (r *TransactionRepository) ListAllIncome(orgID string, req *model.Transacti
 }
 
 type CreateManualTransactionRequest struct {
+	OrderType       int
+	OrderID         string
 	Description     string
 	TransactionDate string
 	Status          int
@@ -185,15 +179,25 @@ func (r *TransactionRepository) CreateManualTransaction(orgID, userID string, re
 		placeholder(11), placeholder(12), placeholder(13), placeholder(14), placeholder(15),
 	)
 
+	orderType := req.OrderType
+	if orderType == 0 {
+		orderType = 3 // Default to Other if not provided
+	}
+
+	transactionMark := 1 // Default to Income
+	if req.TransactionType > 100 {
+		transactionMark = 2 // Expense
+	}
+
 	args = append(args,
 		transactionID.String(),
-		3,
+		orderType,
 		invoiceNumber,
 		req.Description,
 		req.TransactionDate,
 		req.Status,
 		req.TransactionType,
-		1,
+		transactionMark,
 		req.Amount,
 		userID,
 		orgID,
@@ -206,6 +210,71 @@ func (r *TransactionRepository) CreateManualTransaction(orgID, userID string, re
 	_, err = tx.Exec(query, args...)
 	if err != nil {
 		return err
+	}
+
+	// Logic for transaction_orders and transaction_fleets
+	if req.OrderID != "" {
+		if req.OrderType == 1 || req.OrderType == 2 {
+			transactionOrderID, err := uuid.NewV7()
+			if err != nil {
+				return err
+			}
+
+			queryOrder := fmt.Sprintf(`
+				INSERT INTO transaction_orders (
+					transaction_order_id,
+					transaction_id,
+					order_id,
+					organization_id,
+					created_at,
+					created_by
+				) VALUES (
+					%s, %s, %s, %s, %s, %s
+				)
+			`, placeholder(1), placeholder(2), placeholder(3), placeholder(4), placeholder(5), placeholder(6))
+
+			_, err = tx.Exec(queryOrder,
+				transactionOrderID.String(),
+				transactionID.String(),
+				req.OrderID,
+				orgID,
+				time.Now(),
+				userID,
+			)
+			if err != nil {
+				return err
+			}
+		} else if req.OrderType == 4 {
+			transactionFleetID, err := uuid.NewV7()
+			if err != nil {
+				return err
+			}
+
+			queryFleet := fmt.Sprintf(`
+				INSERT INTO transaction_fleets (
+					transaction_fleet_id,
+					transaction_id,
+					fleet_unit_id,
+					organization_id,
+					created_at,
+					created_by
+				) VALUES (
+					%s, %s, %s, %s, %s, %s
+				)
+			`, placeholder(1), placeholder(2), placeholder(3), placeholder(4), placeholder(5), placeholder(6))
+
+			_, err = tx.Exec(queryFleet,
+				transactionFleetID.String(),
+				transactionID.String(),
+				req.OrderID, // Assuming req.OrderID contains fleet_unit_id for order_type 4
+				orgID,
+				time.Now(),
+				userID,
+			)
+			if err != nil {
+				return err
+			}
+		}
 	}
 
 	return tx.Commit()
