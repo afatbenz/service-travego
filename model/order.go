@@ -281,24 +281,24 @@ const (
 	TransactionTypeIncomeOtherIncome TransactionType = 4
 	TransactionTypeIncomeAds         TransactionType = 5
 
-	TransactionTypeExpenseFuel             TransactionType = 101
-	TransactionTypeExpenseTol              TransactionType = 102
-	TransactionTypeExpenseDriverAllowance  TransactionType = 103
-	TransactionTypeExpenseGuideFee         TransactionType = 104
-	TransactionTypeExpenseCrewMeal         TransactionType = 105
-	TransactionTypeExpenseVehicleService   TransactionType = 106
-	TransactionTypeExpenseVehicleTax       TransactionType = 107
-	TransactionTypeExpenseVehicleInsurance TransactionType = 108
-	TransactionTypeExpenseHotel            TransactionType = 109
-	TransactionTypeExpenseRestaurant       TransactionType = 110
-	TransactionTypeExpenseAttractionTicket TransactionType = 111
-	TransactionTypeExpenseSalary           TransactionType = 112
-	TransactionTypeExpenseOfficeRent       TransactionType = 113
-	TransactionTypeExpenseUtility          TransactionType = 114
-	TransactionTypeExpenseMarketing        TransactionType = 115
-	TransactionTypeExpenseBankCharge       TransactionType = 116
-	TransactionTypeExpenseOtherExpenses    TransactionType = 117
-	TransactionTypeExpenseCommission       TransactionType = 118
+	TransactionTypeExpenseFuel               TransactionType = 101
+	TransactionTypeExpenseTol                TransactionType = 102
+	TransactionTypeExpenseDriverAllowance    TransactionType = 103
+	TransactionTypeExpenseGuideFee           TransactionType = 104
+	TransactionTypeExpenseCrewMeal           TransactionType = 105
+	TransactionTypeExpenseVehicleMaintenance TransactionType = 106
+	TransactionTypeExpenseVehicleTax         TransactionType = 107
+	TransactionTypeExpenseVehicleInsurance   TransactionType = 108
+	TransactionTypeExpenseHotel              TransactionType = 109
+	TransactionTypeExpenseRestaurant         TransactionType = 110
+	TransactionTypeExpenseAttractionTicket   TransactionType = 111
+	TransactionTypeExpenseSalary             TransactionType = 112
+	TransactionTypeExpenseOfficeRent         TransactionType = 113
+	TransactionTypeExpenseUtility            TransactionType = 114
+	TransactionTypeExpenseMarketing          TransactionType = 115
+	TransactionTypeExpenseBankCharge         TransactionType = 116
+	TransactionTypeExpenseOtherExpenses      TransactionType = 117
+	TransactionTypeExpenseCommission         TransactionType = 118
 )
 
 type FleetOrderPayment struct {

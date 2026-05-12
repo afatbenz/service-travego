@@ -15,7 +15,15 @@ func NewTransactionService(repo *repository.TransactionRepository) *TransactionS
 	return &TransactionService{repo: repo}
 }
 
-func (s *TransactionService) ListAllIncome(orgID string, req *model.TransactionListRequest) ([]model.TransactionListItem, error) {
+func (s *TransactionService) ListAllRevenue(orgID string, req *model.TransactionListRequest) ([]model.TransactionListItem, error) {
+	return s.listTransactions(orgID, req, "revenue")
+}
+
+func (s *TransactionService) ListAllExpenses(orgID string, req *model.TransactionListRequest) ([]model.TransactionListItem, error) {
+	return s.listTransactions(orgID, req, "expenses")
+}
+
+func (s *TransactionService) listTransactions(orgID string, req *model.TransactionListRequest, mode string) ([]model.TransactionListItem, error) {
 	if strings.TrimSpace(orgID) == "" {
 		return nil, NewServiceError(ErrUnauthorized, http.StatusUnauthorized, "Organization not found")
 	}
@@ -26,7 +34,15 @@ func (s *TransactionService) ListAllIncome(orgID string, req *model.TransactionL
 		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "year tidak valid")
 	}
 
-	rows, err := s.repo.ListAllIncome(orgID, req)
+	var rows []model.TransactionListRow
+	var err error
+
+	if mode == "revenue" {
+		rows, err = s.repo.ListAllRevenue(orgID, req)
+	} else {
+		rows, err = s.repo.ListAllExpenses(orgID, req)
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -59,6 +75,32 @@ func (s *TransactionService) CreateManualRevenue(orgID, userID string, req *mode
 	}
 
 	err := s.repo.CreateManualTransaction(orgID, userID, &repository.CreateManualTransactionRequest{
+		OrderType:       req.OrderType,
+		OrderID:         req.OrderID,
+		Description:     req.Description,
+		TransactionDate: req.TransactionDate,
+		Status:          req.Status,
+		TransactionType: req.TransactionType,
+		Amount:          req.Amount,
+		PaymentMethod:   req.PaymentMethod,
+		BankAccount:     req.BankAccount,
+		BankCode:        req.BankCode,
+	})
+	return err
+}
+
+// CreateManualExpense creates a manual expense transaction with the specified order_type
+func (s *TransactionService) CreateManualExpense(orgID, userID string, req *model.CreateManualRevenueRequest) error {
+	if strings.TrimSpace(orgID) == "" {
+		return NewServiceError(ErrUnauthorized, http.StatusUnauthorized, "Organization not found")
+	}
+	if strings.TrimSpace(userID) == "" {
+		return NewServiceError(ErrUnauthorized, http.StatusUnauthorized, "User not found")
+	}
+
+	err := s.repo.CreateManualTransaction(orgID, userID, &repository.CreateManualTransactionRequest{
+		OrderType:       req.OrderType,
+		OrderID:         req.OrderID,
 		Description:     req.Description,
 		TransactionDate: req.TransactionDate,
 		Status:          req.Status,

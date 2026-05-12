@@ -18,7 +18,9 @@ func SetupTransactionRoutes(api fiber.Router, db *sql.DB, driver string) {
 	services := api.Group("/services")
 	transactions := services.Group("/transactions")
 
-	transactions.Get("/income", helper.JWTAuthorizationMiddleware(), h.ListAllIncome)
+	transactions.Get("/revenue", helper.JWTAuthorizationMiddleware(), h.ListAllRevenue)
+	transactions.Get("/expenses", helper.JWTAuthorizationMiddleware(), h.ListAllExpenses)
 	transactions.Post("/create", helper.JWTAuthorizationMiddleware(), h.CreateManualRevenue)
-	transactions.Get("/types", helper.JWTAuthorizationMiddleware(), h.ListTransactionTypes)
+	transactions.Get("/labels", helper.JWTAuthorizationMiddleware(), h.ListTransactionLabels)
+	transactions.Get("/types", helper.JWTAuthorizationMiddleware(), h.GetOrderTypes)
 }
