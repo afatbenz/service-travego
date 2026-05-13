@@ -3155,7 +3155,7 @@ func (r *FleetRepository) GetServiceFleets(page, perPage int) ([]model.ServiceFl
         (SELECT uom FROM fleet_prices WHERE fleet_id = f.uuid ORDER BY price ASC LIMIT 1) as uom,
         (SELECT %s FROM fleet_pickup WHERE fleet_id = f.uuid) as cities
         FROM fleets f
-        WHERE f.active = true
+        WHERE f.active = true AND f.is_public = 1
         ORDER BY f.created_at DESC
         LIMIT %d OFFSET %d
     `, groupConcat, perPage, offset)
@@ -3486,25 +3486,12 @@ func (r *FleetRepository) GetFleetAvailibility(orgID string, reqStart time.Time,
 	var existingStartExpr string
 	var existingEndExpr string
 	var conflictExpr string
-	if r.driver == "postgres" || r.driver == "pgx" {
-		existingStartExpr = "(fo.start_date::date + s.departure_time::time)"
-		existingEndExpr = "(fo.end_date::date + s.arrival_time::time)"
-		conflictExpr = fmt.Sprintf("%s < (%s + INTERVAL '6 hours') AND %s > (%s - INTERVAL '6 hours')", r.getPlaceholder(2), existingEndExpr, r.getPlaceholder(3), existingStartExpr)
-	} else {
-		existingStartExpr = "TIMESTAMP(fo.start_date, s.departure_time)"
-		existingEndExpr = "TIMESTAMP(fo.end_date, s.arrival_time)"
-		conflictExpr = fmt.Sprintf("%s < DATE_ADD(%s, INTERVAL 6 HOUR) AND %s > DATE_SUB(%s, INTERVAL 6 HOUR)", r.getPlaceholder(2), existingEndExpr, r.getPlaceholder(3), existingStartExpr)
-	}
+	existingStartExpr = "(fo.start_date::date + s.departure_time::time)"
+	existingEndExpr = "(fo.end_date::date + s.arrival_time::time)"
+	conflictExpr = fmt.Sprintf("%s < (%s + INTERVAL '6 hours') AND %s > (%s - INTERVAL '6 hours')", r.getPlaceholder(2), existingEndExpr, r.getPlaceholder(3), existingStartExpr)
 
-	fleetJoinExpr := "b.fleet_id = f.uuid"
-	if r.driver == "postgres" || r.driver == "pgx" {
-		fleetJoinExpr = "b.fleet_id::text = f.uuid::text"
-	}
-
-	totalUnitExpr := "COALESCE((SELECT COUNT(*) FROM fleet_units fu WHERE fu.fleet_id = f.uuid AND fu.status = 1), 0)"
-	if r.driver == "postgres" || r.driver == "pgx" {
-		totalUnitExpr = "COALESCE((SELECT COUNT(*) FROM fleet_units fu WHERE fu.fleet_id::text = f.uuid::text AND fu.status = 1), 0)"
-	}
+	fleetJoinExpr := "b.fleet_id::text = f.uuid::text"
+	totalUnitExpr := "COALESCE((SELECT COUNT(*) FROM fleet_units fu WHERE fu.fleet_id::text = f.uuid::text AND fu.status = 1), 0)"
 
 	greatestFn := "GREATEST"
 	if r.driver != "postgres" && r.driver != "pgx" {
