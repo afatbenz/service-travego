@@ -38,6 +38,7 @@ type CreateFleetRequest struct {
 	FuelType       string               `json:"fuel_type"`
 	Description    string               `json:"description"`
 	Active         bool                 `json:"active"`
+	IsPublic       bool                 `json:"is_public"`
 	Pickup         []FleetPickupRequest `json:"pickup"`
 	Facilities     []string             `json:"fascilities"`
 	Pricing        []FleetPriceRequest  `json:"pricing"`

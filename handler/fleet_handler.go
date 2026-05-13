@@ -65,6 +65,17 @@ func (h *FleetHandler) CreateFleet(c *fiber.Ctx) error {
 				req.Active = vv != 0
 			}
 		}
+		if v, ok := m["is_public"]; ok {
+			switch vv := v.(type) {
+			case bool:
+				req.IsPublic = vv
+			case string:
+				b, _ := strconv.ParseBool(vv)
+				req.IsPublic = b
+			case float64:
+				req.IsPublic = vv != 0
+			}
+		}
 		if v, ok := m["pickup_point"].([]interface{}); ok {
 			req.Pickup = make([]model.FleetPickupRequest, 0, len(v))
 			for _, it := range v {

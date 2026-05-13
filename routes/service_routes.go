@@ -17,9 +17,6 @@ func SetupServiceRoutes(api fiber.Router, db *sql.DB, driver string) {
 	h := handler.NewServiceHandler(srv)
 
 	// Route: /api/service/fleet
-	// Assuming 'api' passed here is already grounded at /api or we group it.
-	// User asked for /api/service/fleet.
-	// If 'api' is the root router, we can do:
 
 	svcGroup := api.Group("/service")
 	svcGroup.Use(helper.DualAuthMiddleware(orgRepo))
