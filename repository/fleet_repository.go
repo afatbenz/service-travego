@@ -165,12 +165,12 @@ func (r *FleetRepository) CreateFleet(req *model.CreateFleetRequest) (string, er
 	id := uuid2()
 	now := time.Now()
 	query := `
-        INSERT INTO fleets (uuid, organization_id, fleet_type, fleet_name, capacity, production_year, engine, body, fuel_type, description, thumbnail, active, created_at, created_by, status)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO fleets (uuid, organization_id, fleet_type, fleet_name, capacity, production_year, engine, body, fuel_type, description, thumbnail, active, is_public, created_at, created_by, status)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     `
 	query = fmt.Sprintf(query, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
 		r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9),
-		r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12), r.getPlaceholder(13), r.getPlaceholder(14), r.getPlaceholder(15))
+		r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12), r.getPlaceholder(13), r.getPlaceholder(14), r.getPlaceholder(15), r.getPlaceholder(16))
 
 	// Status default 1 (Active/Draft?)
 	_, err := database.Exec(r.db, query,
@@ -186,6 +186,7 @@ func (r *FleetRepository) CreateFleet(req *model.CreateFleetRequest) (string, er
 		req.Description,
 		req.Thumbnail,
 		req.Active,
+		req.IsPublic,
 		now,
 		req.CreatedBy,
 		1,
@@ -3149,7 +3150,7 @@ func (r *FleetRepository) GetServiceFleets(page, perPage int) ([]model.ServiceFl
 	}
 
 	query := fmt.Sprintf(`
-        SELECT f.uuid, f.fleet_name, f.fleet_type, f.capacity, f.production_year, f.engine, f.body, f.description, f.thumbnail, f.created_at,
+        SELECT f.uuid, f.fleet_name, f.fleet_type, f.capacity, COALESCE(f.production_year, 0) as production_year, f.engine, f.body, f.description, COALESCE(f.thumbnail, '') as thumbnail, f.created_at,
         (SELECT MIN(price) FROM fleet_prices WHERE fleet_id = f.uuid) as price,
         (SELECT uom FROM fleet_prices WHERE fleet_id = f.uuid ORDER BY price ASC LIMIT 1) as uom,
         (SELECT %s FROM fleet_pickup WHERE fleet_id = f.uuid) as cities
