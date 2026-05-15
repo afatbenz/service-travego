@@ -17,17 +17,86 @@ import (
 
 type TourPackageService struct {
 	repo       *repository.TourPackageRepository
+	baseURL    string
 	citiesName map[string]string
 }
 
-func NewTourPackageService(repo *repository.TourPackageRepository) *TourPackageService {
+func NewTourPackageService(repo *repository.TourPackageRepository, baseURL string) *TourPackageService {
 	return &TourPackageService{
-		repo: repo,
+		repo:    repo,
+		baseURL: strings.TrimSuffix(strings.TrimSpace(baseURL), "/"),
 	}
 }
 
+func (s *TourPackageService) resolveThumbnailURL(path string) string {
+	p := strings.TrimSpace(path)
+	if p == "" {
+		return p
+	}
+	if strings.HasPrefix(p, "http://") || strings.HasPrefix(p, "https://") {
+		return p
+	}
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	if s.baseURL != "" {
+		return s.baseURL + p
+	}
+	return helper.GetAssetURL(p)
+}
+
 func (s *TourPackageService) GetTourPackages(orgID string) ([]model.TourPackageListItem, error) {
-	return s.repo.GetTourPackagesByOrgID(orgID)
+	items, err := s.repo.GetTourPackagesByOrgID(orgID)
+	if err != nil {
+		return nil, err
+	}
+
+	s.ensureCitiesLoaded()
+
+	for i := range items {
+		if items[i].Thumbnail != "" {
+			items[i].Thumbnail = s.resolveThumbnailURL(items[i].Thumbnail)
+		}
+
+		// Map package_type_label
+		if items[i].PackageTypeLabel == "1" {
+			items[i].PackageTypeLabel = "Private Trip"
+		} else if items[i].PackageTypeLabel == "2" {
+			items[i].PackageTypeLabel = "Open Trip"
+		} else {
+			items[i].PackageTypeLabel = "Unknown"
+		}
+
+		// Map destinations from city_ids
+		if items[i].Destinations != "" {
+			ids := strings.Split(items[i].Destinations, ",")
+			var names []string
+			for _, id := range ids {
+				id = strings.TrimSpace(id)
+				if id == "" {
+					continue
+				}
+				if name, ok := s.citiesName[id]; ok {
+					names = append(names, name)
+				} else {
+					names = append(names, id)
+				}
+			}
+			items[i].Destinations = strings.Join(names, ", ")
+		}
+
+		// Calculate duration
+		if items[i].StartDate != "" && items[i].EndDate != "" {
+			start, err1 := time.Parse("2006-01-02", items[i].StartDate)
+			end, err2 := time.Parse("2006-01-02", items[i].EndDate)
+			if err1 == nil && err2 == nil {
+				duration := end.Sub(start).Hours()/24 + 1
+				items[i].Duration = fmt.Sprintf("%.0f hari", duration)
+			}
+		}
+	}
+
+	return items, nil
 }
 
 func (s *TourPackageService) GetTourPackageOrderList(orgID string) ([]model.TourPackageOrderListItem, error) {
@@ -602,4 +671,8 @@ func normalizeTourPackageDateTime(v string) (string, error) {
 		return t.Format("2006-01-02 15:04:05"), nil
 	}
 	return "", fmt.Errorf("invalid datetime")
+}
+
+func (s *TourPackageService) GetPublicTourPackages(ctx context.Context, orgID string) ([]*model.TourPackageListPublicItem, error) {
+	return s.repo.GetPublicTourPackages(ctx, orgID)
 }

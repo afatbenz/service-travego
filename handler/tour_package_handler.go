@@ -3,12 +3,14 @@ package handler
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"service-travego/helper"
 	"service-travego/model"
 	"service-travego/service"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -133,6 +135,34 @@ func (h *TourPackageHandler) CreateTourPackage(c *fiber.Ctx) error {
 
 	if validationErrors := helper.ValidateStruct(req); len(validationErrors) > 0 {
 		return helper.SendValidationErrorResponse(c, validationErrors)
+	}
+
+	// Validate package_type = 2 requires schedules
+	if req.PackageType == "2" {
+		if len(req.Schedules) == 0 {
+			return helper.BadRequestResponse(c, "schedules are required for package_type 2")
+		}
+		// Validate start_date and end_date are not in the past
+		now := time.Now()
+		for i, sched := range req.Schedules {
+			startDate, err := time.Parse("2006-01-02", sched.StartDate)
+			if err != nil {
+				return helper.BadRequestResponse(c, fmt.Sprintf("invalid start_date format at schedules[%d]", i))
+			}
+			endDate, err := time.Parse("2006-01-02", sched.EndDate)
+			if err != nil {
+				return helper.BadRequestResponse(c, fmt.Sprintf("invalid end_date format at schedules[%d]", i))
+			}
+			if startDate.Before(now.Truncate(24 * time.Hour)) {
+				return helper.BadRequestResponse(c, fmt.Sprintf("start_date at schedules[%d] must not be in the past", i))
+			}
+			if endDate.Before(now.Truncate(24 * time.Hour)) {
+				return helper.BadRequestResponse(c, fmt.Sprintf("end_date at schedules[%d] must not be in the past", i))
+			}
+			if endDate.Before(startDate) {
+				return helper.BadRequestResponse(c, fmt.Sprintf("end_date at schedules[%d] must be after start_date", i))
+			}
+		}
 	}
 
 	orgID, ok := c.Locals("organization_id").(string)

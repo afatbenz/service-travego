@@ -12,7 +12,7 @@ import (
 
 func SetupTourPackageRoutes(api fiber.Router, db *sql.DB, driver string) {
 	repo := repository.NewTourPackageRepository(db, driver)
-	srv := service.NewTourPackageService(repo)
+	srv := service.NewTourPackageService(repo, "")
 	h := handler.NewTourPackageHandler(srv)
 
 	services := api.Group("/services")

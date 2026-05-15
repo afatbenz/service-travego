@@ -7,14 +7,18 @@ type TourPackageListItem struct {
 	PackageName        string  `json:"package_name"`
 	Thumbnail          string  `json:"thumbnail"`
 	PackageDescription string  `json:"package_description"`
-	Duration           string  `json:"duration"` // User requested duration
+	Duration           string  `json:"duration"`
 	MinPax             int     `json:"min_pax"`
 	MaxPax             int     `json:"max_pax"`
-	Price              float64 `json:"price"` // mapped from min_price
+	Price              float64 `json:"price"`
 	MinPrice           float64 `json:"min_price"`
 	MaxPrice           float64 `json:"max_price"`
 	Status             int     `json:"status"`
 	Active             bool    `json:"active"`
+	PackageTypeLabel   string  `json:"package_type_label"`
+	Destinations       string  `json:"destinations"`
+	StartDate          string  `json:"start_date"`
+	EndDate            string  `json:"end_date"`
 }
 
 type TourPackageOrderListItem struct {
@@ -93,18 +97,24 @@ type TourPackagePickupArea struct {
 	ID string `json:"id"`
 }
 
+type TourPackageScheduleCreateItem struct {
+	StartDate string `json:"start_date" validate:"required"`
+	EndDate   string `json:"end_date" validate:"required"`
+}
+
 type CreateTourPackageRequest struct {
-	PackageName        string                  `json:"package_name" validate:"required"`
-	PackageType        string                  `json:"package_type" validate:"required"`
-	PackageDescription string                  `json:"package_description"`
-	Thumbnail          string                  `json:"thumbnail"`
-	Images             []string                `json:"images"`
-	Facilities         []string                `json:"facilities"`
-	Itineraries        []TourPackageItinerary  `json:"itineraries"`
-	Pricing            []TourPackagePricing    `json:"pricing"`
-	Addons             []TourPackageAddon      `json:"addons"`
-	PickupAreas        []TourPackagePickupArea `json:"pickup_areas"`
-	Active             bool                    `json:"active"`
+	PackageName        string                          `json:"package_name" validate:"required"`
+	PackageType        string                          `json:"package_type" validate:"required"`
+	PackageDescription string                          `json:"package_description"`
+	Thumbnail          string                          `json:"thumbnail"`
+	Images             []string                        `json:"images"`
+	Facilities         []string                        `json:"facilities"`
+	Itineraries        []TourPackageItinerary          `json:"itineraries"`
+	Pricing            []TourPackagePricing            `json:"pricing"`
+	Addons             []TourPackageAddon              `json:"addons"`
+	PickupAreas        []TourPackagePickupArea         `json:"pickup_areas"`
+	Schedules          []TourPackageScheduleCreateItem `json:"schedules"`
+	Active             bool                            `json:"active"`
 }
 
 type TourPackageAddonUpsertItem struct {
@@ -214,4 +224,18 @@ type TourPackageDetailResponse struct {
 	Facilities   []string                         `json:"facilities"`
 	Destinations []TourPackageDestinationItem     `json:"destinations"`
 	Addons       []TourPackageAddon               `json:"addons"`
+}
+
+type TourPackageListPublicItem struct {
+	PackageID          string `json:"package_id"`
+	PackageName        string `json:"package_name"`
+	PackageType        int    `json:"package_type"`
+	PackageTypeLabel   string `json:"package_type_label"`
+	PackageDescription string `json:"package_description"`
+	Thumbnail          string `json:"thumbnail"`
+	Duration           int    `json:"duration"`
+	MinPax             int    `json:"min_pax"`
+	MaxPax             int    `json:"max_pax"`
+	Active             bool   `json:"active"`
+	Status             int    `json:"status"`
 }
