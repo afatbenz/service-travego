@@ -2,6 +2,7 @@ package routes
 
 import (
 	"database/sql"
+	"os"
 	"service-travego/handler"
 	"service-travego/helper"
 	"service-travego/repository"
@@ -9,6 +10,13 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 )
+
+func serviceBaseURL() string {
+	if v := os.Getenv("BASE_URL"); v != "" {
+		return v
+	}
+	return os.Getenv("APP_HOST")
+}
 
 func SetupServiceRoutes(api fiber.Router, db *sql.DB, driver string) {
 	repo := repository.NewFleetRepository(db, driver)
@@ -24,4 +32,10 @@ func SetupServiceRoutes(api fiber.Router, db *sql.DB, driver string) {
 	svcGroup.Post("/fleet/detail", h.GetServiceFleetDetail)
 	svcGroup.Get("/fleet/addon/:fleetid", h.GetServiceFleetAddons)
 	svcGroup.Get("/available-city", h.GetAvailableCities)
+
+	// tour packages
+	tourRepo := repository.NewTourPackageRepository(db, driver)
+	tourSrv := service.NewTourPackageService(tourRepo, serviceBaseURL())
+	tourH := handler.NewTourPackageHandler(tourSrv)
+	svcGroup.Get("/tour-packages", tourH.GetTourPackages)
 }

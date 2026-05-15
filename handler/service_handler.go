@@ -10,7 +10,8 @@ import (
 )
 
 type ServiceHandler struct {
-	service *service.FleetService
+	service     *service.FleetService
+	tourService *service.TourPackageService
 }
 
 func NewServiceHandler(s *service.FleetService) *ServiceHandler {
@@ -80,4 +81,17 @@ func (h *ServiceHandler) GetAvailableCities(c *fiber.Ctx) error {
 		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, err.Error())
 	}
 	return helper.SuccessResponse(c, fiber.StatusOK, "Available cities retrieved", cities)
+}
+
+func (h *ServiceHandler) GetPublicTourPackages(c *fiber.Ctx) error {
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.BadRequestResponse(c, "Invalid or missing organization_id")
+	}
+
+	items, err := h.tourService.GetPublicTourPackages(c.Context(), orgID)
+	if err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Tour packages retrieved", items)
 }

@@ -150,18 +150,26 @@ func (r *TourPackageRepository) GetTourPackagesByOrgID(orgID string) ([]model.To
 			tp.package_name,
 			tp.thumbnail,
 			tp.package_description,
+			tp.package_type,
+			tps.date_start,
+			tps.date_end,
 			tp.status,
 			tp.active,
 			MIN(tpp.min_pax) AS min_pax,
 			MIN(tpp.price) AS min_price,
 			MAX(tpp.min_pax) AS max_pax,
-			MAX(tpp.price) AS max_price
+			MAX(tpp.price) AS max_price,
+			STRING_AGG(DISTINCT tpi.city_id::text, ', ') AS city_ids
 		FROM tour_packages tp
 		LEFT JOIN tour_package_prices tpp 
 			ON tpp.package_id = tp.uuid
+		LEFT JOIN tour_package_itineraries tpi 
+			ON tpi.package_id = tp.uuid
+		LEFT JOIN tour_package_schedules tps 
+			ON tps.package_id = tp.uuid AND tps.active = 1 AND tps.status = 1
 		WHERE tp.organization_id = %s 
 		  AND tp.status = 1 AND tp.active = true
-		GROUP BY tp.uuid, tp.package_name, tp.thumbnail, tp.package_description, tp.status, tp.active
+		GROUP BY tp.uuid, tp.package_name, tp.thumbnail, tp.package_description, tp.package_type, tps.date_start, tps.date_end, tp.status, tp.active
 	`
 
 	// Set query placeholder
@@ -173,11 +181,12 @@ func (r *TourPackageRepository) GetTourPackagesByOrgID(orgID string) ([]model.To
 	}
 	defer rows.Close()
 
-	items := []model.TourPackageListItem{} // Initialize empty slice
+	items := []model.TourPackageListItem{}
 	for rows.Next() {
 		var item model.TourPackageListItem
 
-		var thumbnail, description sql.NullString
+		var thumbnail, description, packageType, cityIDs sql.NullString
+		var startDate, endDate sql.NullTime
 		var status sql.NullInt64
 		var active sql.NullBool
 		var minPax, maxPax sql.NullInt64
@@ -188,12 +197,16 @@ func (r *TourPackageRepository) GetTourPackagesByOrgID(orgID string) ([]model.To
 			&item.PackageName,
 			&thumbnail,
 			&description,
+			&packageType,
+			&startDate,
+			&endDate,
 			&status,
 			&active,
 			&minPax,
 			&minPrice,
 			&maxPax,
 			&maxPrice,
+			&cityIDs,
 		)
 		if err != nil {
 			return nil, err
@@ -201,6 +214,18 @@ func (r *TourPackageRepository) GetTourPackagesByOrgID(orgID string) ([]model.To
 
 		if thumbnail.Valid {
 			item.Thumbnail = thumbnail.String
+		}
+		if packageType.Valid {
+			item.PackageTypeLabel = packageType.String
+		}
+		if cityIDs.Valid {
+			item.Destinations = cityIDs.String
+		}
+		if startDate.Valid {
+			item.StartDate = startDate.Time.Format("2006-01-02")
+		}
+		if endDate.Valid {
+			item.EndDate = endDate.Time.Format("2006-01-02")
 		}
 		if description.Valid {
 			item.PackageDescription = description.String
@@ -784,6 +809,23 @@ func (r *TourPackageRepository) CreateTourPackage(ctx context.Context, req *mode
 
 		for _, img := range req.Images {
 			_, err = database.TxExecContext(ctx, tx, imageQuery, uuid.New().String(), packageID, orgID, img, now, userID)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	// 8. Schedules (for package_type = 2)
+	if len(req.Schedules) > 0 {
+		scheduleQuery := `INSERT INTO tour_package_schedules (uuid, package_id, organization_id, start_date, end_date, status, active, created_at, created_by) VALUES `
+		if r.driver == "postgres" || r.driver == "pgx" {
+			scheduleQuery += `($1, $2, $3, $4, $5, $6, $7, $8, $9)`
+		} else {
+			scheduleQuery += `(?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		}
+
+		for _, sched := range req.Schedules {
+			_, err = database.TxExecContext(ctx, tx, scheduleQuery, uuid.New().String(), packageID, orgID, sched.StartDate, sched.EndDate, 1, 1, now, userID)
 			if err != nil {
 				return err
 			}
@@ -1377,4 +1419,99 @@ func (r *TourPackageRepository) GetTourPackageDetail(ctx context.Context, orgID,
 	}
 
 	return detail, nil
+}
+
+func (r *TourPackageRepository) GetPublicTourPackages(ctx context.Context, orgID string) ([]*model.TourPackageListPublicItem, error) {
+	query := `
+		SELECT 
+			tp.uuid AS package_id,
+			tp.package_name,
+			tp.thumbnail,
+			tp.package_description,
+			tp.status,
+			tp.active,
+			MIN(tps.date_start) as start_date,
+			MIN(tps.date_end) as end_date,
+			MIN(tpp.min_pax) AS min_pax,
+			MIN(tpp.price) AS min_price,
+			MAX(tpp.min_pax) AS max_pax,
+			MAX(tpp.price) AS max_price,
+			STRING_AGG(DISTINCT tpi.city_id::text, ', ') AS city_ids
+		FROM tour_packages tp
+		LEFT JOIN tour_package_prices tpp 
+			ON tpp.package_id = tp.uuid
+		LEFT JOIN tour_package_schedules tps
+			ON tps.package_id = tp.uuid
+		LEFT JOIN tour_package_itineraries tpi
+    		ON tpi.package_id = tp.uuid
+		WHERE tp.organization_id = %s 
+		  AND tp.status = 1 AND tp.active = true
+		GROUP BY tp.uuid, tp.package_name, tp.package_type, tp.thumbnail, tp.package_description, tp.status, tp.active
+	`
+
+	// Set query placeholder
+	query = fmt.Sprintf(query, r.getPlaceholder(1))
+
+	rows, err := database.Query(r.db, query, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := []*model.TourPackageListPublicItem{} // Initialize empty slice
+	for rows.Next() {
+		var item model.TourPackageListPublicItem
+
+		var thumbnail, description sql.NullString
+		var status sql.NullInt64
+		var active sql.NullBool
+		var startDate, endDate sql.NullTime
+		var minPax, maxPax sql.NullInt64
+		var minPrice, maxPrice sql.NullFloat64
+		var cityIDs sql.NullString
+
+		err := rows.Scan(
+			&item.PackageID,
+			&item.PackageName,
+			&thumbnail,
+			&description,
+			&status,
+			&active,
+			&startDate,
+			&endDate,
+			&minPax,
+			&minPrice,
+			&maxPax,
+			&maxPrice,
+			&cityIDs,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		_ = startDate
+		_ = endDate
+		_ = cityIDs
+		if thumbnail.Valid {
+			item.Thumbnail = thumbnail.String
+		}
+		if description.Valid {
+			item.PackageDescription = description.String
+		}
+		if minPax.Valid {
+			item.MinPax = int(minPax.Int64)
+		}
+		if maxPax.Valid {
+			item.MaxPax = int(maxPax.Int64)
+		}
+		if status.Valid {
+			item.Status = int(status.Int64)
+		}
+		if active.Valid {
+			item.Active = active.Bool
+		}
+
+		items = append(items, &item)
+	}
+	return items, nil
 }
