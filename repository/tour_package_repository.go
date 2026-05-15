@@ -68,6 +68,18 @@ SET status = 0, updated_at = ?, updated_by = ?
 WHERE uuid = ? AND organization_id = ?
 `
 
+const setTourPackageActivePostgres = `
+UPDATE tour_packages
+SET active = $1, updated_at = $2, updated_by = $3
+WHERE uuid = $4 AND organization_id::text = $5
+`
+
+const setTourPackageActiveMySQL = `
+UPDATE tour_packages
+SET active = ?, updated_at = ?, updated_by = ?
+WHERE uuid = ? AND organization_id = ?
+`
+
 func NewTourPackageRepository(db *sql.DB, driver string) *TourPackageRepository {
 	return &TourPackageRepository{
 		db:     db,
@@ -133,6 +145,22 @@ func (r *TourPackageRepository) SoftDeleteTourPackage(ctx context.Context, orgID
 		query = softDeleteTourPackagePostgres
 	}
 	res, err := database.ExecContext(ctx, r.db, query, time.Now(), userID, packageID, orgID)
+	if err != nil {
+		return err
+	}
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (r *TourPackageRepository) SetTourPackageActiveStatus(ctx context.Context, orgID, userID, packageID string, active bool) error {
+	query := setTourPackageActiveMySQL
+	if r.driver == "postgres" || r.driver == "pgx" {
+		query = setTourPackageActivePostgres
+	}
+	res, err := database.ExecContext(ctx, r.db, query, active, time.Now(), userID, packageID, orgID)
 	if err != nil {
 		return err
 	}
@@ -752,11 +780,7 @@ func (r *TourPackageRepository) CreateTourPackage(ctx context.Context, req *mode
 
 		for _, day := range req.Itineraries {
 			for _, act := range day.Activities {
-				activityTime := act.Time
-				if activityTime == "" {
-					activityTime = "00:00:00"
-				}
-				_, err = database.TxExecContext(ctx, tx, itinQuery, uuid.New().String(), packageID, orgID, activityTime, act.Description, act.Location, act.City.ID, now, userID)
+				_, err = database.TxExecContext(ctx, tx, itinQuery, uuid.New().String(), packageID, orgID, day.Day, act.Description, act.Location, act.City.ID, now, userID)
 				if err != nil {
 					return err
 				}
@@ -1110,11 +1134,6 @@ func (r *TourPackageRepository) UpdateTourPackage(ctx context.Context, req *mode
 		keep := make([]string, 0)
 		for _, day := range req.Itineraries {
 			for _, act := range day.Activities {
-				activityTime := act.Time
-				if activityTime == "" {
-					activityTime = "00:00:00"
-				}
-
 				if act.UUID == "" {
 					newID := uuid.New().String()
 					ins := `INSERT INTO tour_package_itineraries (uuid, package_id, organization_id, day, activity, location, city_id, created_at, created_by) VALUES `
@@ -1123,7 +1142,7 @@ func (r *TourPackageRepository) UpdateTourPackage(ctx context.Context, req *mode
 					} else {
 						ins += `(?, ?, ?, ?, ?, ?, ?, ?, ?)`
 					}
-					if _, err := database.TxExecContext(ctx, tx, ins, newID, req.PackageID, orgID, activityTime, act.Description, act.Location, act.City.ID, now, userID); err != nil {
+					if _, err := database.TxExecContext(ctx, tx, ins, newID, req.PackageID, orgID, day.Day, act.Description, act.Location, act.City.ID, now, userID); err != nil {
 						return err
 					}
 					keep = append(keep, newID)
@@ -1132,7 +1151,7 @@ func (r *TourPackageRepository) UpdateTourPackage(ctx context.Context, req *mode
 
 				upd := `UPDATE tour_package_itineraries SET day = %s, activity = %s, location = %s, city_id = %s, updated_at = %s, updated_by = %s WHERE uuid = %s AND package_id = %s AND organization_id = %s`
 				upd = fmt.Sprintf(upd, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9))
-				if _, err := database.TxExecContext(ctx, tx, upd, activityTime, act.Description, act.Location, act.City.ID, now, userID, act.UUID, req.PackageID, orgID); err != nil {
+				if _, err := database.TxExecContext(ctx, tx, upd, day.Day, act.Description, act.Location, act.City.ID, now, userID, act.UUID, req.PackageID, orgID); err != nil {
 					return err
 				}
 				keep = append(keep, act.UUID)
@@ -1330,20 +1349,23 @@ func (r *TourPackageRepository) GetTourPackageDetail(ctx context.Context, orgID,
 	defer itinRows.Close()
 	for itinRows.Next() {
 		var (
-			tm       time.Time
+			dayNum   sql.NullInt64
 			act      sql.NullString
 			location sql.NullString
 			cityID   sql.NullInt64
 		)
-		if err := itinRows.Scan(&tm, &act, &location, &cityID); err != nil {
+		if err := itinRows.Scan(&dayNum, &act, &location, &cityID); err != nil {
 			return nil, err
 		}
-		detail.Itineraries = append(detail.Itineraries, model.TourPackageItineraryDetailItem{
-			Time:        tm.Format("15:04:05"),
+		item := model.TourPackageItineraryDetailItem{
 			Description: act.String,
 			Location:    location.String,
 			CityID:      int(cityID.Int64),
-		})
+		}
+		if dayNum.Valid {
+			item.Day = int(dayNum.Int64)
+		}
+		detail.Itineraries = append(detail.Itineraries, item)
 	}
 
 	facilityQuery := `

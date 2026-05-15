@@ -130,7 +130,13 @@ func (h *TourPackageHandler) CreateTourPackage(c *fiber.Ctx) error {
 	var req model.CreateTourPackageRequest
 	if err := c.BodyParser(&req); err != nil {
 		log.Printf("[ERROR] BodyParser failed - Path: %s, Error: %v", c.Path(), err)
-		return helper.BadRequestResponse(c, "Invalid request body")
+		var m map[string]interface{}
+		if err2 := json.Unmarshal(c.Body(), &m); err2 != nil {
+			return helper.BadRequestResponse(c, "Invalid request body")
+		}
+		if err2 := parseCreateTourPackageRequest(m, &req); err2 != nil {
+			return helper.BadRequestResponse(c, "Invalid request body")
+		}
 	}
 
 	if validationErrors := helper.ValidateStruct(req); len(validationErrors) > 0 {
@@ -388,7 +394,7 @@ func (h *TourPackageHandler) UpdateTourPackage(c *fiber.Ctx) error {
 						}
 						if city, ok := actMap["city"].(map[string]interface{}); ok {
 							if v, ok := city["id"]; ok {
-								act.City.ID = toStringID(v)
+								act.City.ID = toInt(v)
 							}
 							if s, ok := city["name"].(string); ok {
 								act.City.Name = s
@@ -424,6 +430,42 @@ func (h *TourPackageHandler) UpdateTourPackage(c *fiber.Ctx) error {
 	}
 
 	return helper.SuccessResponse(c, fiber.StatusOK, "Tour package updated successfully", nil)
+}
+
+func (h *TourPackageHandler) SetTourPackageActiveStatus(c *fiber.Ctx) error {
+	var req model.TourPackageActiveStatusRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.BadRequestResponse(c, "Invalid request body")
+	}
+	if validationErrors := helper.ValidateStruct(req); len(validationErrors) > 0 {
+		return helper.SendValidationErrorResponse(c, validationErrors)
+	}
+
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Organization not found")
+	}
+
+	userID, ok := c.Locals("user_id").(string)
+	if !ok || userID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "User not found")
+	}
+
+	if err := h.service.SetTourPackageActiveStatus(c.Context(), orgID, userID, req.Action, req.PackageID); err != nil {
+		if err == sql.ErrNoRows {
+			return helper.SendErrorResponse(c, fiber.StatusNotFound, "Tour package not found")
+		}
+		if err.Error() == "action must be active or inactive" {
+			return helper.BadRequestResponse(c, err.Error())
+		}
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	msg := "Tour package inactivated successfully"
+	if strings.TrimSpace(strings.ToLower(req.Action)) == "active" {
+		msg = "Tour package activated successfully"
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, msg, nil)
 }
 
 func (h *TourPackageHandler) DeleteTourPackage(c *fiber.Ctx) error {
@@ -478,4 +520,184 @@ func (h *TourPackageHandler) TourPackageDetail(c *fiber.Ctx) error {
 	}
 
 	return helper.SuccessResponse(c, fiber.StatusOK, "Tour package detail loaded", res)
+}
+
+func tourPackageJSONToInt(v interface{}) int {
+	switch vv := v.(type) {
+	case float64:
+		return int(vv)
+	case int:
+		return vv
+	case string:
+		n, _ := strconv.Atoi(vv)
+		return n
+	default:
+		return 0
+	}
+}
+
+func tourPackageJSONToStringID(v interface{}) string {
+	switch vv := v.(type) {
+	case string:
+		return vv
+	case float64:
+		return strconv.Itoa(int(vv))
+	case int:
+		return strconv.Itoa(vv)
+	default:
+		return ""
+	}
+}
+
+func parseCreateTourPackageRequest(m map[string]interface{}, req *model.CreateTourPackageRequest) error {
+	if v, ok := m["package_name"].(string); ok {
+		req.PackageName = v
+	}
+	if v, ok := m["package_type"]; ok {
+		req.PackageType = tourPackageJSONToStringID(v)
+	}
+	if v, ok := m["package_description"].(string); ok {
+		req.PackageDescription = v
+	}
+	if v, ok := m["thumbnail"].(string); ok {
+		req.Thumbnail = v
+	}
+	if v, ok := m["active"].(bool); ok {
+		req.Active = v
+	}
+
+	if arr, ok := m["images"].([]interface{}); ok {
+		req.Images = make([]string, 0, len(arr))
+		for _, it := range arr {
+			if s, ok := it.(string); ok && s != "" {
+				req.Images = append(req.Images, s)
+			}
+		}
+	}
+
+	if arr, ok := m["facilities"].([]interface{}); ok {
+		req.Facilities = make([]string, 0, len(arr))
+		for _, it := range arr {
+			if s, ok := it.(string); ok && s != "" {
+				req.Facilities = append(req.Facilities, s)
+			}
+		}
+	}
+
+	if arr, ok := m["addons"].([]interface{}); ok {
+		req.Addons = make([]model.TourPackageAddon, 0, len(arr))
+		for _, it := range arr {
+			if vv, ok := it.(map[string]interface{}); ok {
+				item := model.TourPackageAddon{}
+				if s, ok := vv["description"].(string); ok {
+					item.Description = s
+				}
+				if p, ok := vv["price"].(float64); ok {
+					item.Price = p
+				}
+				req.Addons = append(req.Addons, item)
+			}
+		}
+	}
+
+	if arr, ok := m["pricing"].([]interface{}); ok {
+		req.Pricing = make([]model.TourPackagePricing, 0, len(arr))
+		for _, it := range arr {
+			if vv, ok := it.(map[string]interface{}); ok {
+				item := model.TourPackagePricing{}
+				if v, ok := vv["min_pax"]; ok {
+					item.MinPax = tourPackageJSONToInt(v)
+				}
+				if v, ok := vv["max_pax"]; ok {
+					item.MaxPax = tourPackageJSONToInt(v)
+				}
+				if p, ok := vv["price"].(float64); ok {
+					item.Price = p
+				}
+				req.Pricing = append(req.Pricing, item)
+			}
+		}
+	}
+
+	if arr, ok := m["pickup_areas"].([]interface{}); ok {
+		req.PickupAreas = make([]model.TourPackagePickupArea, 0, len(arr))
+		for _, it := range arr {
+			switch vv := it.(type) {
+			case map[string]interface{}:
+				if v, ok := vv["id"]; ok {
+					req.PickupAreas = append(req.PickupAreas, model.TourPackagePickupArea{ID: tourPackageJSONToStringID(v)})
+				}
+			case float64:
+				req.PickupAreas = append(req.PickupAreas, model.TourPackagePickupArea{ID: tourPackageJSONToStringID(vv)})
+			case string:
+				if vv != "" {
+					req.PickupAreas = append(req.PickupAreas, model.TourPackagePickupArea{ID: vv})
+				}
+			}
+		}
+	}
+
+	if arr, ok := m["schedules"].([]interface{}); ok {
+		req.Schedules = make([]model.TourPackageScheduleCreateItem, 0, len(arr))
+		for _, it := range arr {
+			if vv, ok := it.(map[string]interface{}); ok {
+				item := model.TourPackageScheduleCreateItem{}
+				if s, ok := vv["start_date"].(string); ok {
+					item.StartDate = s
+				}
+				if s, ok := vv["end_date"].(string); ok {
+					item.EndDate = s
+				}
+				req.Schedules = append(req.Schedules, item)
+			}
+		}
+	}
+
+	if arr, ok := m["itineraries"].([]interface{}); ok {
+		req.Itineraries = make([]model.TourPackageItinerary, 0, len(arr))
+		for _, it := range arr {
+			dayMap, ok := it.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			day := model.TourPackageItinerary{}
+			if v, ok := dayMap["day"]; ok {
+				day.Day = tourPackageJSONToInt(v)
+			}
+			if acts, ok := dayMap["activities"].([]interface{}); ok {
+				day.Activities = make([]model.TourPackageActivity, 0, len(acts))
+				for _, a := range acts {
+					actMap, ok := a.(map[string]interface{})
+					if !ok {
+						continue
+					}
+					act := model.TourPackageActivity{}
+					if s, ok := actMap["time"].(string); ok {
+						act.Time = s
+					}
+					if s, ok := actMap["description"].(string); ok {
+						act.Description = s
+					}
+					if s, ok := actMap["location"].(string); ok {
+						act.Location = s
+					}
+					if city, ok := actMap["city"].(map[string]interface{}); ok {
+						if v, ok := city["id"]; ok {
+							act.City.ID = tourPackageJSONToInt(v)
+						}
+						if s, ok := city["name"].(string); ok {
+							act.City.Name = s
+						}
+					}
+					day.Activities = append(day.Activities, act)
+				}
+			}
+			req.Itineraries = append(req.Itineraries, day)
+		}
+	}
+
+	if req.PackageName == "" || req.PackageType == "" {
+		return fmt.Errorf("missing required fields")
+	}
+	return nil
 }

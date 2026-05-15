@@ -31,6 +31,18 @@ SET status = 0, updated_at = ?, updated_by = ?
 WHERE uuid = ? AND organization_id = ?
 `
 
+const setFleetActivePostgres = `
+UPDATE fleets
+SET active = $1, updated_at = $2, updated_by = $3
+WHERE uuid = $4 AND organization_id::text = $5
+`
+
+const setFleetActiveMySQL = `
+UPDATE fleets
+SET active = ?, updated_at = ?, updated_by = ?
+WHERE uuid = ? AND organization_id = ?
+`
+
 const listFleetsForUnitPostgres = `
 SELECT uuid, fleet_name
 FROM fleets
@@ -69,13 +81,11 @@ func NewFleetRepository(db *sql.DB, driver string) *FleetRepository {
 func uuid2() string { return uuid.New().String() }
 
 func (r *FleetRepository) ListFleets(req *model.ListFleetRequest) ([]model.FleetListItem, error) {
-	totalUnitExpr := "COALESCE((SELECT COUNT(*) FROM fleet_units fu WHERE fu.fleet_id = f.uuid AND fu.status = 1), 0)"
-	if r.driver == "postgres" || r.driver == "pgx" {
-		totalUnitExpr = "COALESCE((SELECT COUNT(*) FROM fleet_units fu WHERE fu.fleet_id::text = f.uuid::text AND fu.status = 1), 0)"
-	}
+	totalUnitExpr := "COALESCE((SELECT COUNT(*) FROM fleet_units fu WHERE fu.fleet_id::text = f.uuid::text AND fu.status = 1), 0)"
 	base := `
-        SELECT f.uuid AS fleet_id, ft.label AS fleet_type, f.fleet_name, f.capacity, f.engine, f.body, %s as total_unit, f.active, f.status, f.thumbnail
+        SELECT f.uuid AS fleet_id, ft.label AS fleet_type, f.fleet_name, f.capacity, f.engine, f.body, %s as total_unit, f.active, f.status, f.thumbnail, STRING_AGG(DISTINCT fu.engine::text, ', ') AS engines, STRING_AGG(DISTINCT fu.capacity::text, ', ') AS capacities
         FROM fleets f INNER JOIN fleet_types ft ON f.fleet_type = ft.id
+		INNER JOIN fleet_units fu ON fu.fleet_id::text = f.uuid::text
     `
 	base = fmt.Sprintf(base, totalUnitExpr)
 	where := make([]string, 0, 4)
@@ -83,10 +93,7 @@ func (r *FleetRepository) ListFleets(req *model.ListFleetRequest) ([]model.Fleet
 	pos := 1
 	where = append(where, "f.status > 0")
 	if req.OrganizationID != "" {
-		orgExpr := fmt.Sprintf("f.organization_id = %s", r.getPlaceholder(pos))
-		if r.driver == "postgres" || r.driver == "pgx" {
-			orgExpr = fmt.Sprintf("f.organization_id::text = %s", r.getPlaceholder(pos))
-		}
+		orgExpr := fmt.Sprintf("f.organization_id::text = %s", r.getPlaceholder(pos))
 		where = append(where, orgExpr)
 		args = append(args, req.OrganizationID)
 		pos++
@@ -97,10 +104,7 @@ func (r *FleetRepository) ListFleets(req *model.ListFleetRequest) ([]model.Fleet
 		pos++
 	}
 	if req.FleetName != "" {
-		likeExpr := "f.fleet_name LIKE " + r.getPlaceholder(pos)
-		if r.driver == "postgres" || r.driver == "pgx" {
-			likeExpr = "f.fleet_name ILIKE " + r.getPlaceholder(pos)
-		}
+		likeExpr := "f.fleet_name ILIKE " + r.getPlaceholder(pos)
 		where = append(where, likeExpr)
 		args = append(args, "%"+req.FleetName+"%")
 		pos++
@@ -124,7 +128,7 @@ func (r *FleetRepository) ListFleets(req *model.ListFleetRequest) ([]model.Fleet
 	if len(where) > 0 {
 		query = query + " WHERE " + strings.Join(where, " AND ")
 	}
-	query = query + " ORDER BY f.created_at DESC"
+	query = query + " GROUP BY f.uuid, ft.label, f.fleet_name, f.capacity, f.engine, f.body, f.active, f.status, f.thumbnail, f.created_at ORDER BY f.created_at DESC"
 
 	rows, err := database.Query(r.db, query, args...)
 	if err != nil {
@@ -137,10 +141,12 @@ func (r *FleetRepository) ListFleets(req *model.ListFleetRequest) ([]model.Fleet
 		var item model.FleetListItem
 		var fleetType sql.NullString
 		var engine sql.NullString
+		var engines sql.NullString
+		var capacities sql.NullString
 		var body sql.NullString
 		var thumbnail sql.NullString
 		var totalUnit int64
-		if err := rows.Scan(&item.FleetID, &fleetType, &item.FleetName, &item.Capacity, &engine, &body, &totalUnit, &item.Active, &item.Status, &thumbnail); err != nil {
+		if err := rows.Scan(&item.FleetID, &fleetType, &item.FleetName, &item.Capacity, &engine, &body, &totalUnit, &item.Active, &item.Status, &thumbnail, &engines, &capacities); err != nil {
 			return nil, err
 		}
 		if fleetType.Valid {
@@ -148,6 +154,12 @@ func (r *FleetRepository) ListFleets(req *model.ListFleetRequest) ([]model.Fleet
 		}
 		if engine.Valid {
 			item.Engine = engine.String
+		}
+		if engines.Valid {
+			item.Engines = engines.String
+		}
+		if capacities.Valid {
+			item.Capacities = capacities.String
 		}
 		if body.Valid {
 			item.Body = body.String
@@ -3591,6 +3603,22 @@ func (r *FleetRepository) ListFleetsForUnit(orgID, searchFor string) ([]model.Fl
 		return nil, err
 	}
 	return items, nil
+}
+
+func (r *FleetRepository) SetFleetActiveStatus(orgID, userID, fleetID string, active bool) error {
+	query := setFleetActiveMySQL
+	if r.driver == "postgres" || r.driver == "pgx" {
+		query = setFleetActivePostgres
+	}
+	res, err := database.Exec(r.db, query, active, time.Now(), userID, fleetID, orgID)
+	if err != nil {
+		return err
+	}
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (r *FleetRepository) SoftDeleteFleet(orgID, userID, fleetID string) error {

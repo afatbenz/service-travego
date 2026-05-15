@@ -584,16 +584,54 @@ func (s *TourPackageService) GetTourPackageOrderDetail(ctx context.Context, orgI
 }
 
 func (s *TourPackageService) CreateTourPackage(ctx context.Context, req *model.CreateTourPackageRequest, orgID, userID string) error {
+	normalizeCreateTourPackageItineraries(req)
 	packageID := helper.GenerateUUID()
 	return s.repo.CreateTourPackage(ctx, req, packageID, orgID, userID)
 }
 
 func (s *TourPackageService) UpdateTourPackage(ctx context.Context, req *model.UpdateTourPackageRequest, orgID, userID string) error {
+	normalizeUpdateTourPackageItineraries(req)
 	return s.repo.UpdateTourPackage(ctx, req, orgID, userID)
+}
+
+func normalizeCreateTourPackageItineraries(req *model.CreateTourPackageRequest) {
+	for i := range req.Itineraries {
+		dayNum := req.Itineraries[i].Day
+		if dayNum < 1 {
+			dayNum = i + 1
+			req.Itineraries[i].Day = dayNum
+		}
+	}
+}
+
+func normalizeUpdateTourPackageItineraries(req *model.UpdateTourPackageRequest) {
+	for i := range req.Itineraries {
+		dayNum := req.Itineraries[i].Day
+		if dayNum < 1 {
+			dayNum = i + 1
+			req.Itineraries[i].Day = dayNum
+		}
+	}
 }
 
 func (s *TourPackageService) DeleteTourPackage(ctx context.Context, orgID, userID, packageID string) error {
 	return s.repo.SoftDeleteTourPackage(ctx, orgID, userID, packageID)
+}
+
+func (s *TourPackageService) SetTourPackageActiveStatus(ctx context.Context, orgID, userID, action, packageID string) error {
+	action = strings.TrimSpace(strings.ToLower(action))
+	packageID = strings.TrimSpace(packageID)
+	if packageID == "" {
+		return fmt.Errorf("package_id is required")
+	}
+	switch action {
+	case "active":
+		return s.repo.SetTourPackageActiveStatus(ctx, orgID, userID, packageID, true)
+	case "inactive":
+		return s.repo.SetTourPackageActiveStatus(ctx, orgID, userID, packageID, false)
+	default:
+		return fmt.Errorf("action must be active or inactive")
+	}
 }
 
 func (s *TourPackageService) GetTourPackageDetail(ctx context.Context, orgID, packageID string) (*model.TourPackageDetailResponse, error) {

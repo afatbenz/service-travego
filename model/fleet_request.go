@@ -59,16 +59,18 @@ type ListFleetRequest struct {
 }
 
 type FleetListItem struct {
-	FleetID   string `json:"fleet_id"`
-	FleetType string `json:"fleet_type"`
-	FleetName string `json:"fleet_name"`
-	Capacity  int    `json:"capacity"`
-	Engine    string `json:"engine"`
-	Body      string `json:"body"`
-	TotalUnit int    `json:"total_unit"`
-	Active    bool   `json:"active"`
-	Status    int    `json:"status"`
-	Thumbnail string `json:"thumbnail"`
+	FleetID    string `json:"fleet_id"`
+	FleetType  string `json:"fleet_type"`
+	FleetName  string `json:"fleet_name"`
+	Capacity   int    `json:"capacity"`
+	Engine     string `json:"engine"`
+	Engines    string `json:"engines"`
+	Capacities string `json:"capacities"`
+	Body       string `json:"body"`
+	TotalUnit  int    `json:"total_unit"`
+	Active     bool   `json:"active"`
+	Status     int    `json:"status"`
+	Thumbnail  string `json:"thumbnail"`
 }
 
 type FleetUnitSearchItem struct {
@@ -85,6 +87,11 @@ type FleetDeleteRequest struct {
 	FleetID        string `json:"fleet_id" validate:"required"`
 	OrganizationID string `json:"-"`
 	UpdatedBy      string `json:"-"`
+}
+
+type FleetActiveStatusRequest struct {
+	Action  string `json:"action" validate:"required,oneof=active inactive"`
+	FleetID string `json:"fleet_id" validate:"required"`
 }
 
 type FleetFacilityUpsertItem struct {
