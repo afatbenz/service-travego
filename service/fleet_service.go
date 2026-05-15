@@ -883,6 +883,30 @@ func (s *FleetService) DeleteFleet(orgID, userID, fleetID string) error {
 	return nil
 }
 
+func (s *FleetService) SetFleetActiveStatus(orgID, userID, action, fleetID string) error {
+	fleetID = strings.TrimSpace(fleetID)
+	if fleetID == "" {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "fleet_id is required")
+	}
+	action = strings.TrimSpace(strings.ToLower(action))
+	var active bool
+	switch action {
+	case "active":
+		active = true
+	case "inactive":
+		active = false
+	default:
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "action must be active or inactive")
+	}
+	if err := s.repo.SetFleetActiveStatus(orgID, userID, fleetID, active); err != nil {
+		if err == sql.ErrNoRows {
+			return NewServiceError(ErrNotFound, http.StatusNotFound, "fleet not found")
+		}
+		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to update fleet status")
+	}
+	return nil
+}
+
 func normalizeDateTime(v string) (string, error) {
 	s := strings.TrimSpace(v)
 	if s == "" {

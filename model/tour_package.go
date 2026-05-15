@@ -70,7 +70,7 @@ type TourPackageAddon struct {
 }
 
 type TourPackageActivityCity struct {
-	ID   string `json:"id"`
+	ID   int    `json:"id"`
 	Name string `json:"name"`
 }
 
@@ -177,6 +177,11 @@ type TourPackageDetailRequest struct {
 	PackageID string `json:"package_id"`
 }
 
+type TourPackageActiveStatusRequest struct {
+	Action    string `json:"action" validate:"required,oneof=active inactive"`
+	PackageID string `json:"package_id" validate:"required"`
+}
+
 type TourPackageDetailMeta struct {
 	PackageID          string `json:"package_id"`
 	PackageName        string `json:"package_name"`
@@ -202,6 +207,7 @@ type TourPackageDestinationItem struct {
 }
 
 type TourPackageItineraryDetailItem struct {
+	Day         int    `json:"day"`
 	Time        string `json:"time"`
 	Description string `json:"description"`
 	Location    string `json:"location"`

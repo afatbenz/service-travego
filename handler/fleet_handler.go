@@ -549,6 +549,33 @@ func (h *FleetHandler) FleetDetail(c *fiber.Ctx) error {
 	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet detail loaded", res)
 }
 
+func (h *FleetHandler) SetFleetActiveStatus(c *fiber.Ctx) error {
+	var req model.FleetActiveStatusRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.BadRequestResponse(c, "invalid payload")
+	}
+	if errs := helper.ValidateStruct(&req); len(errs) > 0 {
+		return helper.SendValidationErrorResponse(c, errs)
+	}
+
+	userID, _ := c.Locals("user_id").(string)
+	orgID, _ := c.Locals("organization_id").(string)
+	if userID == "" || orgID == "" {
+		return helper.BadRequestResponse(c, "missing user or organization context")
+	}
+
+	if err := h.service.SetFleetActiveStatus(orgID, userID, req.Action, req.FleetID); err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	msg := "Fleet inactivated successfully"
+	if strings.TrimSpace(strings.ToLower(req.Action)) == "active" {
+		msg = "Fleet activated successfully"
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, msg, nil)
+}
+
 func (h *FleetHandler) DeleteFleet(c *fiber.Ctx) error {
 	var req model.FleetDeleteRequest
 	if err := c.BodyParser(&req); err != nil {
