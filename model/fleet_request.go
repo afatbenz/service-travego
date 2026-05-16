@@ -172,8 +172,11 @@ type FleetDetailMeta struct {
 	Capacity       int    `json:"capacity"`
 	ProductionYear int    `json:"production_year"`
 	Engine         string `json:"engine"`
+	Engines        string `json:"engines"`
+	Capacities     string `json:"capacities"`
 	Body           string `json:"body"`
 	FuelType       string `json:"fuel_type"`
+	FuelTypeLabel  string `json:"fuel_type_label"`
 	Transmission   string `json:"transmission"`
 	Description    string `json:"description"`
 	Thumbnail      string `json:"thumbnail"`
