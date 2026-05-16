@@ -2,17 +2,46 @@ package repository
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"math"
+	"os"
 	"service-travego/configs"
 	"service-travego/database"
 	"service-travego/model"
 	"service-travego/utils"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+var (
+	fuelTypeLabelOnce sync.Once
+	fuelTypeLabelMap  map[string]string
+)
+
+func getFuelTypeLabelMap() map[string]string {
+	fuelTypeLabelOnce.Do(func() {
+		fuelTypeLabelMap = map[string]string{}
+		f, err := os.Open("config/fleet-config.json")
+		if err != nil {
+			return
+		}
+		defer f.Close()
+		var cfg model.FleetConfig
+		if err := json.NewDecoder(f).Decode(&cfg); err != nil {
+			return
+		}
+		for _, it := range cfg.FuelType {
+			if it.ID != "" && it.Label != "" {
+				fuelTypeLabelMap[it.ID] = it.Label
+			}
+		}
+	})
+	return fuelTypeLabelMap
+}
 
 type FleetRepository struct {
 	db     *sql.DB
@@ -3162,11 +3191,12 @@ func (r *FleetRepository) GetServiceFleets(page, perPage int) ([]model.ServiceFl
 	}
 
 	query := fmt.Sprintf(`
-        SELECT f.uuid, f.fleet_name, f.fleet_type, f.capacity, COALESCE(f.production_year, 0) as production_year, f.engine, f.body, f.description, COALESCE(f.thumbnail, '') as thumbnail, f.created_at,
+        SELECT f.uuid, f.fleet_name, f.fleet_type, ft.label as fleet_type_label, f.capacity, COALESCE(f.production_year, 0) as production_year, f.engine, f.body, f.description, COALESCE(f.thumbnail, '') as thumbnail, f.created_at,
         (SELECT MIN(price) FROM fleet_prices WHERE fleet_id = f.uuid) as price,
         (SELECT uom FROM fleet_prices WHERE fleet_id = f.uuid ORDER BY price ASC LIMIT 1) as uom,
         (SELECT %s FROM fleet_pickup WHERE fleet_id = f.uuid) as cities
         FROM fleets f
+		INNER JOIN fleet_types ft ON ft.id = f.fleet_type
         WHERE f.active = true AND f.is_public = 1
         ORDER BY f.created_at DESC
         LIMIT %d OFFSET %d
@@ -3184,9 +3214,10 @@ func (r *FleetRepository) GetServiceFleets(page, perPage int) ([]model.ServiceFl
 		var price sql.NullFloat64
 		var uom sql.NullString
 		var cities sql.NullString
+		var fleetTypeLabel sql.NullString
 
 		if err := rows.Scan(
-			&it.FleetID, &it.FleetName, &it.FleetType, &it.Capacity, &it.ProductionYear, &it.Engine, &it.Body, &it.Description, &it.Thumbnail, &it.CreatedAt,
+			&it.FleetID, &it.FleetName, &it.FleetType, &it.FleetTypeLabel, &it.Capacity, &it.ProductionYear, &it.Engine, &it.Body, &it.Description, &it.Thumbnail, &it.CreatedAt,
 			&price, &uom, &cities,
 		); err != nil {
 			return nil, err
@@ -3200,6 +3231,9 @@ func (r *FleetRepository) GetServiceFleets(page, perPage int) ([]model.ServiceFl
 		}
 		if cities.Valid {
 			it.Cities = strings.Split(cities.String, ",")
+		}
+		if fleetTypeLabel.Valid {
+			it.FleetTypeLabel = fleetTypeLabel.String
 		}
 		items = append(items, it)
 	}
@@ -3264,18 +3298,25 @@ func (r *FleetRepository) GetFleetDetailMeta(orgID, fleetID string) (*model.Flee
 			f.created_at,
 			%s AS created_by,
 			f.updated_at,
-			f.updated_by
+			f.updated_by,
+			STRING_AGG(DISTINCT fu.engine::text, ', ') AS engines,
+			STRING_AGG(DISTINCT fu.capacity::text, ', ') AS capacities
         FROM fleets f
 		LEFT JOIN fleet_types ft ON f.fleet_type = ft.id
 		LEFT JOIN users u ON u.user_id = f.created_by
+		LEFT JOIN fleet_units fu ON fu.fleet_id::text = f.uuid::text
         WHERE f.uuid = %s
     `, fleetTypeExpr, createdByExpr, r.getPlaceholder(1))
 
+	groupBy := ` GROUP BY f.uuid, f.fleet_type, ft.label, f.fleet_name, f.capacity, f.production_year, f.engine, f.body, f.fuel_type, f.transmission, f.description, f.thumbnail, f.active, f.status, f.created_at, u.fullname, f.created_by, f.updated_at, f.updated_by`
+
 	args := []interface{}{fleetID}
 	if orgID != "" {
-		query += " AND f.organization_id = %s"
-		query = fmt.Sprintf(query, r.getPlaceholder(2))
+		orgExpr := "f.organization_id::text = " + r.getPlaceholder(2)
+		query += " AND " + orgExpr + groupBy
 		args = append(args, orgID)
+	} else {
+		query += groupBy
 	}
 
 	var meta model.FleetDetailMeta
@@ -3289,6 +3330,8 @@ func (r *FleetRepository) GetFleetDetailMeta(orgID, fleetID string) (*model.Flee
 	var fleetTypeLabel sql.NullString
 	var fuelType sql.NullString
 	var transmission sql.NullString
+	var engines sql.NullString
+	var capacities sql.NullString
 	// FleetDetailMeta: CreatedAt string `json:"created_at"`
 
 	err := database.QueryRow(r.db, query, args...).Scan(
@@ -3310,6 +3353,8 @@ func (r *FleetRepository) GetFleetDetailMeta(orgID, fleetID string) (*model.Flee
 		&createdBy,
 		&updatedAt,
 		&updatedBy,
+		&engines,
+		&capacities,
 	)
 	if err != nil {
 		return nil, err
@@ -3320,6 +3365,9 @@ func (r *FleetRepository) GetFleetDetailMeta(orgID, fleetID string) (*model.Flee
 	}
 	if fuelType.Valid {
 		meta.FuelType = fuelType.String
+		if label, ok := getFuelTypeLabelMap()[strings.TrimSpace(meta.FuelType)]; ok {
+			meta.FuelTypeLabel = label
+		}
 	}
 	if transmission.Valid {
 		meta.Transmission = transmission.String
@@ -3333,6 +3381,12 @@ func (r *FleetRepository) GetFleetDetailMeta(orgID, fleetID string) (*model.Flee
 	}
 	if updatedBy.Valid {
 		meta.UpdatedBy = updatedBy.String
+	}
+	if engines.Valid {
+		meta.Engines = engines.String
+	}
+	if capacities.Valid {
+		meta.Capacities = capacities.String
 	}
 
 	return &meta, nil

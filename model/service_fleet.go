@@ -6,6 +6,7 @@ type ServiceFleetItem struct {
 	FleetID        string    `json:"fleet_id"`
 	FleetName      string    `json:"fleet_name"`
 	FleetType      string    `json:"fleet_type"`
+	FleetTypeLabel string    `json:"fleet_type_label"`
 	Capacity       int       `json:"capacity"`
 	ProductionYear int       `json:"production_year"`
 	Engine         string    `json:"engine"`
