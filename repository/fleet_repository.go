@@ -3184,20 +3184,19 @@ func (r *FleetRepository) GetServiceFleets(page, perPage int) ([]model.ServiceFl
 	offset := (page - 1) * perPage
 
 	var groupConcat string
-	if r.driver == "postgres" {
-		groupConcat = "STRING_AGG(CAST(city_id AS VARCHAR), ',')"
-	} else {
-		groupConcat = "GROUP_CONCAT(city_id)"
-	}
+	groupConcat = "STRING_AGG(CAST(city_id AS VARCHAR), ',')"
 
 	query := fmt.Sprintf(`
         SELECT f.uuid, f.fleet_name, f.fleet_type, ft.label as fleet_type_label, f.capacity, COALESCE(f.production_year, 0) as production_year, f.engine, f.body, f.description, COALESCE(f.thumbnail, '') as thumbnail, f.created_at,
         (SELECT MIN(price) FROM fleet_prices WHERE fleet_id = f.uuid) as price,
         (SELECT uom FROM fleet_prices WHERE fleet_id = f.uuid ORDER BY price ASC LIMIT 1) as uom,
-        (SELECT %s FROM fleet_pickup WHERE fleet_id = f.uuid) as cities
+        (SELECT %s FROM fleet_pickup WHERE fleet_id = f.uuid) as cities,
+		STRING_AGG(DISTINCT fu.capacity::text, ', ') AS capacities
         FROM fleets f
 		INNER JOIN fleet_types ft ON ft.id = f.fleet_type
+		LEFT JOIN fleet_units fu ON fu.fleet_id::text = f.uuid::text
         WHERE f.active = true AND f.is_public = 1
+		GROUP BY f.uuid, f.fleet_name, f.fleet_type, ft.label, f.capacity, f.production_year, f.engine, f.body, f.description, f.thumbnail, f.created_at
         ORDER BY f.created_at DESC
         LIMIT %d OFFSET %d
     `, groupConcat, perPage, offset)
@@ -3215,10 +3214,10 @@ func (r *FleetRepository) GetServiceFleets(page, perPage int) ([]model.ServiceFl
 		var uom sql.NullString
 		var cities sql.NullString
 		var fleetTypeLabel sql.NullString
-
+		var capacities sql.NullString
 		if err := rows.Scan(
 			&it.FleetID, &it.FleetName, &it.FleetType, &it.FleetTypeLabel, &it.Capacity, &it.ProductionYear, &it.Engine, &it.Body, &it.Description, &it.Thumbnail, &it.CreatedAt,
-			&price, &uom, &cities,
+			&price, &uom, &cities, &capacities,
 		); err != nil {
 			return nil, err
 		}
@@ -3234,6 +3233,9 @@ func (r *FleetRepository) GetServiceFleets(page, perPage int) ([]model.ServiceFl
 		}
 		if fleetTypeLabel.Valid {
 			it.FleetTypeLabel = fleetTypeLabel.String
+		}
+		if capacities.Valid {
+			it.Capacities = capacities.String
 		}
 		items = append(items, it)
 	}
@@ -3537,16 +3539,23 @@ type FleetAvailibilityItem struct {
 	TotalAvailable int    `json:"total_avaible"`
 }
 
-func (r *FleetRepository) GetFleetAvailibility(orgID string, reqStart time.Time, reqEnd time.Time) ([]FleetAvailibilityItem, error) {
+func (r *FleetRepository) GetFleetAvailibility(orgID string, reqStart time.Time, reqEnd time.Time, fleetID string) ([]FleetAvailibilityItem, error) {
 	if orgID == "" {
 		return nil, fmt.Errorf("missing organization_id")
 	}
 
+	args := []interface{}{orgID, reqStart, reqEnd}
 	orgExpr := "f.organization_id = " + r.getPlaceholder(1)
 	bookOrgExpr := "sf.organization_id = " + r.getPlaceholder(1)
 	if r.driver == "postgres" || r.driver == "pgx" {
 		orgExpr = "f.organization_id::text = " + r.getPlaceholder(1)
 		bookOrgExpr = "sf.organization_id::text = " + r.getPlaceholder(1)
+	}
+
+	fleetFilterExpr := ""
+	if fleetID != "" {
+		fleetFilterExpr = " AND f.uuid::text = " + r.getPlaceholder(4)
+		args = append(args, fleetID)
 	}
 
 	var existingStartExpr string
@@ -3586,10 +3595,11 @@ func (r *FleetRepository) GetFleetAvailibility(orgID string, reqStart time.Time,
 		) b ON %s
 		WHERE f.status > 0
 		  AND %s
+		  %s
 		ORDER BY f.fleet_name ASC
-	`, totalUnitExpr, greatestFn, totalUnitExpr, bookOrgExpr, conflictExpr, fleetJoinExpr, orgExpr)
+	`, totalUnitExpr, greatestFn, totalUnitExpr, bookOrgExpr, conflictExpr, fleetJoinExpr, orgExpr, fleetFilterExpr)
 
-	rows, err := database.Query(r.db, query, orgID, reqStart, reqEnd)
+	rows, err := database.Query(r.db, query, args...)
 	if err != nil {
 		return nil, err
 	}

@@ -511,7 +511,9 @@ func (h *FleetHandler) FleetAvailibility(c *fiber.Ctx) error {
 		return helper.BadRequestResponse(c, "missing organization context")
 	}
 
-	available, fleets, err := h.service.GetFleetAvailibility(orgID, startDate, endDate)
+	fleetID := strings.TrimSpace(c.Query("fleet_id"))
+
+	available, fleets, err := h.service.GetFleetAvailibility(orgID, startDate, endDate, fleetID)
 	if err != nil {
 		code := service.GetStatusCode(err)
 		return helper.SendErrorResponse(c, code, err.Error())

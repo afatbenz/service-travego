@@ -21,10 +21,17 @@ type ServiceFleetItem struct {
 	Price          float64   `json:"price"`          // Calculated
 	Duration       int       `json:"duration"`
 	Cities         []string  `json:"cities"`
+	Capacities     string    `json:"capacities"`
 }
 
 type ServiceFleetDetailRequest struct {
 	FleetID string `json:"fleet_id"`
+}
+
+type ServiceFleetAvailibilityRequest struct {
+	StartDate string `json:"start_date"`
+	EndDate   string `json:"end_date"`
+	FleetID   string `json:"fleet_id"`
 }
 
 type ServiceFleetPickupItem struct {

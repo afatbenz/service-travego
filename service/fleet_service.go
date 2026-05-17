@@ -106,7 +106,6 @@ func (s *FleetService) GetServiceFleets(page, perPage int) ([]model.ServiceFleet
 		if item.DiscountType != nil && item.DiscountValue != nil {
 			switch *item.DiscountType {
 			case "PERCENT":
-				// assuming discount_value is percentage e.g. 10 for 10%
 				item.Price = item.OriginalPrice - (item.OriginalPrice * *item.DiscountValue / 100)
 			case "AMOUNT":
 				item.Price = item.OriginalPrice - *item.DiscountValue
@@ -833,7 +832,7 @@ func (s *FleetService) ListFleetsForUnit(orgID, searchFor string) ([]model.Fleet
 	return items, nil
 }
 
-func (s *FleetService) GetFleetAvailibility(orgID string, startDate time.Time, endDate time.Time) (bool, []repository.FleetAvailibilityItem, error) {
+func (s *FleetService) GetFleetAvailibility(orgID string, startDate time.Time, endDate time.Time, fleetID string) (bool, []repository.FleetAvailibilityItem, error) {
 	if strings.TrimSpace(orgID) == "" {
 		return false, nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "missing organization context")
 	}
@@ -841,7 +840,7 @@ func (s *FleetService) GetFleetAvailibility(orgID string, startDate time.Time, e
 		return false, nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "invalid start_date or end_date")
 	}
 
-	items, err := s.repo.GetFleetAvailibility(orgID, startDate, endDate)
+	items, err := s.repo.GetFleetAvailibility(orgID, startDate, endDate, fleetID)
 	if err != nil {
 		msg := "failed to get fleet availibility"
 		if env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV"))); env != "production" && env != "prod" {
