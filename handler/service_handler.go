@@ -5,6 +5,8 @@ import (
 	"service-travego/helper"
 	"service-travego/model"
 	"service-travego/service"
+	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -19,7 +21,6 @@ func NewServiceHandler(s *service.FleetService) *ServiceHandler {
 }
 
 func (h *ServiceHandler) GetServiceFleets(c *fiber.Ctx) error {
-	fmt.Println("GetServiceFleets")
 	page := c.QueryInt("page", 1)
 	perPage := c.QueryInt("per_page", 10)
 
@@ -68,6 +69,49 @@ func (h *ServiceHandler) GetServiceFleetAddons(c *fiber.Ctx) error {
 		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, err.Error())
 	}
 	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet addons retrieved", items)
+}
+
+func (h *ServiceHandler) GetServiceFleetAvailibility(c *fiber.Ctx) error {
+	var req model.ServiceFleetAvailibilityRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.BadRequestResponse(c, "Invalid payload")
+	}
+
+	startStr := strings.TrimSpace(req.StartDate)
+	endStr := strings.TrimSpace(req.EndDate)
+
+	if startStr == "" {
+		return helper.BadRequestResponse(c, "start_date is required")
+	}
+	if endStr == "" {
+		return helper.BadRequestResponse(c, "end_date is required")
+	}
+
+	layout := "2006-01-02 15:04"
+	startDate, err := time.ParseInLocation(layout, startStr, time.Local)
+	if err != nil {
+		return helper.BadRequestResponse(c, "invalid start_date")
+	}
+	endDate, err := time.ParseInLocation(layout, endStr, time.Local)
+	if err != nil {
+		return helper.BadRequestResponse(c, "invalid end_date")
+	}
+
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.BadRequestResponse(c, "Invalid or missing organization_id")
+	}
+
+	available, fleets, err := h.service.GetFleetAvailibility(orgID, startDate, endDate, req.FleetID)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "OK", fiber.Map{
+		"available": available,
+		"fleets":    fleets,
+	})
 }
 
 func (h *ServiceHandler) GetAvailableCities(c *fiber.Ctx) error {

@@ -30,6 +30,7 @@ func SetupServiceRoutes(api fiber.Router, db *sql.DB, driver string) {
 	svcGroup.Use(helper.DualAuthMiddleware(orgRepo))
 	svcGroup.Get("/fleet", h.GetServiceFleets)
 	svcGroup.Post("/fleet/detail", h.GetServiceFleetDetail)
+	svcGroup.Post("/fleet/availibility", h.GetServiceFleetAvailibility)
 	svcGroup.Get("/fleet/addon/:fleetid", h.GetServiceFleetAddons)
 	svcGroup.Get("/available-city", h.GetAvailableCities)
 
@@ -38,4 +39,5 @@ func SetupServiceRoutes(api fiber.Router, db *sql.DB, driver string) {
 	tourSrv := service.NewTourPackageService(tourRepo, serviceBaseURL())
 	tourH := handler.NewTourPackageHandler(tourSrv)
 	svcGroup.Get("/tour-packages", tourH.GetTourPackages)
+	svcGroup.Post("/tour-packages/detail", tourH.TourPackageDetail)
 }

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
 	"service-travego/database"
 	"service-travego/model"
 	"strings"
@@ -12,6 +13,26 @@ import (
 
 	"github.com/google/uuid"
 )
+
+func resolveTourPackageAssetURL(path string) string {
+	p := strings.TrimSpace(path)
+	if p == "" {
+		return p
+	}
+	if strings.HasPrefix(p, "http://") || strings.HasPrefix(p, "https://") {
+		return p
+	}
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	if base := strings.TrimSuffix(strings.TrimSpace(os.Getenv("BASE_URL")), "/"); base != "" {
+		return base + p
+	}
+	if base := strings.TrimSuffix(strings.TrimSpace(os.Getenv("APP_HOST")), "/"); base != "" {
+		return base + p
+	}
+	return p
+}
 
 type TourPackageRepository struct {
 	db     *sql.DB
@@ -1230,12 +1251,17 @@ func (r *TourPackageRepository) GetTourPackageDetail(ctx context.Context, orgID,
 		return nil, err
 	}
 
+	thumb := ""
+	if thumbnail.Valid {
+		thumb = resolveTourPackageAssetURL(thumbnail.String)
+	}
+
 	detail.Meta = model.TourPackageDetailMeta{
 		PackageID:          metaPackageID,
 		PackageName:        packageName.String,
 		PackageType:        int(packageType.Int64),
 		PackageDescription: packageDesc.String,
-		Thumbnail:          thumbnail.String,
+		Thumbnail:          thumb,
 		Duration:           int(duration.Int64),
 		MinPax:             int(minPax.Int64),
 		MaxPax:             int(maxPax.Int64),
