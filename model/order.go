@@ -52,6 +52,9 @@ type CreateOrderRequest struct {
 	Addons            []string           `json:"addons"`
 	AdditionalAmount  float64            `json:"additional_amount"`
 	AdditionalRequest string             `json:"additional_request"`
+	CompanyName       string             `json:"company_name"`
+	CityID            int                `json:"city_id"`
+	OrderType         int                `json:"order_type"`
 	OrganizationID    string             `json:"-"`
 	OrganizationCode  string             `json:"-"`
 	OrderID           string             `json:"-"`
@@ -69,7 +72,8 @@ type OrderTokenPayload struct {
 }
 
 type CreateOrderResponse struct {
-	Token string `json:"token"`
+	Token   string `json:"token"`
+	OrderID string `json:"order_id"`
 }
 
 type GetOrderListRequest struct {
@@ -115,7 +119,9 @@ type OrderDetailResponse struct {
 	Addon             []OrderDetailAddon        `json:"addon"`
 	Customer          OrderDetailCustomer       `json:"customer"`
 	Payment           []PaymentDetail           `json:"payment"`
-	PaymentStatus     string                    `json:"payment_status"`
+	PaymentStatus     int                       `json:"payment_status"`
+	Status            int                       `json:"status"`
+	StatusLabel       string                    `json:"status_label"`
 	AdditionalRequest string                    `json:"additional_request"`
 	Token             string                    `json:"token"`
 	PriceID           string                    `json:"-"`
@@ -141,23 +147,25 @@ type PaymentDetail struct {
 }
 
 type PartnerOrderListItem struct {
-	OrderID             string        `json:"order_id"`
-	TransactionID       string        `json:"transaction_id"`
-	OrderDate           string        `json:"order_date"`
-	Thumbnail           string        `json:"thumbnail"`
-	FleetName           string        `json:"fleet_name"`
-	CustomerName        string        `json:"customer_name"`
-	CustomerPhone       string        `json:"customer_phone"`
-	StartDate           string        `json:"start_date"`
-	EndDate             string        `json:"end_date"`
-	UnitQty             int           `json:"unit_qty"`
-	PaymentStatus       PaymentStatus `json:"payment_status"`
-	LatestPaymentStatus string        `json:"latest_payment_status"`
-	Duration            int           `json:"duration"`
-	Uom                 string        `json:"uom"`
-	TotalAmount         float64       `json:"total_amount"`
-	RentType            string        `json:"rent_type"`
-	LatestPaymentType   int           `json:"-"`
+	OrderID             string                    `json:"order_id"`
+	TransactionID       string                    `json:"transaction_id"`
+	OrderDate           string                    `json:"order_date"`
+	Thumbnail           string                    `json:"thumbnail"`
+	FleetName           string                    `json:"fleet_name"`
+	CustomerName        string                    `json:"customer_name"`
+	CustomerPhone       string                    `json:"customer_phone"`
+	StartDate           string                    `json:"start_date"`
+	EndDate             string                    `json:"end_date"`
+	UnitQty             int                       `json:"unit_qty"`
+	PaymentStatus       PaymentStatus             `json:"payment_status"`
+	Status              int                       `json:"status"`
+	Itinerary           []FleetOrderItineraryItem `json:"itinerary"`
+	LatestPaymentStatus string                    `json:"latest_payment_status"`
+	Duration            int                       `json:"duration"`
+	Uom                 string                    `json:"uom"`
+	TotalAmount         float64                   `json:"total_amount"`
+	RentType            string                    `json:"rent_type"`
+	LatestPaymentType   int                       `json:"-"`
 }
 
 type PartnerOrderSummary struct {
@@ -214,6 +222,7 @@ type OrderDetailPickup struct {
 
 type OrderDetailDest struct {
 	City      string `json:"city"`
+	ID        string `json:"id"`
 	CityLabel string `json:"city_label"`
 	Location  string `json:"location"`
 }

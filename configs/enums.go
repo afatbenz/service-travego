@@ -107,11 +107,11 @@ type RentType int
 type PaymentStatus int
 
 const (
-	PaymentStatusPaid           PaymentStatus = 1
-	PaymentStatusWaitingPayment PaymentStatus = 2
+	PaymentStatusPaid            PaymentStatus = 1
+	PaymentStatusWaitingPayment  PaymentStatus = 2
 	PaymentStatusWaitingApproval PaymentStatus = 3
-	PaymentStatusPartiallyPaid  PaymentStatus = 4
-	PaymentStatusCancelled      PaymentStatus = 5
+	PaymentStatusPartiallyPaid   PaymentStatus = 4
+	PaymentStatusCancelled       PaymentStatus = 5
 )
 
 func (s PaymentStatus) String() string {
@@ -148,4 +148,32 @@ func (r RentType) String() string {
 	default:
 		return "Unknown"
 	}
+}
+
+// OrderStatus represents the status of an order
+type OrderStatus int
+
+const (
+	OrderStatusCancelled    OrderStatus = 0 // Pesanan Dibatalkan
+	OrderStatusConfirmed    OrderStatus = 1 // Pesanan Dikonfirmasi
+	OrderStatusNotConfirmed OrderStatus = 2 // Pesanan Belum Dikonfirmasi
+)
+
+// String returns the string representation of OrderStatus
+func (s OrderStatus) String() string {
+	switch s {
+	case OrderStatusCancelled:
+		return "Pesanan Dibatalkan"
+	case OrderStatusConfirmed:
+		return "Pesanan Dikonfirmasi"
+	case OrderStatusNotConfirmed:
+		return "Pesanan Belum Dikonfirmasi"
+	default:
+		return "Unknown"
+	}
+}
+
+// IsValid checks if the order status is valid
+func (s OrderStatus) IsValid() bool {
+	return s == OrderStatusCancelled || s == OrderStatusConfirmed || s == OrderStatusNotConfirmed
 }

@@ -20,7 +20,31 @@ import (
 var (
 	fuelTypeLabelOnce sync.Once
 	fuelTypeLabelMap  map[string]string
+
+	citiesOnce sync.Once
+	citiesMap  map[string]string
 )
+
+func getCitiesMap() map[string]string {
+	citiesOnce.Do(func() {
+		citiesMap = map[string]string{}
+		f, err := os.Open("config/location.json")
+		if err != nil {
+			fmt.Printf("Error opening location.json: %v\n", err)
+			return
+		}
+		defer f.Close()
+		var loc model.Location
+		if err := json.NewDecoder(f).Decode(&loc); err != nil {
+			fmt.Printf("Error decoding location.json: %v\n", err)
+			return
+		}
+		for _, c := range loc.Cities {
+			citiesMap[strings.TrimSpace(c.ID)] = c.Name
+		}
+	})
+	return citiesMap
+}
 
 func getFuelTypeLabelMap() map[string]string {
 	fuelTypeLabelOnce.Do(func() {
@@ -712,20 +736,87 @@ func (r *FleetRepository) CreateOrder(req *model.CreateOrderRequest) error {
 	}
 	_, _ = database.TxExec(tx, "RELEASE SAVEPOINT sp_orders")
 
-	// 2. Insert fleet_orders_customers
-	custID := uuid2()
-	custQuery := fmt.Sprintf(`
-		INSERT INTO fleet_order_customers (customer_id, order_id, customer_name, customer_phone, customer_email, customer_address, created_at, organization_id)
-		VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8))
+	// 2. Check and Insert customers
+	var custID string
+	checkQuery := fmt.Sprintf(`
+		SELECT customer_id FROM customers 
+		WHERE organization_id = %s AND (customer_email = %s AND customer_phone = %s)
+		LIMIT 1
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
 
-	_, err = database.TxExec(tx, custQuery, custID, orderID, req.Fullname, req.Phone, req.Email, req.Address, now, req.OrganizationID)
-	if err != nil {
-		fmt.Println("error create customer orders", err)
+	err = database.TxQueryRow(tx, checkQuery, req.OrganizationID, req.Email, req.Phone).Scan(&custID)
+	if err != nil && err != sql.ErrNoRows {
+		fmt.Println("error checking existing customer", err)
 		return err
 	}
 
-	// 3. Insert fleet_orders_addon
+	if err == sql.ErrNoRows {
+		custID = uuid2()
+		customerQuery := fmt.Sprintf(`
+			INSERT INTO customers (customer_id, organization_id, customer_name, customer_email, customer_address, customer_city, customer_company, created_at, customer_phone)
+			VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9))
+
+		_, err = database.TxExec(tx, customerQuery, custID, req.OrganizationID, req.Fullname, req.Email, req.Address, req.CityID, req.CompanyName, now, req.Phone)
+		if err != nil {
+			fmt.Println("error insert customers", err)
+			return err
+		}
+	}
+
+	// 3. Insert customer_orders
+	custOrderQuery := fmt.Sprintf(`
+		INSERT INTO customer_orders (order_id, customer_id, order_type, created_at, organization_id)
+		VALUES (%s, %s, %s, %s, %s)
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5))
+
+	_, err = database.TxExec(tx, custOrderQuery, orderID, custID, req.OrderType, now, req.OrganizationID)
+	if err != nil {
+		fmt.Println("error insert customer_orders", err)
+		return err
+	}
+
+	// 4. Insert fleet_order_items
+	// Get price again or pass it from service. Since we are in repo, let's query it.
+	var price float64
+	priceQuery := fmt.Sprintf("SELECT price FROM fleet_prices WHERE uuid = %s", r.getPlaceholder(1))
+	err = database.TxQueryRow(tx, priceQuery, req.PriceID).Scan(&price)
+	if err != nil {
+		fmt.Println("error get price for order items", err)
+		return err
+	}
+
+	// Get addon amount
+	var addonAmount float64
+	if len(req.Addons) > 0 {
+		placeholders := make([]string, len(req.Addons))
+		args := make([]interface{}, len(req.Addons))
+		for i, id := range req.Addons {
+			placeholders[i] = r.getPlaceholder(i + 1)
+			args[i] = id
+		}
+		addonSumQuery := fmt.Sprintf("SELECT COALESCE(SUM(addon_price), 0) FROM fleet_addon WHERE uuid IN (%s)", strings.Join(placeholders, ","))
+		err = database.TxQueryRow(tx, addonSumQuery, args...).Scan(&addonAmount)
+		if err != nil {
+			fmt.Println("error get addon sum for order items", err)
+			return err
+		}
+	}
+
+	subTotal := (float64(req.Qty) * price) + (float64(req.Qty) * addonAmount)
+	orderItemID := uuid2()
+	itemQuery := fmt.Sprintf(`
+		INSERT INTO fleet_order_items (order_item_id, organization_id, order_id, fleet_id, price_id, quantity, sub_total, create_at, status, addon_amount)
+		VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 1, %s)
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9))
+
+	_, err = database.TxExec(tx, itemQuery, orderItemID, req.OrganizationID, orderID, req.FleetID, req.PriceID, req.Qty, subTotal, now, addonAmount)
+	if err != nil {
+		fmt.Println("error insert fleet_order_items", err)
+		return err
+	}
+
+	// 5. Insert fleet_orders_addon (existing logic, keeping it but it might be redundant now)
 	if len(req.Addons) > 0 {
 		addonQuery := fmt.Sprintf(`
 			INSERT INTO fleet_order_addons (order_addon_id, order_id, addon_id, addon_price, created_at)
@@ -745,16 +836,63 @@ func (r *FleetRepository) CreateOrder(req *model.CreateOrderRequest) error {
 		}
 	}
 
-	// 4. Insert fleet_order_destinations
+	// 6. Insert fleet_order_itinerary
 	if len(req.Destinations) > 0 {
+		mode := 0
+		itineraryWithOrg := fmt.Sprintf(`
+			INSERT INTO fleet_order_itinerary (fleet_itinerary_id, order_id, day_num, city_id, location, organization_id, created_at)
+			VALUES (%s, %s, %s, %s, %s, %s, %s)
+		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7))
+		itineraryWithoutOrg := fmt.Sprintf(`
+			INSERT INTO fleet_order_itinerary (fleet_itinerary_id, order_id, day_num, city_id, location, created_at)
+			VALUES (%s, %s, %s, %s, %s, %s)
+		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6))
 		destQuery := fmt.Sprintf(`
+			INSERT INTO fleet_order_destinations (order_id, city_id, location, created_at)
+			VALUES (%s, %s, %s, %s)
+		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))
+		destQueryWithID := fmt.Sprintf(`
 			INSERT INTO fleet_order_destinations (uuid, order_id, city_id, location, created_at)
 			VALUES (%s, %s, %s, %s, %s)
 		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5))
-		for _, dest := range req.Destinations {
+
+		for i, dest := range req.Destinations {
 			id := uuid2()
-			_, err = database.TxExec(tx, destQuery, id, orderID, dest.CityID, dest.Location, now)
-			if err != nil {
+			dayNum := i + 1
+			for {
+				_, _ = database.TxExec(tx, "SAVEPOINT sp_dest")
+				if mode == 0 {
+					_, err = database.TxExec(tx, itineraryWithOrg, id, orderID, dayNum, dest.CityID, dest.Location, req.OrganizationID, now)
+				} else if mode == 1 {
+					_, err = database.TxExec(tx, itineraryWithoutOrg, id, orderID, dayNum, dest.CityID, dest.Location, now)
+				} else if mode == 2 {
+					_, err = database.TxExec(tx, destQuery, orderID, dest.CityID, dest.Location, now)
+				} else {
+					_, err = database.TxExec(tx, destQueryWithID, id, orderID, dest.CityID, dest.Location, now)
+				}
+
+				if err == nil {
+					_, _ = database.TxExec(tx, "RELEASE SAVEPOINT sp_dest")
+					break
+				}
+
+				errMsg := strings.ToLower(err.Error())
+				if mode == 0 && (strings.Contains(errMsg, "unknown column") || strings.Contains(errMsg, "does not exist")) {
+					_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_dest")
+					mode = 1
+					continue
+				}
+				if (mode == 0 || mode == 1) && (strings.Contains(errMsg, "doesn't exist") || strings.Contains(errMsg, "does not exist") || strings.Contains(errMsg, "relation") || strings.Contains(errMsg, "unknown table")) {
+					_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_dest")
+					mode = 2
+					continue
+				}
+				if mode == 2 && (strings.Contains(errMsg, "unknown column \"uuid\"") || strings.Contains(errMsg, "column \"uuid\" of relation") || strings.Contains(errMsg, "does not exist")) {
+					_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_dest")
+					mode = 3
+					continue
+				}
+
 				fmt.Println("error create dest orders", err)
 				return err
 			}
@@ -786,7 +924,7 @@ func (r *FleetRepository) CreatePartnerOrder(orderID, fleetID, startDate, endDat
 
 	insertWithCreatedBy := fmt.Sprintf(`
 		INSERT INTO fleet_orders (order_id, fleet_id, start_date, end_date, pickup_city_id, pickup_location, unit_qty, price_id, created_at, total_amount, additional_amount, status, payment_status, organization_id, created_by, additional_request)
-		VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 2, %d, %s, %s, %s)
+		VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %d, %s, %s, %s)
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
 		r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11), configs.PaymentStatusWaitingPayment, r.getPlaceholder(12), r.getPlaceholder(13), r.getPlaceholder(14))
 
@@ -798,7 +936,7 @@ func (r *FleetRepository) CreatePartnerOrder(orderID, fleetID, startDate, endDat
 			_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_orders")
 			insertWithoutCreatedBy := fmt.Sprintf(`
 				INSERT INTO fleet_orders (order_id, fleet_id, start_date, end_date, pickup_city_id, pickup_location, unit_qty, price_id, created_at, total_amount, status, payment_status, organization_id, additional_request)
-				VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 2, %d, %s, %s)
+				VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %d, %s, %s)
 			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
 				r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), configs.PaymentStatusWaitingPayment, r.getPlaceholder(11), r.getPlaceholder(12))
 
@@ -811,7 +949,7 @@ func (r *FleetRepository) CreatePartnerOrder(orderID, fleetID, startDate, endDat
 					_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_orders_2")
 					insertLegacy := fmt.Sprintf(`
 						INSERT INTO fleet_orders (order_id, fleet_id, start_date, end_date, pickup_city_id, pickup_location, unit_qty, price_id, created_at, total_amount, status, payment_status, organization_id)
-						VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 2, %d, %s)
+						VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %d, %s)
 					`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
 						r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), configs.PaymentStatusWaitingPayment, r.getPlaceholder(11))
 					_, err = database.TxExec(tx, insertLegacy, orderID, fleetID, startDate, endDate, pickupCityID, pickupLocation, qty, priceID, now, totalAmount, orgID)
@@ -2129,17 +2267,18 @@ func (r *FleetRepository) UpdateFleetOrderPaymentStatus(orderID, organizationID 
 func (r *FleetRepository) FindOrderDetail(orderID, organizationID string) (*model.OrderDetailResponse, error) {
 	query := fmt.Sprintf(`
         SELECT 
-            fo.order_id, fo.created_at, fo.price_id,
+            fo.order_id, fo.created_at, fo.price_id, fo.status, fo.payment_status,
             f.fleet_name, 
             fp.rent_type, fp.price, 
             fo.unit_qty, fo.total_amount, COALESCE(fo.additional_amount, 0) as additional_amount,
             fo.pickup_location, fo.pickup_city_id, fo.start_date, fo.end_date,
-            COALESCE(foc.customer_name, '') as customer_name, COALESCE(foc.customer_phone, '') as customer_phone, COALESCE(foc.customer_email, '') as customer_email, COALESCE(foc.customer_address, '') as customer_address,
+            COALESCE(c.customer_name, '') as customer_name, COALESCE(c.customer_phone, '') as customer_phone, COALESCE(c.customer_email, '') as customer_email, COALESCE(c.customer_address, '') as customer_address,
             COALESCE(fo.additional_request, '') as additional_request
         FROM fleet_orders fo
         JOIN fleets f ON fo.fleet_id = f.uuid
         JOIN fleet_prices fp ON fo.price_id = fp.uuid
-        LEFT JOIN fleet_order_customers foc ON fo.order_id = foc.order_id
+        INNER JOIN customer_orders co ON fo.order_id = co.order_id
+		INNER JOIN customers c ON c.customer_id = co.customer_id
         WHERE fo.order_id = %s AND fo.organization_id = %s
     `, r.getPlaceholder(1), r.getPlaceholder(2))
 
@@ -2149,7 +2288,7 @@ func (r *FleetRepository) FindOrderDetail(orderID, organizationID string) (*mode
 	var startDate, endDate time.Time
 
 	err := database.QueryRow(r.db, query, orderID, organizationID).Scan(
-		&res.OrderID, &createdAt, &res.PriceID,
+		&res.OrderID, &createdAt, &res.PriceID, &res.Status, &res.PaymentStatus,
 		&res.FleetName,
 		&res.RentType, &res.Price,
 		&res.Quantity, &res.TotalAmount, &res.AdditionalAmount,
@@ -2162,13 +2301,17 @@ func (r *FleetRepository) FindOrderDetail(orderID, organizationID string) (*mode
 		return nil, err
 	}
 	res.OrderDate = createdAt.Format("2006-01-02 15:04:05")
+	res.StatusLabel = configs.OrderStatus(res.Status).String()
 	res.Pickup.PickupCity = pickupCityID
+	if cityLabel, ok := getCitiesMap()[strings.TrimSpace(pickupCityID)]; ok {
+		res.Pickup.CityLabel = cityLabel
+	}
 	res.Pickup.StartDate = startDate.Format("2006-01-02")
 	res.Pickup.EndDate = endDate.Format("2006-01-02")
 
 	// Destinations
 	destQuery := fmt.Sprintf(`SELECT city_id, location FROM fleet_order_destinations WHERE order_id = %s`, r.getPlaceholder(1))
-	dRows, err := database.Query(r.db, destQuery, orderID)
+	dRows, err := r.db.Query(destQuery, orderID)
 	if err == nil {
 		defer dRows.Close()
 		for dRows.Next() {
@@ -2176,8 +2319,44 @@ func (r *FleetRepository) FindOrderDetail(orderID, organizationID string) (*mode
 			var cID string
 			if err := dRows.Scan(&cID, &d.Location); err == nil {
 				d.City = cID
+				d.ID = cID
+				if cityLabel, ok := getCitiesMap()[strings.TrimSpace(cID)]; ok {
+					d.CityLabel = cityLabel
+				}
 				res.Destination = append(res.Destination, d)
 			}
+		}
+	}
+
+	if len(res.Destination) > 0 {
+		res.Itinerary = make([]model.FleetOrderItineraryItem, 0, len(res.Destination))
+		for i := range res.Destination {
+			res.Itinerary = append(res.Itinerary, model.FleetOrderItineraryItem{
+				Day:         i + 1,
+				CityID:      res.Destination[i].City,
+				Destination: res.Destination[i].Location,
+			})
+		}
+	}
+
+	cityExpr := "city_id::text"
+
+	itQuery := fmt.Sprintf(`SELECT fleet_itinerary_id, day_num, %s as city_id, location FROM fleet_order_itinerary WHERE order_id = %s AND organization_id = %s ORDER BY day_num`, cityExpr, r.getPlaceholder(1), r.getPlaceholder(2))
+	iRows, itErr := r.db.Query(itQuery, orderID, organizationID)
+	if itErr == nil {
+		defer iRows.Close()
+		items := make([]model.FleetOrderItineraryItem, 0)
+		for iRows.Next() {
+			var it model.FleetOrderItineraryItem
+			if err := iRows.Scan(&it.FleetItineraryID, &it.Day, &it.CityID, &it.Destination); err == nil {
+				if cityLabel, ok := getCitiesMap()[strings.TrimSpace(it.CityID)]; ok {
+					it.CityLabel = cityLabel
+				}
+				items = append(items, it)
+			}
+		}
+		if len(items) > 0 {
+			res.Itinerary = items
 		}
 	}
 
@@ -2246,9 +2425,9 @@ func (r *FleetRepository) FindOrderDetail(orderID, organizationID string) (*mode
 
 		// Determine overall payment status
 		if !hasPayment {
-			res.PaymentStatus = "Belum Bayar"
+			res.PaymentStatus = 2
 		} else if allStatus1 {
-			res.PaymentStatus = "Lunas"
+			res.PaymentStatus = 1
 		}
 	}
 
@@ -2744,7 +2923,7 @@ func (r *FleetRepository) GetPartnerOrderList(orgID string, filter *model.Partne
 			fo.order_id, f.fleet_name, f.thumbnail,
 			COALESCE(c.customer_name, '') as customer_name,
 			COALESCE(c.customer_phone, '') as customer_phone,
-			fo.start_date, fo.end_date, fo.unit_qty, fo.payment_status, 
+			fo.start_date, fo.end_date, fo.unit_qty, fo.payment_status, fo.status,
 			p.duration, p.uom, fo.total_amount, p.rent_type,
 			COALESCE((
 				SELECT po.payment_type
@@ -2804,7 +2983,7 @@ func (r *FleetRepository) GetPartnerOrderList(orgID string, filter *model.Partne
 		var latestPaymentType int
 		if err := rows.Scan(
 			&it.OrderID, &it.FleetName, &it.Thumbnail, &it.CustomerName, &it.CustomerPhone,
-			&startDate, &endDate, &it.UnitQty, &it.PaymentStatus,
+			&startDate, &endDate, &it.UnitQty, &it.PaymentStatus, &it.Status,
 			&it.Duration, &it.Uom, &it.TotalAmount, &rentType,
 			&latestPaymentType,
 		); err != nil {
@@ -2827,6 +3006,7 @@ func (r *FleetRepository) GetPartnerOrderList(orgID string, filter *model.Partne
 
 		items = append(items, it)
 	}
+
 	return items, nil
 }
 
@@ -2987,34 +3167,19 @@ func (r *FleetRepository) GetPartnerOrderFleetItems(organizationId, orderId stri
 }
 
 func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.OrderDetailResponse, error) {
-	customerCityExpr := "COALESCE(c.customer_city, '')"
-	customerIDExpr := "COALESCE(c.customer_id, '')"
-	if r.driver == "postgres" || r.driver == "pgx" {
-		customerCityExpr = "COALESCE(c.customer_city::text, '')"
-		customerIDExpr = "COALESCE(c.customer_id::text, '')"
-	} else if r.driver == "mysql" {
-		customerCityExpr = "COALESCE(CAST(c.customer_city AS CHAR), '')"
-		customerIDExpr = "COALESCE(CAST(c.customer_id AS CHAR), '')"
-	}
+	customerCityExpr := "COALESCE(c.customer_city::text, '')"
+	customerIDExpr := "COALESCE(c.customer_id::text, '')"
 
-	fleetJoinExpr := "fo.fleet_id = f.uuid"
-	priceJoinExpr := "fo.price_id = fp.uuid"
-	customerOrderOrgExpr := "co.organization_id = f.organization_id"
-	customerJoinExpr := "c.customer_id = co.customer_id"
-	customerOrgExpr := "c.organization_id = f.organization_id"
-	orgWhereExpr := "f.organization_id = " + r.getPlaceholder(2)
-	if r.driver == "postgres" || r.driver == "pgx" {
-		fleetJoinExpr = "fo.fleet_id::text = f.uuid::text"
-		priceJoinExpr = "fo.price_id::text = fp.uuid::text"
-		customerOrderOrgExpr = "co.organization_id::text = f.organization_id::text"
-		customerJoinExpr = "c.customer_id::text = co.customer_id::text"
-		customerOrgExpr = "c.organization_id::text = f.organization_id::text"
-		orgWhereExpr = "f.organization_id::text = " + r.getPlaceholder(2)
-	}
+	fleetJoinExpr := "fo.fleet_id::text = f.uuid::text"
+	priceJoinExpr := "fo.price_id::text = fp.uuid::text"
+	customerOrderOrgExpr := "co.organization_id::text = f.organization_id::text"
+	customerJoinExpr := "c.customer_id::text = co.customer_id::text"
+	customerOrgExpr := "c.organization_id::text = f.organization_id::text"
+	orgWhereExpr := "f.organization_id::text = " + r.getPlaceholder(2)
 
 	query := fmt.Sprintf(`
         SELECT 
-            fo.order_id, fo.fleet_id, fo.created_at, fo.price_id,
+            fo.order_id, fo.fleet_id, fo.created_at, fo.price_id, fo.status,
             f.fleet_name, 
             fp.rent_type, fp.price, 
             fo.unit_qty, fo.total_amount, COALESCE(fo.additional_amount, 0) as additional_amount,
@@ -3040,7 +3205,7 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 	var startDate, endDate time.Time
 
 	err := r.db.QueryRow(query, orderID, orgID).Scan(
-		&res.OrderID, &res.FleetID, &createdAt, &res.PriceID,
+		&res.OrderID, &res.FleetID, &createdAt, &res.PriceID, &res.Status,
 		&res.FleetName,
 		&res.RentType, &res.Price,
 		&res.Quantity, &res.TotalAmount, &res.AdditionalAmount,
@@ -3060,7 +3225,11 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 		return nil, err
 	}
 	res.OrderDate = createdAt.Format("2006-01-02 15:04:05")
+	res.StatusLabel = configs.OrderStatus(res.Status).String()
 	res.Pickup.PickupCity = pickupCityID
+	if cityLabel, ok := getCitiesMap()[strings.TrimSpace(pickupCityID)]; ok {
+		res.Pickup.CityLabel = cityLabel
+	}
 	res.StartDate = startDate.Format("2006-01-02")
 	res.EndDate = endDate.Format("2006-01-02")
 	res.Pickup.StartDate = startDate.Format("2006-01-02 15:00")
@@ -3076,6 +3245,10 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 			var cID string
 			if err := dRows.Scan(&cID, &d.Location); err == nil {
 				d.City = cID
+				d.ID = cID
+				if cityLabel, ok := getCitiesMap()[strings.TrimSpace(cID)]; ok {
+					d.CityLabel = cityLabel
+				}
 				res.Destination = append(res.Destination, d)
 			}
 		}
@@ -3092,12 +3265,8 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 		}
 	}
 
-	cityExpr := "city_id"
-	if r.driver == "postgres" || r.driver == "pgx" {
-		cityExpr = "city_id::text"
-	} else if r.driver == "mysql" {
-		cityExpr = "CAST(city_id AS CHAR)"
-	}
+	cityExpr := "city_id::text"
+
 	itQuery := fmt.Sprintf(`SELECT fleet_itinerary_id, day_num, %s as city_id, location FROM fleet_order_itinerary WHERE order_id = %s AND organization_id = %s ORDER BY day_num`, cityExpr, r.getPlaceholder(1), r.getPlaceholder(2))
 	iRows, itErr := r.db.Query(itQuery, orderID, orgID)
 	if itErr == nil {
@@ -3106,6 +3275,9 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 		for iRows.Next() {
 			var it model.FleetOrderItineraryItem
 			if err := iRows.Scan(&it.FleetItineraryID, &it.Day, &it.CityID, &it.Destination); err == nil {
+				if cityLabel, ok := getCitiesMap()[strings.TrimSpace(it.CityID)]; ok {
+					it.CityLabel = cityLabel
+				}
 				items = append(items, it)
 			}
 		}
@@ -3536,7 +3708,7 @@ type FleetAvailibilityItem struct {
 	FleetID        string `json:"fleet_id"`
 	FleetName      string `json:"fleet_name"`
 	TotalUnit      int    `json:"total_unit"`
-	TotalAvailable int    `json:"total_avaible"`
+	TotalAvailable int    `json:"total_available"`
 }
 
 func (r *FleetRepository) GetFleetAvailibility(orgID string, reqStart time.Time, reqEnd time.Time, fleetID string) ([]FleetAvailibilityItem, error) {
@@ -3578,7 +3750,7 @@ func (r *FleetRepository) GetFleetAvailibility(orgID string, reqStart time.Time,
 			f.uuid AS fleet_id,
 			f.fleet_name,
 			%s AS total_unit,
-			%s((%s - COALESCE(b.booked_unit, 0)), 0) AS total_avaible
+			%s((%s - COALESCE(b.booked_unit, 0)), 0) AS total_available
 		FROM fleets f
 		LEFT JOIN (
 			SELECT
@@ -3716,4 +3888,17 @@ func (r *FleetRepository) GetScheduleByOrderID(orderID string) (*model.ModuleSch
 		schedule.ArrivalTime = ArrivalTime.Time
 	}
 	return &schedule, nil
+}
+
+func (r *FleetRepository) ProcessFleetOrder(orgID, userID, orderID string, processTypeId int) error {
+	query := "UPDATE fleet_orders SET status = $1, updated_at = $2, updated_by = $3 WHERE order_id = $4 AND organization_id = $5"
+	res, err := database.Exec(r.db, query, processTypeId, time.Now(), userID, orderID, orgID)
+	if err != nil {
+		return err
+	}
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }

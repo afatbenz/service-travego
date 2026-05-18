@@ -12,12 +12,17 @@ import (
 )
 
 type ServiceHandler struct {
-	service     *service.FleetService
-	tourService *service.TourPackageService
+	service         *service.FleetService
+	tourService     *service.TourPackageService
+	customerService *service.CustomersService
 }
 
-func NewServiceHandler(s *service.FleetService) *ServiceHandler {
-	return &ServiceHandler{service: s}
+func NewServiceHandler(s *service.FleetService, ts *service.TourPackageService, cs *service.CustomersService) *ServiceHandler {
+	return &ServiceHandler{
+		service:         s,
+		tourService:     ts,
+		customerService: cs,
+	}
 }
 
 func (h *ServiceHandler) GetServiceFleets(c *fiber.Ctx) error {
@@ -138,4 +143,30 @@ func (h *ServiceHandler) GetPublicTourPackages(c *fiber.Ctx) error {
 		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, err.Error())
 	}
 	return helper.SuccessResponse(c, fiber.StatusOK, "Tour packages retrieved", items)
+}
+
+func (h *ServiceHandler) CheckCustomerAvailibility(c *fiber.Ctx) error {
+	var req struct {
+		Email string `json:"email"`
+		Phone string `json:"phone"`
+	}
+	if err := c.BodyParser(&req); err != nil {
+		return helper.BadRequestResponse(c, "Invalid payload")
+	}
+
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.BadRequestResponse(c, "Invalid or missing organization_id")
+	}
+
+	data, err := h.customerService.CheckCustomerAvailibility(orgID, req.Email, req.Phone)
+	if err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	if data == nil {
+		return helper.SuccessResponse(c, fiber.StatusOK, "Customer not found", "")
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Customer found", data)
 }
