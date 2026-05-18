@@ -215,6 +215,28 @@ func (r *CustomersRepository) UpdateCustomer(orgID, customerID string, req *mode
 	return nil
 }
 
+func (r *CustomersRepository) CheckCustomerAvailibility(orgID, email, phone string) (map[string]interface{}, error) {
+	query := fmt.Sprintf(`
+		SELECT customer_address, customer_city, customer_company 
+		FROM customers 
+		WHERE organization_id = %s AND (customer_email = %s AND customer_phone = %s)
+		LIMIT 1
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
+
+	row := database.QueryRow(r.db, query, orgID, email, phone)
+	var address, city, company sql.NullString
+	if err := row.Scan(&address, &city, &company); err != nil {
+		return nil, err
+	}
+
+	res := map[string]interface{}{
+		"customer_address": address.String,
+		"customer_city":    city.String,
+		"company_name":     company.String,
+	}
+	return res, nil
+}
+
 func (r *CustomersRepository) getPlaceholder(pos int) string {
 	if r.driver == "postgres" || r.driver == "pgx" {
 		return fmt.Sprintf("$%d", pos)

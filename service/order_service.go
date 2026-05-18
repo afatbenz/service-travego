@@ -191,7 +191,8 @@ func (s *OrderService) CreateOrder(req *model.CreateOrderRequest) (*model.Create
 	}
 
 	return &model.CreateOrderResponse{
-		Token: token,
+		Token:   token,
+		OrderID: orderID,
 	}, nil
 }
 
@@ -353,6 +354,13 @@ func (s *OrderService) GetOrderDetail(encryptedOrderID, organizationID string) (
 		}
 	}
 
+	// Itinerary Cities
+	for i := range res.Itinerary {
+		if name, ok := s.citiesName[res.Itinerary[i].CityID]; ok {
+			res.Itinerary[i].CityLabel = name
+		}
+	}
+
 	return res, nil
 }
 
@@ -384,6 +392,13 @@ func (s *OrderService) FindOrderDetail(orderID, organizationID string) (*model.O
 	for i := range res.Destination {
 		if name, ok := s.citiesName[res.Destination[i].City]; ok {
 			res.Destination[i].CityLabel = name
+		}
+	}
+
+	// Itinerary Cities
+	for i := range res.Itinerary {
+		if name, ok := s.citiesName[res.Itinerary[i].CityID]; ok {
+			res.Itinerary[i].CityLabel = name
 		}
 	}
 

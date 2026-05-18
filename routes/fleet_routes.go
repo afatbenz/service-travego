@@ -33,4 +33,5 @@ func SetupFleetRoutes(api fiber.Router, db *sql.DB, driver string) {
 	fleet.Get("/order/detail/:order_id", helper.JWTAuthorizationMiddleware(), h.GetPartnerOrderDetail)
 	fleet.Post("/order/detail/:order_id", helper.JWTAuthorizationMiddleware(), h.GetPartnerOrderDetail)
 	fleet.Post("/order/update", helper.JWTAuthorizationMiddleware(), h.UpdatePartnerOrder)
+	fleet.Post("/order/process/:processType/:order_id", helper.JWTAuthorizationMiddleware(), h.ProcessFleetOrder)
 }

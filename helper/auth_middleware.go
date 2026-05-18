@@ -1,6 +1,7 @@
 package helper
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"service-travego/repository"
@@ -144,28 +145,91 @@ func DualAuthMiddleware(orgRepo *repository.OrganizationRepository) fiber.Handle
 	return func(c *fiber.Ctx) error {
 		// Check for api-key header
 		apiKey := c.Get("api-key")
+		if apiKey == "" {
+			apiKey = c.Get("Api-Key")
+		}
+		if apiKey == "" {
+			apiKey = c.Get("API-KEY")
+		}
+
 		if apiKey != "" {
-			// Decrypt api-key to get organization_id
-			orgID, err := DecryptString(apiKey)
-			if err != nil {
+			var orgID string
+			var userID string
+
+			// Try multiple decryption methods
+			// 1. Try DecryptAuthSensitiveData (JSON with organization_id)
+			if data, err := DecryptAuthSensitiveData(apiKey); err == nil {
+				orgID = data.OrganizationID
+				userID = data.UserID
+			}
+
+			// 2. Try DecryptString (Generic string)
+			if orgID == "" {
+				if decrypted, err := DecryptString(apiKey); err == nil {
+					// Check if decrypted string is JSON
+					var data struct {
+						OrganizationID string `json:"organization_id"`
+						UserID         string `json:"user_id"`
+						Email          string `json:"email"`
+					}
+					if err := json.Unmarshal([]byte(decrypted), &data); err == nil {
+						orgID = data.OrganizationID
+						userID = data.UserID
+						if userID == "" && data.Email != "" {
+							userID = data.Email
+						}
+					} else {
+						// Not JSON, assume it's the organization_id directly
+						orgID = decrypted
+					}
+				}
+			}
+
+			// 3. Try DecryptData (JSON with email/user_id)
+			if orgID == "" {
+				if email, uID, err := DecryptData(apiKey); err == nil {
+					userID = uID
+					if userID == "" {
+						userID = email
+					}
+				}
+			}
+
+			// 4. Try unencrypted as last resort (ONLY if it looks like a UUID or plain ID)
+			if orgID == "" {
+				// Only assume it's a plain ID if it's alphanumeric/hyphen and NOT base64-like (no + or / or ==)
+				if len(apiKey) > 0 && len(apiKey) < 50 && !strings.ContainsAny(apiKey, " +/=") {
+					orgID = apiKey
+				}
+			}
+
+			if orgID == "" {
 				return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 					"status":  "error",
-					"message": "Invalid API Key",
+					"message": "Invalid API Key: organization_id not found in payload",
 				})
 			}
 
 			// Validate organization_id against database
 			org, err := orgRepo.FindByID(orgID)
 			if err != nil {
-				fmt.Println("Error fetching organization:", err)
-				return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-					"status":  "error",
-					"message": "Organization not found or invalid",
-				})
+				// If not found by ID, maybe it's organization_code?
+				org, err = orgRepo.FindByCode(orgID)
+				if err != nil {
+					fmt.Printf("Error fetching organization (ID/Code: %s): %v\n", orgID, err)
+					return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+						"status":  "error",
+						"message": "Organization not found or invalid",
+					})
+				}
+				orgID = org.ID
 			}
 
 			// Set locals
 			c.Locals("organization_id", orgID)
+			if userID != "" {
+				c.Locals("user_id", userID)
+			}
 			c.Locals("organization_code", org.OrganizationCode)
 			c.Locals("role", "visitor")
 			return c.Next()

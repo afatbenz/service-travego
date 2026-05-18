@@ -37,10 +37,10 @@ func (h *FleetHandler) CreateFleet(c *fiber.Ctx) error {
 			req.FleetType = v
 		}
 		if v, ok := m["capacity"]; ok {
-			req.Capacity = toInt(v)
+			req.Capacity = helper.ToInt(v)
 		}
 		if v, ok := m["production_year"]; ok {
-			req.ProductionYear = toInt(v)
+			req.ProductionYear = helper.ToInt(v)
 		}
 		if v, ok := m["engine"].(string); ok {
 			req.Engine = v
@@ -79,7 +79,7 @@ func (h *FleetHandler) CreateFleet(c *fiber.Ctx) error {
 		if v, ok := m["pickup_point"].([]interface{}); ok {
 			req.Pickup = make([]model.FleetPickupRequest, 0, len(v))
 			for _, it := range v {
-				req.Pickup = append(req.Pickup, model.FleetPickupRequest{CityID: toInt(it)})
+				req.Pickup = append(req.Pickup, model.FleetPickupRequest{CityID: helper.ToInt(it)})
 			}
 		}
 		if v, ok := m["fascilities"].([]interface{}); ok {
@@ -96,13 +96,13 @@ func (h *FleetHandler) CreateFleet(c *fiber.Ctx) error {
 				if mp, ok := it.(map[string]interface{}); ok {
 					pr := model.FleetPriceRequest{}
 					if dv, ok := mp["duration"]; ok {
-						pr.Duration = toInt(dv)
+						pr.Duration = helper.ToInt(dv)
 					}
 					if rv, ok := mp["rent_category"]; ok {
-						pr.RentType = toInt(rv)
+						pr.RentType = helper.ToInt(rv)
 					}
 					if pv, ok := mp["price"]; ok {
-						pr.Price = toInt(pv)
+						pr.Price = helper.ToInt(pv)
 					}
 					if uom, ok := mp["uom"].(string); ok {
 						pr.Uom = uom
@@ -123,7 +123,7 @@ func (h *FleetHandler) CreateFleet(c *fiber.Ctx) error {
 						ad.AddonDesc = dv
 					}
 					if pv, ok := mp["price"]; ok {
-						ad.AddonPrice = toInt(pv)
+						ad.AddonPrice = helper.ToInt(pv)
 					}
 					req.Addon = append(req.Addon, ad)
 				}
@@ -173,7 +173,7 @@ func (h *FleetHandler) CreateFleet(c *fiber.Ctx) error {
 					if v, ok := m["pickup_point"].([]interface{}); ok {
 						req.Pickup = make([]model.FleetPickupRequest, 0, len(v))
 						for _, it := range v {
-							req.Pickup = append(req.Pickup, model.FleetPickupRequest{CityID: toInt(it)})
+							req.Pickup = append(req.Pickup, model.FleetPickupRequest{CityID: helper.ToInt(it)})
 						}
 					}
 				}
@@ -194,13 +194,13 @@ func (h *FleetHandler) CreateFleet(c *fiber.Ctx) error {
 							if mp, ok := it.(map[string]interface{}); ok {
 								pr := model.FleetPriceRequest{}
 								if dv, ok := mp["duration"]; ok {
-									pr.Duration = toInt(dv)
+									pr.Duration = helper.ToInt(dv)
 								}
 								if rv, ok := mp["rent_category"]; ok {
-									pr.RentType = toInt(rv)
+									pr.RentType = helper.ToInt(rv)
 								}
 								if pv, ok := mp["price"]; ok {
-									pr.Price = toInt(pv)
+									pr.Price = helper.ToInt(pv)
 								}
 								if uom, ok := mp["uom"].(string); ok {
 									pr.Uom = uom
@@ -298,7 +298,7 @@ func (h *FleetHandler) UpdateFleet(c *fiber.Ctx) error {
 					pickup.UUID = uuidVal
 				}
 				if cityID, ok := mp["city_id"]; ok {
-					pickup.CityID = toInt(cityID)
+					pickup.CityID = helper.ToInt(cityID)
 				}
 				req.Pickup = append(req.Pickup, pickup)
 			}
@@ -336,24 +336,24 @@ func (h *FleetHandler) UpdateFleet(c *fiber.Ctx) error {
 					pr.UUID = uuidVal
 				}
 				if dv, ok := mp["duration"]; ok {
-					pr.Duration = toInt(dv)
+					pr.Duration = helper.ToInt(dv)
 				}
 				if rv, ok := mp["rent_category"]; ok {
-					pr.RentType = toInt(rv)
+					pr.RentType = helper.ToInt(rv)
 				} else if rv, ok := mp["rent_type"]; ok {
-					pr.RentType = toInt(rv)
+					pr.RentType = helper.ToInt(rv)
 				}
 				if pv, ok := mp["price"]; ok {
-					pr.Price = toInt(pv)
+					pr.Price = helper.ToInt(pv)
 				}
 				if uom, ok := mp["uom"].(string); ok {
 					pr.Uom = uom
 				}
 				if da, ok := mp["disc_amount"]; ok {
-					pr.DiscAmount = toInt(da)
+					pr.DiscAmount = helper.ToInt(da)
 				}
 				if dp, ok := mp["disc_price"]; ok {
-					pr.DiscPrice = toInt(dp)
+					pr.DiscPrice = helper.ToInt(dp)
 				}
 				req.Pricing = append(req.Pricing, pr)
 			}
@@ -378,9 +378,9 @@ func (h *FleetHandler) UpdateFleet(c *fiber.Ctx) error {
 					ad.AddonDesc = dv
 				}
 				if pv, ok := mp["price"]; ok {
-					ad.AddonPrice = toInt(pv)
+					ad.AddonPrice = helper.ToInt(pv)
 				} else if pv, ok := mp["addon_price"]; ok {
-					ad.AddonPrice = toInt(pv)
+					ad.AddonPrice = helper.ToInt(pv)
 				}
 				req.Addon = append(req.Addon, ad)
 			}
@@ -459,7 +459,7 @@ func (h *FleetHandler) ListFleets(c *fiber.Ctx) error {
 				req.FleetEngine = v
 			}
 			if v, ok := m["pickup_location"]; ok {
-				req.PickupLocation = toInt(v)
+				req.PickupLocation = helper.ToInt(v)
 			}
 		}
 	}
@@ -696,7 +696,7 @@ func (h *FleetHandler) UpdatePartnerOrder(c *fiber.Ctx) error {
 			req.PriceID = v
 		}
 		if v, ok := m["rent_type"]; ok {
-			req.RentType = toInt(v)
+			req.RentType = helper.ToInt(v)
 		}
 		if v, ok := m["customer_id"].(string); ok {
 			req.CustomerID = v
@@ -714,19 +714,19 @@ func (h *FleetHandler) UpdatePartnerOrder(c *fiber.Ctx) error {
 			req.PickupLocation = v
 		}
 		if v, ok := m["pickup_city_id"]; ok {
-			req.PickupCityID = strconv.Itoa(toInt(v))
+			req.PickupCityID = strconv.Itoa(helper.ToInt(v))
 		}
 		if v, ok := m["fleet_qty"]; ok {
-			req.FleetQty = toInt(v)
+			req.FleetQty = helper.ToInt(v)
 		}
 		if v, ok := m["price"]; ok {
-			req.Price = float64(toInt(v))
+			req.Price = float64(helper.ToInt(v))
 		}
 		if v, ok := m["discount_amount"]; ok {
-			req.DiscountAmount = float64(toInt(v))
+			req.DiscountAmount = float64(helper.ToInt(v))
 		}
 		if v, ok := m["additional_amount"]; ok {
-			req.AdditionalAmount = float64(toInt(v))
+			req.AdditionalAmount = float64(helper.ToInt(v))
 		}
 		if v, ok := m["additional_request"].(string); ok {
 			req.AdditionalRequest = v
@@ -750,13 +750,13 @@ func (h *FleetHandler) UpdatePartnerOrder(c *fiber.Ctx) error {
 						it.PriceID = s
 					}
 					if q, ok := mm["qty"]; ok {
-						it.Qty = toInt(q)
+						it.Qty = helper.ToInt(q)
 					}
 					if p, ok := mm["biaya_lain"]; ok {
-						it.BiayaLain = float64(toInt(p))
+						it.BiayaLain = float64(helper.ToInt(p))
 					}
 					if d, ok := mm["discount"]; ok {
-						it.Discount = float64(toInt(d))
+						it.Discount = float64(helper.ToInt(d))
 					}
 					if v2, ok := mm["addons"]; ok {
 						if arr2, ok := v2.([]interface{}); ok {
@@ -804,14 +804,14 @@ func (h *FleetHandler) UpdatePartnerOrder(c *fiber.Ctx) error {
 						it.FleetItineraryID = s
 					}
 					if d, ok := mm["day"]; ok {
-						it.Day = toInt(d)
+						it.Day = helper.ToInt(d)
 					}
 					if s, ok := mm["city_id"]; ok {
 						switch vv := s.(type) {
 						case string:
 							it.CityID = vv
 						default:
-							it.CityID = strconv.Itoa(toInt(vv))
+							it.CityID = strconv.Itoa(helper.ToInt(vv))
 						}
 					}
 					if s, ok := mm["destination"].(string); ok {
@@ -903,28 +903,28 @@ func (h *FleetHandler) CreatePartnerOrder(c *fiber.Ctx) error {
 			req.PickupAddress = v
 		}
 		if v, ok := m["pickup_city_id"]; ok {
-			req.PickupCityID = strconv.Itoa(toInt(v))
+			req.PickupCityID = strconv.Itoa(helper.ToInt(v))
 		}
 		if v, ok := m["pickup_location"].(string); ok {
 			req.PickupLocation = v
 		}
 		if v, ok := m["quantity"]; ok {
-			req.Quantity = toInt(v)
+			req.Quantity = helper.ToInt(v)
 		}
 		if v, ok := m["fleet_qty"]; ok {
-			req.FleetQty = toInt(v)
+			req.FleetQty = helper.ToInt(v)
 		}
 		if v, ok := m["price_id"].(string); ok {
 			req.PriceID = v
 		}
 		if v, ok := m["price"]; ok {
-			req.Price = float64(toInt(v))
+			req.Price = float64(helper.ToInt(v))
 		}
 		if v, ok := m["discount_amount"]; ok {
-			req.DiscountAmount = float64(toInt(v))
+			req.DiscountAmount = float64(helper.ToInt(v))
 		}
 		if v, ok := m["additional_amount"]; ok {
-			req.AdditionalAmount = float64(toInt(v))
+			req.AdditionalAmount = float64(helper.ToInt(v))
 		}
 		if v, ok := m["additional_request"].(string); ok {
 			req.AdditionalRequest = v
@@ -942,10 +942,10 @@ func (h *FleetHandler) CreatePartnerOrder(c *fiber.Ctx) error {
 						it.AddonID = s
 					}
 					if q, ok := mm["quantity"]; ok {
-						it.Quantity = toInt(q)
+						it.Quantity = helper.ToInt(q)
 					}
 					if p, ok := mm["addon_price"]; ok {
-						it.AddonPrice = float64(toInt(p))
+						it.AddonPrice = float64(helper.ToInt(p))
 					}
 					addons = append(addons, it)
 				}
@@ -962,14 +962,14 @@ func (h *FleetHandler) CreatePartnerOrder(c *fiber.Ctx) error {
 					}
 					var it model.FleetOrderItineraryItem
 					if d, ok := mm["day"]; ok {
-						it.Day = toInt(d)
+						it.Day = helper.ToInt(d)
 					}
 					if s, ok := mm["city_id"]; ok {
 						switch vv := s.(type) {
 						case string:
 							it.CityID = vv
 						default:
-							it.CityID = strconv.Itoa(toInt(vv))
+							it.CityID = strconv.Itoa(helper.ToInt(vv))
 						}
 					}
 					if s, ok := mm["destination"].(string); ok {
@@ -996,13 +996,13 @@ func (h *FleetHandler) CreatePartnerOrder(c *fiber.Ctx) error {
 						it.PriceID = s
 					}
 					if q, ok := mm["qty"]; ok {
-						it.Qty = toInt(q)
+						it.Qty = helper.ToInt(q)
 					}
 					if p, ok := mm["biaya_lain"]; ok {
-						it.BiayaLain = float64(toInt(p))
+						it.BiayaLain = float64(helper.ToInt(p))
 					}
 					if d, ok := mm["discount"]; ok {
-						it.Discount = float64(toInt(d))
+						it.Discount = float64(helper.ToInt(d))
 					}
 					if v2, ok := mm["addons"]; ok {
 						if arr2, ok := v2.([]interface{}); ok {
@@ -1060,21 +1060,6 @@ func (h *FleetHandler) CreatePartnerOrder(c *fiber.Ctx) error {
 	})
 }
 
-func toInt(v interface{}) int {
-	switch vv := v.(type) {
-	case float64:
-		return int(vv)
-	case string:
-		n, _ := strconv.Atoi(vv)
-		return n
-	case json.Number:
-		n, _ := vv.Int64()
-		return int(n)
-	default:
-		return 0
-	}
-}
-
 func debugWriteNDJSON(runID, hypothesisID, location, message string, data map[string]interface{}) {
 	entry := map[string]interface{}{
 		"sessionId":    "6fcadf",
@@ -1110,4 +1095,39 @@ func firstSliceElemType(v interface{}) string {
 		return ""
 	}
 	return fmt.Sprintf("%T", arr[0])
+}
+
+func (h *FleetHandler) ProcessFleetOrder(c *fiber.Ctx) error {
+	processType := c.Params("processType")
+	if processType == "" {
+		return helper.BadRequestResponse(c, "missing processType")
+	}
+	if processType != "approve" && processType != "reject" {
+		return helper.BadRequestResponse(c, "invalid processType")
+	}
+	var processTypeId int
+	if processType == "approve" {
+		processTypeId = 1
+	} else if processType == "reject" {
+		processTypeId = 0
+	} else {
+		return helper.BadRequestResponse(c, "invalid processType")
+	}
+	orderID := c.Params("order_id")
+	if orderID == "" {
+		return helper.BadRequestResponse(c, "missing order_id")
+	}
+	orgID, _ := c.Locals("organization_id").(string)
+	userID, _ := c.Locals("user_id").(string)
+	if orgID == "" || userID == "" {
+		return helper.BadRequestResponse(c, "missing organization context")
+	}
+
+	err := h.service.ProcessFleetOrder(orgID, userID, orderID, processTypeId)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	return nil
 }

@@ -124,6 +124,17 @@ func (s *CustomersService) GetCustomerDetail(orgID, customerID string) (map[stri
 	return data, nil
 }
 
+func (s *CustomersService) CheckCustomerAvailibility(orgID, email, phone string) (map[string]interface{}, error) {
+	data, err := s.repo.CheckCustomerAvailibility(orgID, email, phone)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return data, nil
+}
+
 func (s *CustomersService) ensureLocationsLoaded() {
 	if s.citiesName != nil {
 		return

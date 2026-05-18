@@ -8,6 +8,7 @@ import (
 	"service-travego/helper"
 	"service-travego/model"
 	"service-travego/service"
+	"strconv"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -44,7 +45,101 @@ func (h *OrderHandler) GetFleetOrderSummary(c *fiber.Ctx) error {
 func (h *OrderHandler) CreateOrder(c *fiber.Ctx) error {
 	var req model.CreateOrderRequest
 	if err := c.BodyParser(&req); err != nil {
-		return helper.BadRequestResponse(c, "Invalid payload")
+		raw := c.Body()
+		var m map[string]interface{}
+		if err2 := json.Unmarshal(raw, &m); err2 != nil {
+			return helper.BadRequestResponse(c, "Invalid payload")
+		}
+
+		if v, ok := m["fleet_id"].(string); ok {
+			req.FleetID = v
+		}
+		if v, ok := m["price_id"].(string); ok {
+			req.PriceID = v
+		}
+		if v, ok := m["fullname"].(string); ok {
+			req.Fullname = v
+		}
+		if v, ok := m["email"].(string); ok {
+			req.Email = v
+		}
+		if v, ok := m["phone"].(string); ok {
+			req.Phone = v
+		}
+		if v, ok := m["address"].(string); ok {
+			req.Address = v
+		}
+		if v, ok := m["start_date"].(string); ok {
+			req.StartDate = v
+		}
+		if v, ok := m["end_date"].(string); ok {
+			req.EndDate = v
+		}
+		if v, ok := m["pickup_city_id"]; ok {
+			switch vv := v.(type) {
+			case string:
+				req.PickupCityID = vv
+			default:
+				req.PickupCityID = strconv.Itoa(helper.ToInt(vv))
+			}
+		}
+		if v, ok := m["pickup_location"].(string); ok {
+			req.PickupLocation = v
+		}
+		if v, ok := m["qty"]; ok {
+			req.Qty = helper.ToInt(v)
+		}
+		if v, ok := m["destinations"]; ok {
+			if arr, ok := v.([]interface{}); ok {
+				dest := make([]model.OrderDestination, 0, len(arr))
+				for _, rawItem := range arr {
+					mm, ok := rawItem.(map[string]interface{})
+					if !ok {
+						continue
+					}
+					var it model.OrderDestination
+					if s, ok := mm["location"].(string); ok {
+						it.Location = s
+					}
+					if s, ok := mm["city_id"]; ok {
+						switch vv := s.(type) {
+						case string:
+							it.CityID = vv
+						default:
+							it.CityID = strconv.Itoa(helper.ToInt(vv))
+						}
+					}
+					dest = append(dest, it)
+				}
+				req.Destinations = dest
+			}
+		}
+		if v, ok := m["addons"]; ok {
+			if arr, ok := v.([]interface{}); ok {
+				addons := make([]string, 0, len(arr))
+				for _, rawItem := range arr {
+					if s, ok := rawItem.(string); ok {
+						addons = append(addons, s)
+					}
+				}
+				req.Addons = addons
+			}
+		}
+		if v, ok := m["additional_amount"]; ok {
+			req.AdditionalAmount = float64(helper.ToInt(v))
+		}
+		if v, ok := m["additional_request"].(string); ok {
+			req.AdditionalRequest = v
+		}
+		if v, ok := m["company_name"].(string); ok {
+			req.CompanyName = v
+		}
+		if v, ok := m["city_id"]; ok {
+			req.CityID = helper.ToInt(v)
+		}
+		if v, ok := m["order_type"]; ok {
+			req.OrderType = helper.ToInt(v)
+		}
 	}
 
 	// Basic Validation

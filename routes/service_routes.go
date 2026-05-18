@@ -21,8 +21,20 @@ func serviceBaseURL() string {
 func SetupServiceRoutes(api fiber.Router, db *sql.DB, driver string) {
 	repo := repository.NewFleetRepository(db, driver)
 	orgRepo := repository.NewOrganizationRepository(db, driver)
+	custRepo := repository.NewCustomersRepository(db, driver)
+	tourRepo := repository.NewTourPackageRepository(db, driver)
+
 	srv := service.NewFleetService(repo)
-	h := handler.NewServiceHandler(srv)
+	custSrv := service.NewCustomersService(custRepo)
+	tourSrv := service.NewTourPackageService(tourRepo, serviceBaseURL())
+
+	h := handler.NewServiceHandler(srv, tourSrv, custSrv)
+	tourH := handler.NewTourPackageHandler(tourSrv)
+
+	// Print Management for Public
+	pmRepo := repository.NewPrintManagementRepository(db, driver)
+	pmSrv := service.NewPrintManagementService(pmRepo)
+	pmH := handler.NewPrintManagementHandler(pmSrv)
 
 	// Route: /api/service/fleet
 
@@ -34,10 +46,14 @@ func SetupServiceRoutes(api fiber.Router, db *sql.DB, driver string) {
 	svcGroup.Get("/fleet/addon/:fleetid", h.GetServiceFleetAddons)
 	svcGroup.Get("/available-city", h.GetAvailableCities)
 
+	// customers
+	svcGroup.Post("/customer/availibility", h.CheckCustomerAvailibility)
+
 	// tour packages
-	tourRepo := repository.NewTourPackageRepository(db, driver)
-	tourSrv := service.NewTourPackageService(tourRepo, serviceBaseURL())
-	tourH := handler.NewTourPackageHandler(tourSrv)
 	svcGroup.Get("/tour-packages", tourH.GetTourPackages)
 	svcGroup.Post("/tour-packages/detail", tourH.TourPackageDetail)
+
+	// Public Print Document
+	svcGroup.Post("/print/fleet/order", pmH.GenerateOrderFleetDocument)
+	svcGroup.Post("/print/fleet/invoice", pmH.GenerateFleetInvoiceDocument)
 }

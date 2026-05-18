@@ -1098,3 +1098,10 @@ func calculateDurationString(startDateStr, endDateStr string) string {
 		return strings.Join(parts, " ")
 	}
 }
+
+func (s *FleetService) ProcessFleetOrder(orgID, userID, orderID string, processTypeId int) error {
+	if err := s.repo.ProcessFleetOrder(orgID, userID, orderID, processTypeId); err != nil {
+		return err
+	}
+	return nil
+}
