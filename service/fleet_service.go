@@ -1103,5 +1103,81 @@ func (s *FleetService) ProcessFleetOrder(orgID, userID, orderID string, processT
 	if err := s.repo.ProcessFleetOrder(orgID, userID, orderID, processTypeId); err != nil {
 		return err
 	}
+
+	// Send email notification if approved
+	if processTypeId == 1 {
+		go func() {
+			order, err := s.repo.FindOrderDetail(orderID, orgID)
+			if err != nil {
+				fmt.Printf("Error fetching order detail for email: %v\n", err)
+				return
+			}
+
+			org, err := s.repo.GetOrganizationDetail(orgID)
+			if err != nil {
+				fmt.Printf("Error fetching organization detail for email: %v\n", err)
+				return
+			}
+
+			// Prepare email data
+			cfg, err := configs.LoadConfig("config/app.json")
+			if err != nil {
+				fmt.Printf("Error loading config: %v\n", err)
+				return
+			}
+			configs.OverrideWithEnv(cfg)
+			emailCfg := &cfg.Email
+
+			baseUrl := os.Getenv("APP_HOST")
+			if baseUrl == "" {
+				baseUrl = os.Getenv("BASE_URL")
+			}
+			baseUrl = strings.TrimSuffix(baseUrl, "/")
+
+			// Format Logo URL
+			logoUrl := org["logo"]
+			if logoUrl != "" && strings.HasPrefix(logoUrl, "/assets") {
+				logoUrl = baseUrl + logoUrl
+			}
+
+			// Generate Token for Payment Link
+			payload := model.OrderTokenPayload{
+				OrderID: orderID,
+				PriceID: order.PriceID,
+			}
+			payloadJson, _ := json.Marshal(payload)
+			token, _ := helper.EncryptString(string(payloadJson))
+
+			// Format destinations
+			var dests []string
+			for _, d := range order.Destination {
+				dests = append(dests, fmt.Sprintf("%s (%s)", d.Location, d.CityLabel))
+			}
+
+			// In FindOrderDetail, facilities are not directly available, but let's assume they are in order object or we can get them if needed.
+			// For now, let's use empty or just use the field from order if it exists.
+			// Actually OrderDetailResponse doesn't have facilities directly but it has Addons.
+
+			data := helper.OrderConfirmationEmailData{
+				CustomerName:     order.Customer.CustomerName,
+				OrderID:          orderID,
+				FleetName:        order.FleetName,
+				Duration:         calculateDurationString(order.StartDate, order.EndDate),
+				Facilities:       "-", // Optional: fetch if needed
+				PickupLocation:   fmt.Sprintf("%s (%s)", order.Pickup.PickupLocation, order.Pickup.CityLabel),
+				Destination:      strings.Join(dests, ", "),
+				TotalPrice:       helper.FormatRupiah(order.TotalAmount),
+				OrganizationLogo: logoUrl,
+				BrandName:        org["organization_name"],
+				CompanyName:      org["company_name"],
+				PaymentUrl:       fmt.Sprintf("%s/payment/armada/%s", baseUrl, token),
+			}
+
+			if err := helper.SendOrderConfirmationEmail(emailCfg, order.Customer.CustomerEmail, data); err != nil {
+				fmt.Printf("Error sending order confirmation email: %v\n", err)
+			}
+		}()
+	}
+
 	return nil
 }

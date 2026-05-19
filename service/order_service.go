@@ -629,16 +629,6 @@ func (s *OrderService) CreateServiceOrderPayment(req *model.CreateServiceOrderPa
 	if req.PaymentType != 1001 && req.PaymentType != 1002 && req.PaymentType != 1003 {
 		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "payment_type tidak valid")
 	}
-	if req.PaymentMethod == 1002 { // transfer
-		if req.BankID == nil || req.BankAccount == nil {
-			return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "bank_id dan bank_account wajib diisi untuk transfer")
-		}
-	}
-	if req.PaymentMethod == 1002 || req.PaymentMethod == 1003 { // transfer / qris
-		if strings.TrimSpace(req.EvidenceFile) == "" {
-			return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "evidence_file wajib diisi untuk qris atau transfer")
-		}
-	}
 
 	var (
 		totalAmount float64
@@ -700,12 +690,16 @@ func (s *OrderService) CreateServiceOrderPayment(req *model.CreateServiceOrderPa
 
 	paymentID, invoiceNumber, err := s.fleetRepo.InsertServiceOrderPayment(req, totalAmount, remaining)
 	if err != nil {
+		fmt.Println("Error inserting service order payment:", err)
 		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "gagal menyimpan payment order")
 	}
 	if req.OrderType == 1 {
 		nextStatus := int(configs.PaymentStatusPartiallyPaid)
 		if remaining == 0 {
 			nextStatus = int(configs.PaymentStatusPaid)
+		}
+		if req.ForcedOrderPaymentStatus != nil {
+			nextStatus = *req.ForcedOrderPaymentStatus
 		}
 		if err := s.fleetRepo.UpdateFleetOrderPaymentStatusOnOrder(req.OrderID, req.OrganizationID, nextStatus); err != nil {
 			if err == sql.ErrNoRows {

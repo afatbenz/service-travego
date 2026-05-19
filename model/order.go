@@ -360,16 +360,18 @@ type PaymentConfirmationRequest struct {
 }
 
 type CreateServiceOrderPaymentRequest struct {
-	OrderID        string  `json:"order_id" validate:"required"`
-	OrderType      int     `json:"order_type" validate:"required"`
-	PaymentType    int     `json:"payment_type" validate:"required"`
-	PaymentMethod  int     `json:"payment_method" validate:"required"`
-	PaymentAmount  float64 `json:"payment_amount" validate:"required"`
-	EvidenceFile   string  `json:"evidence_file"`
-	BankID         *int    `json:"bank_id"`
-	BankAccount    *int    `json:"bank_account"`
-	OrganizationID string  `json:"-"`
-	CreatedBy      string  `json:"-"`
+	OrderID                  string  `json:"order_id" validate:"required"`
+	OrderType                int     `json:"order_type" validate:"required"`
+	PaymentType              int     `json:"payment_type" validate:"required"`
+	PaymentMethod            int     `json:"payment_method" validate:"required"`
+	PaymentAmount            float64 `json:"payment_amount" validate:"required"`
+	EvidenceFile             string  `json:"evidence_file"`
+	BankID                   *int    `json:"bank_id"`
+	BankAccount              *int    `json:"bank_account"`
+	OrganizationID           string  `json:"-"`
+	CreatedBy                string  `json:"-"`
+	ForcedStatus             *int    `json:"-"`
+	ForcedOrderPaymentStatus *int    `json:"-"`
 }
 
 type ServiceOrderPaymentCreateResult struct {

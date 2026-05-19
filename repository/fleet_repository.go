@@ -2647,6 +2647,10 @@ func (r *FleetRepository) InsertServiceOrderPayment(req *model.CreateServiceOrde
 		status = 1001
 	}
 
+	if req.ForcedStatus != nil {
+		status = *req.ForcedStatus
+	}
+
 	query := fmt.Sprintf(`
 		INSERT INTO payment_orders
 			(payment_id, invoice_number, order_type, order_id, organization_id, payment_type, payment_method, bank_id, bank_account, payment_amount, total_amount, remaining_amount, evidence_file, status, created_at, created_by)
@@ -2656,6 +2660,21 @@ func (r *FleetRepository) InsertServiceOrderPayment(req *model.CreateServiceOrde
 		r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10),
 		r.getPlaceholder(11), r.getPlaceholder(12), r.getPlaceholder(13), r.getPlaceholder(14), r.getPlaceholder(15), r.getPlaceholder(16))
 
+	var createdBy interface{} = req.CreatedBy
+	if req.CreatedBy == "" {
+		createdBy = nil
+	}
+
+	var organizationID interface{} = req.OrganizationID
+	if req.OrganizationID == "" {
+		organizationID = nil
+	}
+
+	var evidenceFile interface{} = req.EvidenceFile
+	if req.EvidenceFile == "" {
+		evidenceFile = nil
+	}
+
 	_, err = database.TxExec(
 		tx,
 		query,
@@ -2663,7 +2682,7 @@ func (r *FleetRepository) InsertServiceOrderPayment(req *model.CreateServiceOrde
 		invoiceNumber,
 		req.OrderType,
 		req.OrderID,
-		req.OrganizationID,
+		organizationID,
 		req.PaymentType,
 		req.PaymentMethod,
 		req.BankID,
@@ -2671,10 +2690,10 @@ func (r *FleetRepository) InsertServiceOrderPayment(req *model.CreateServiceOrde
 		req.PaymentAmount,
 		totalAmount,
 		remainingAmount,
-		req.EvidenceFile,
+		evidenceFile,
 		status,
 		now,
-		req.CreatedBy,
+		createdBy,
 	)
 	if err != nil {
 		return "", "", err
@@ -2718,11 +2737,11 @@ func (r *FleetRepository) InsertServiceOrderPayment(req *model.CreateServiceOrde
 		now,
 		status,
 		req.PaymentAmount,
-		req.OrganizationID,
+		organizationID,
 		transactionType,
 		int(model.TransactionMarkIncome),
 		now,
-		req.CreatedBy,
+		createdBy,
 	)
 	if err != nil {
 		return "", "", err
@@ -3179,7 +3198,7 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 
 	query := fmt.Sprintf(`
         SELECT 
-            fo.order_id, fo.fleet_id, fo.created_at, fo.price_id, fo.status,
+            fo.order_id, fo.fleet_id, fo.created_at, fo.price_id, fo.status, fo.payment_status,
             f.fleet_name, 
             fp.rent_type, fp.price, 
             fo.unit_qty, fo.total_amount, COALESCE(fo.additional_amount, 0) as additional_amount,
@@ -3205,7 +3224,7 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 	var startDate, endDate time.Time
 
 	err := r.db.QueryRow(query, orderID, orgID).Scan(
-		&res.OrderID, &res.FleetID, &createdAt, &res.PriceID, &res.Status,
+		&res.OrderID, &res.FleetID, &createdAt, &res.PriceID, &res.Status, &res.PaymentStatus,
 		&res.FleetName,
 		&res.RentType, &res.Price,
 		&res.Quantity, &res.TotalAmount, &res.AdditionalAmount,
@@ -3214,14 +3233,9 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 		&res.AdditionalRequest,
 	)
 	if err != nil {
-		fmt.Println("Error querying order detail:", err)
-		fmt.Print(query)
-		fmt.Print("--- orderID ", orderID)
-		fmt.Print("--- orgID ", orgID)
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("order not found or access denied")
 		}
-		fmt.Println("Error querying order detail:", err)
 		return nil, err
 	}
 	res.OrderDate = createdAt.Format("2006-01-02 15:04:05")
@@ -3888,6 +3902,21 @@ func (r *FleetRepository) GetScheduleByOrderID(orderID string) (*model.ModuleSch
 		schedule.ArrivalTime = ArrivalTime.Time
 	}
 	return &schedule, nil
+}
+
+func (r *FleetRepository) GetOrganizationDetail(orgID string) (map[string]string, error) {
+	query := fmt.Sprintf("SELECT organization_name, company_name, COALESCE(logo, '') FROM organizations WHERE organization_id = %s", r.getPlaceholder(1))
+	var orgName, compName, logo sql.NullString
+	err := database.QueryRow(r.db, query, orgID).Scan(&orgName, &compName, &logo)
+	if err != nil {
+		return nil, err
+	}
+
+	res := make(map[string]string)
+	res["organization_name"] = orgName.String
+	res["company_name"] = compName.String
+	res["logo"] = logo.String
+	return res, nil
 }
 
 func (r *FleetRepository) ProcessFleetOrder(orgID, userID, orderID string, processTypeId int) error {

@@ -224,12 +224,82 @@ func (h *OrderHandler) FindOrder(c *fiber.Ctx) error {
 }
 
 func (h *OrderHandler) CreateOrderPayment(c *fiber.Ctx) error {
-	var req model.CreatePaymentRequest
-	if err := c.BodyParser(&req); err != nil {
+	var req model.CreateServiceOrderPaymentRequest
+
+	// Use map for flexible parsing to avoid "Invalid payload" with type mismatch
+	var body map[string]interface{}
+	if err := c.BodyParser(&body); err != nil {
 		return helper.BadRequestResponse(c, "Invalid payload")
 	}
 
-	if req.Token == "" || req.PaymentMethod == "" || req.PaymentType == 0 {
+	// Extract fields manually
+	if v, ok := body["order_id"].(string); ok {
+		req.OrderID = v
+	}
+	if v, ok := body["order_type"]; ok {
+		req.OrderType = helper.ToInt(v)
+	}
+	if v, ok := body["payment_type"]; ok {
+		req.PaymentType = helper.ToInt(v)
+		// Map old payment_type values to new ones
+		if req.PaymentType == 1 {
+			req.PaymentType = 1003 // Full
+		} else if req.PaymentType == 2 {
+			req.PaymentType = 1001 // DP
+		}
+	}
+	if v, ok := body["payment_amount"]; ok {
+		req.PaymentAmount = float64(helper.ToInt(v))
+	}
+
+	// Handle payment_method (could be string UUID or int)
+	if v, ok := body["payment_method"]; ok {
+		switch vv := v.(type) {
+		case string:
+			// If string, assume it's a Transfer (1002)
+			req.PaymentMethod = 1002
+		default:
+			req.PaymentMethod = helper.ToInt(vv)
+		}
+	}
+
+	// Token is still required for public flow
+	token, _ := body["token"].(string)
+	if token == "" {
+		token = c.FormValue("token")
+	}
+
+	if token == "" {
+		return helper.BadRequestResponse(c, "Token is required")
+	}
+
+	// Decrypt Token to get OrderID if not provided
+	decrypted, err := helper.DecryptString(token)
+	if err != nil {
+		return helper.BadRequestResponse(c, "Invalid token")
+	}
+
+	var orderIDFromToken string
+	var payload model.OrderTokenPayload
+	if err := json.Unmarshal([]byte(decrypted), &payload); err == nil && payload.OrderID != "" {
+		orderIDFromToken = payload.OrderID
+	} else {
+		orderIDFromToken = decrypted
+	}
+
+	if req.OrderID == "" {
+		req.OrderID = orderIDFromToken
+	}
+	if req.OrderType == 0 {
+		req.OrderType = 1 // Default to fleet
+	}
+
+	forcedStatus := 2
+	forcedOrderPaymentStatus := 3
+	req.ForcedStatus = &forcedStatus
+	req.ForcedOrderPaymentStatus = &forcedOrderPaymentStatus
+
+	if req.OrderID == "" || req.OrderType == 0 || req.PaymentType == 0 || req.PaymentMethod == 0 || req.PaymentAmount <= 0 {
 		return helper.BadRequestResponse(c, "Required fields missing")
 	}
 
@@ -239,7 +309,11 @@ func (h *OrderHandler) CreateOrderPayment(c *fiber.Ctx) error {
 		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Organization not found")
 	}
 
-	res, err := h.service.CreateOrderPayment(&req)
+	if userID, ok := c.Locals("user_id").(string); ok {
+		req.CreatedBy = userID
+	}
+
+	res, err := h.service.CreateServiceOrderPayment(&req)
 	if err != nil {
 		fmt.Println("Error creating payment:", err)
 		code := service.GetStatusCode(err)

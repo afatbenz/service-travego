@@ -24,6 +24,22 @@ type EmailTemplateData struct {
 	OrganizationName string // For join organization approval email
 }
 
+type OrderConfirmationEmailData struct {
+	CustomerName     string
+	OrderID          string
+	FleetName        string
+	Duration         string
+	Facilities       string
+	PickupLocation   string
+	Destination      string
+	TotalPrice       string
+	Year             int
+	OrganizationLogo string
+	BrandName        string
+	CompanyName      string
+	PaymentUrl       string
+}
+
 type OrderSuccessEmailData struct {
 	CustomerName     string
 	OrderID          string
@@ -222,5 +238,16 @@ func SendOrderSuccessEmail(cfg *configs.EmailConfig, to string, data OrderSucces
 	}
 
 	subject := fmt.Sprintf("Order Confirmation - %s", data.OrderID)
+	return sendHTMLEmail(cfg, to, subject, htmlBody)
+}
+
+func SendOrderConfirmationEmail(cfg *configs.EmailConfig, to string, data OrderConfirmationEmailData) error {
+	data.Year = time.Now().Year()
+	htmlBody, err := renderEmailTemplate("order_confirmation.html", data)
+	if err != nil {
+		return err
+	}
+
+	subject := fmt.Sprintf("Konfirmasi Pesanan - %s", data.OrderID)
 	return sendHTMLEmail(cfg, to, subject, htmlBody)
 }
