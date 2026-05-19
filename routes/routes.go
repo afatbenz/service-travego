@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"service-travego/config"
 	"service-travego/configs"
 	"service-travego/database"
 	"service-travego/helper"
@@ -32,6 +33,9 @@ func SetupRoutes(app *fiber.App, cfg *configs.Config) {
 		panic("Failed to connect to Redis: " + err.Error())
 	}
 
+	// Initialize Midtrans
+	midtransCfg := config.InitMidtrans()
+
 	// Setup route groups
 	SetupGeneralRoutes(api, db, cfg.Database.Driver)
 	SetupAuthRoutes(api, db, cfg.Database.Driver, cfg)
@@ -53,4 +57,5 @@ func SetupRoutes(app *fiber.App, cfg *configs.Config) {
 	SetupTourPackageRoutes(api, db, cfg.Database.Driver)
 	SetupLeaveManagementRoutes(api, db, cfg.Database.Driver)
 	SetupPrintManagementRoutes(api, db, cfg.Database.Driver)
+	SetupPaymentRoutes(api, db, cfg.Database.Driver, midtransCfg)
 }
