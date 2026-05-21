@@ -14,16 +14,38 @@ type Organization struct {
 	City             string    `json:"city"`
 	Province         string    `json:"province"`
 	Phone            string    `json:"phone"`
+	WhatsApp         string    `json:"whatsapp"`
 	Email            string    `json:"email"`
 	NPWPNumber       string    `json:"npwp_number"`
 	OrganizationType int       `json:"organization_type"`
 	PostalCode       string    `json:"postal_code"`
+	OrganizationLat  string    `json:"organization_lat"`
+	OrganizationLng  string    `json:"organization_lng"`
+	AddressLabel     string    `json:"address_label"`
 	DomainURL        string    `json:"domain_url"`
 	Logo             string    `json:"logo"`
 	CreatedBy        string    `json:"created_by"` // User ID who created the organization
 	Username         string    `json:"username"`   // Username who created the organization
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
+}
+
+type UpdateOrganizationDetailRequest struct {
+	OrganizationCode string      `json:"organization_code"`
+	OrganizationName *string     `json:"organization_name"`
+	CompanyName      *string     `json:"company_name"`
+	Phone            *string     `json:"phone"`
+	WhatsApp         *string     `json:"whatsapp"`
+	CompanyAddress   *string     `json:"company_address"`
+	Email            *string     `json:"email"`
+	CompanyLat       interface{} `json:"company_lat"`
+	CompanyLng       interface{} `json:"company_lng"`
+	AddressLabel     *string     `json:"address_label"`
+	ProvinceID       *string     `json:"province_id"`
+	CityID           *string     `json:"city_id"`
+	PostalCode       *string     `json:"postal_code"`
+	NPWPNumber       *string     `json:"npwp_number"`
+	OrganizationType *int        `json:"organization_type"`
 }
 
 // AccountType enum
