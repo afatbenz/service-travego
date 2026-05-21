@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"service-travego/database"
+	"service-travego/model"
 	"service-travego/utils"
 )
 
@@ -14,8 +15,10 @@ import (
 type PaymentRepository interface {
 	GetOrderTotalAmount(orderID string, orderType int64) (int64, error)
 	UpdatePaymentStatus(orderID string, orderType int64, status int) error
+	UpdateOrderStatus(orderID string, orderType int64, status int) error
 	GetOrderDetails(orderID string) (organizationID string, totalAmount int64, orderType int64, err error)
-	UpdatePaymentOrder(orderID string, organizationID string, grossAmount float64, settledAt string, settledBy string, status int, remainingAmount float64) error
+	UpdatePaymentOrderNotification(orderID string, organizationID string, totalAmount int64, paymentAmount float64, transactionID string) error
+	InsertPaymentMidtrans(req *model.MidtransWebhookRequest, createdAt string) error
 	InsertPaymentOrder(paymentID string, orderType int64, orderID string, organizationID string, paymentType int, paymentMethod int, invoiceNumber string, createdAt string, createdBy string) error
 	GetNextInvoiceNumber(organizationID string, orderType int) (string, error)
 }
@@ -54,16 +57,40 @@ func (r *paymentRepository) GetOrderDetails(orderID string) (string, int64, int6
 	return "", 0, 0, fmt.Errorf("order not found: %s", orderID)
 }
 
-// UpdatePaymentOrder updates the row in payment_orders table
-func (r *paymentRepository) UpdatePaymentOrder(orderID string, organizationID string, grossAmount float64, settledAt string, settledBy string, status int, remainingAmount float64) error {
+// UpdatePaymentOrderNotification updates payment_orders on Midtrans notification
+func (r *paymentRepository) UpdatePaymentOrderNotification(orderID string, organizationID string, totalAmount int64, paymentAmount float64, transactionID string) error {
 	query := fmt.Sprintf(`
-		UPDATE payment_orders 
-		SET total_amount = %s, settled_at = %s, notes = %s, status = %s, remaining_amount = %s 
+		UPDATE payment_orders
+		SET total_amount = %s, payment_amount = %s, transaction_id = %s, status = 1
 		WHERE order_id = %s AND organization_id = %s`,
-		r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7))
-	fmt.Printf("[DEBUG] UpdatePaymentOrder - query: %s\n", query)
+		r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5))
 
-	_, err := database.Exec(r.db, query, grossAmount, settledAt, settledBy, status, remainingAmount, orderID, organizationID)
+	_, err := database.Exec(r.db, query, totalAmount, paymentAmount, transactionID, orderID, organizationID)
+	return err
+}
+
+// InsertPaymentMidtrans inserts Midtrans notification payload into payment_midtrans
+func (r *paymentRepository) InsertPaymentMidtrans(req *model.MidtransWebhookRequest, createdAt string) error {
+	query := fmt.Sprintf(`
+		INSERT INTO payment_midtrans
+			(transaction_id, transaction_status, order_id, payment_type, merchant_id, gross_amount, currency, transaction_time, payment_status, created_at)
+		VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)`,
+		r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
+		r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8),
+		r.getPlaceholder(9), r.getPlaceholder(10))
+
+	_, err := database.Exec(r.db, query,
+		req.TransactionID,
+		req.TransactionStatus,
+		req.OrderID,
+		req.PaymentType,
+		req.MerchantID,
+		req.GrossAmount,
+		req.Currency,
+		req.TransactionTime,
+		req.PaymentStatus,
+		createdAt,
+	)
 	return err
 }
 
@@ -125,6 +152,22 @@ func (r *paymentRepository) UpdatePaymentStatus(orderID string, orderType int64,
 
 	query := fmt.Sprintf("UPDATE %s SET payment_status = %s, status = %s WHERE order_id = %s", table, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
 	_, err := database.Exec(r.db, query, status, status, orderID)
+	return err
+}
+
+// UpdateOrderStatus updates kolom status di tabel order yang sesuai
+func (r *paymentRepository) UpdateOrderStatus(orderID string, orderType int64, status int) error {
+	var table string
+	if orderType == 1 {
+		table = "fleet_orders"
+	} else if orderType == 2 {
+		table = "tour_package_orders"
+	} else {
+		return fmt.Errorf("invalid order type: %d", orderType)
+	}
+
+	query := fmt.Sprintf("UPDATE %s SET status = %s WHERE order_id = %s", table, r.getPlaceholder(1), r.getPlaceholder(2))
+	_, err := database.Exec(r.db, query, status, orderID)
 	return err
 }
 

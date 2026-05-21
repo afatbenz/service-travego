@@ -320,8 +320,8 @@ func (s *FleetService) GetPartnerOrderDetail(orderID, orgID string) (*model.Orde
 	s.ensureCitiesLoaded()
 
 	// Map Customer City
-	if res.Customer.CustomerCity != "" {
-		if name, ok := s.citiesName[res.Customer.CustomerCity]; ok && name != "" {
+	if res.Customer.CustomerCity != 0 {
+		if name, ok := s.citiesName[strconv.Itoa(res.Customer.CustomerCity)]; ok && name != "" {
 			res.Customer.CityLabel = name
 		}
 	}

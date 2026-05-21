@@ -49,9 +49,9 @@ func GenerateOrderID(orderType int, orgCode string, count int) string {
 	if orderType == 1 {
 		prefix = "FO"
 	} else if orderType == 2 {
-		prefix = "TP"
+		prefix = "TO"
 	} else {
-		prefix = "ORD"
+		prefix = "CO"
 	}
 
 	truncatedCode := orgCode

@@ -39,68 +39,46 @@ func NewPaymentService(repo repository.PaymentRepository, midtransConfig *config
 // ProcessPaymentNotification handles the logic for Midtrans notification
 func (s *paymentService) ProcessPaymentNotification(req *model.MidtransWebhookRequest) error {
 	if req.StatusCode != "200" {
-		return nil // Only handle status code 200
+		return nil
 	}
 
-	// 1. Get order details
 	orgID, totalAmount, orderType, err := s.repo.GetOrderDetails(req.OrderID)
 	if err != nil {
-		fmt.Println("Error getting order details:", err)
 		return fmt.Errorf("failed to get order details: %w", err)
 	}
 
 	grossAmount, err := strconv.ParseFloat(req.GrossAmount, 64)
 	if err != nil {
-		fmt.Println("Error parsing gross amount:", err)
 		return fmt.Errorf("invalid gross amount: %w", err)
 	}
 
-	remainingAmount := float64(totalAmount) - grossAmount
-	paymentStatus := 0
-	paymentOrderStatus := 0
-
-	if remainingAmount == 0 {
-		paymentStatus = 1 // Paid
-	} else if remainingAmount > 0 {
-		paymentStatus = 4 // Partial
-		paymentOrderStatus = 2
-	}
-
-	// 2. Update payment_status in orders table
-	if paymentStatus != 0 {
-		err = s.repo.UpdatePaymentStatus(req.OrderID, orderType, paymentStatus)
-		if err != nil {
-			fmt.Println("Error updating order payment status:", err)
-			return fmt.Errorf("failed to update order payment status: %w", err)
-		}
-	}
-
-	// 3. Update payment_orders table
-	settledBy := fmt.Sprintf("Midtrans - %s", req.PaymentType)
-	err = s.repo.UpdatePaymentOrder(req.OrderID, orgID, grossAmount, req.TransactionTime, settledBy, paymentOrderStatus, remainingAmount)
-	if err != nil {
-		fmt.Println("Error updating payment order:", err)
+	if err := s.repo.UpdatePaymentOrderNotification(req.OrderID, orgID, totalAmount, grossAmount, req.TransactionID); err != nil {
 		return fmt.Errorf("failed to update payment order: %w", err)
+	}
+
+	if err := s.UpdatePaymentStatus(req.OrderID, orderType, 1); err != nil {
+		return fmt.Errorf("failed to update order status: %w", err)
+	}
+
+	createdAt := time.Now().Format("2006-01-02 15:04:05")
+	if err := s.repo.InsertPaymentMidtrans(req, createdAt); err != nil {
+		return fmt.Errorf("failed to insert payment midtrans: %w", err)
 	}
 
 	return nil
 }
 
-// UpdatePaymentStatus updates the payment status directly
 func (s *paymentService) UpdatePaymentStatus(orderID string, orderType int64, status int) error {
-	return s.repo.UpdatePaymentStatus(orderID, orderType, status)
+	return s.repo.UpdateOrderStatus(orderID, orderType, status)
 }
 
-// CreatePayment menangani pembuatan token Snap Midtrans
 func (s *paymentService) CreatePayment(req *model.PaymentRequest) (*model.PaymentResponse, error) {
-	// 1. Validasi payment_type
 	if req.PaymentType != 1 && req.PaymentType != 2 {
 		return nil, fmt.Errorf("invalid payment type: %d", req.PaymentType)
 	}
 
 	var paymentAmount int64
 
-	// 2. Jika payment_type == 1, ambil total_amount dari repository
 	if req.PaymentType == 1 {
 		amount, err := s.repo.GetOrderTotalAmount(req.OrderID, req.OrderType)
 		if err != nil {

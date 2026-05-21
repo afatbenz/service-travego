@@ -317,7 +317,12 @@ func (s *OrderService) GetOrderDetail(encryptedOrderID, organizationID string) (
 		return nil, NewServiceError(ErrNotFound, http.StatusBadRequest, "order not found")
 	}
 
-	// Map RentType
+	s.mapOrderDetailLabels(res)
+
+	return res, nil
+}
+
+func (s *OrderService) mapOrderDetailLabels(res *model.OrderDetailResponse) {
 	switch res.RentType {
 	case 1:
 		res.RentTypeLabel = "Citytour"
@@ -327,29 +332,97 @@ func (s *OrderService) GetOrderDetail(encryptedOrderID, organizationID string) (
 		res.RentTypeLabel = "Citytour Drop / Pickup Only"
 	}
 
-	// Map Cities
 	s.ensureCitiesLoaded()
 
-	// Pickup City
 	if name, ok := s.citiesName[res.Pickup.PickupCity]; ok {
 		res.Pickup.CityLabel = name
 	}
-
-	// Destination Cities
 	for i := range res.Destination {
 		if name, ok := s.citiesName[res.Destination[i].City]; ok {
 			res.Destination[i].CityLabel = name
 		}
 	}
-
-	// Itinerary Cities
 	for i := range res.Itinerary {
 		if name, ok := s.citiesName[res.Itinerary[i].CityID]; ok {
 			res.Itinerary[i].CityLabel = name
 		}
 	}
+}
 
-	return res, nil
+func (s *OrderService) GetFleetOrderDetailByPrefix(orderIDPrefix, organizationID string) (*model.FleetOrderDetailByPrefixResponse, error) {
+	orderIDPrefix = strings.TrimSpace(orderIDPrefix)
+	if orderIDPrefix == "" {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "order_id is required")
+	}
+
+	fullOrderID, err := s.fleetRepo.FindFleetOrderIDByPrefix(orderIDPrefix, organizationID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, NewServiceError(ErrNotFound, http.StatusBadRequest, "order not found")
+		}
+		if strings.Contains(err.Error(), "multiple orders") {
+			return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "multiple orders match prefix")
+		}
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to find order")
+	}
+
+	res, err := s.fleetRepo.FindOrderDetail(fullOrderID, organizationID)
+	if err != nil {
+		return nil, NewServiceError(ErrNotFound, http.StatusBadRequest, "order not found")
+	}
+
+	s.mapOrderDetailLabels(res)
+
+	paymentRows, err := s.fleetRepo.ListFleetOrderPaymentHistory(fullOrderID, organizationID)
+	if err != nil {
+		fmt.Println("err ---> ", err)
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to get payment history")
+	}
+
+	s.ensurePaymentCommonLoaded()
+
+	const paymentGatewayMethod = 1004
+	paymentHistory := make([]model.FleetOrderPaymentHistoryItem, 0, len(paymentRows))
+	for _, r := range paymentRows {
+		methodLabel := s.paymentMethodLabels[r.PaymentMethod]
+		notes := ""
+		if r.Notes.Valid {
+			notes = r.Notes.String
+		}
+		if r.PaymentMethod == paymentGatewayMethod {
+			methodLabel = notes
+		}
+
+		settledAt := ""
+		if r.SettledAt.Valid {
+			settledAt = r.SettledAt.Time.Format("2006-01-02 15:04:05")
+		}
+
+		invoiceNumber := ""
+		if r.InvoiceNumber.Valid {
+			invoiceNumber = r.InvoiceNumber.String
+		}
+
+		paymentHistory = append(paymentHistory, model.FleetOrderPaymentHistoryItem{
+			PaymentType:        r.PaymentType,
+			PaymentTypeLabel:   s.paymentTypeLabels[r.PaymentType],
+			PaymentMethod:      r.PaymentMethod,
+			PaymentMethodLabel: methodLabel,
+			PaymentAmount:      r.PaymentAmount,
+			TotalAmount:        r.TotalAmount,
+			RemainingAmount:    r.RemainingAmount,
+			Status:             r.Status,
+			CreatedAt:          r.CreatedAt.Format("2006-01-02 15:04:05"),
+			SettledAt:          settledAt,
+			InvoiceNumber:      invoiceNumber,
+			Notes:              notes,
+		})
+	}
+
+	return &model.FleetOrderDetailByPrefixResponse{
+		OrderDetailResponse: *res,
+		PaymentHistory:      paymentHistory,
+	}, nil
 }
 
 func (s *OrderService) FindOrderDetail(orderID, organizationID string) (*model.OrderDetailResponse, error) {
@@ -358,37 +431,7 @@ func (s *OrderService) FindOrderDetail(orderID, organizationID string) (*model.O
 		return nil, NewServiceError(ErrNotFound, http.StatusBadRequest, "order not found")
 	}
 
-	// Map RentType
-	switch res.RentType {
-	case 1:
-		res.RentTypeLabel = "Citytour"
-	case 2:
-		res.RentTypeLabel = "Overland"
-	case 3:
-		res.RentTypeLabel = "Citytour Drop / Pickup Only"
-	}
-
-	// Map Cities
-	s.ensureCitiesLoaded()
-
-	// Pickup City
-	if name, ok := s.citiesName[res.Pickup.PickupCity]; ok {
-		res.Pickup.CityLabel = name
-	}
-
-	// Destination Cities
-	for i := range res.Destination {
-		if name, ok := s.citiesName[res.Destination[i].City]; ok {
-			res.Destination[i].CityLabel = name
-		}
-	}
-
-	// Itinerary Cities
-	for i := range res.Itinerary {
-		if name, ok := s.citiesName[res.Itinerary[i].CityID]; ok {
-			res.Itinerary[i].CityLabel = name
-		}
-	}
+	s.mapOrderDetailLabels(res)
 
 	// Generate token {order_id, price_id}
 	payload := model.OrderTokenPayload{OrderID: res.OrderID, PriceID: res.PriceID}

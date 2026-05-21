@@ -9,6 +9,7 @@ import (
 	"service-travego/model"
 	"service-travego/service"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -181,6 +182,29 @@ func (h *OrderHandler) GetOrderList(c *fiber.Ctx) error {
 	}
 
 	return helper.SuccessResponse(c, fiber.StatusOK, "Order list retrieved", res)
+}
+
+func (h *OrderHandler) GetFleetOrderDetailByPrefix(c *fiber.Ctx) error {
+	var req model.FleetOrderDetailByPrefixRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.BadRequestResponse(c, "Invalid payload")
+	}
+	if strings.TrimSpace(req.OrderID) == "" {
+		return helper.BadRequestResponse(c, "order_id is required")
+	}
+
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Organization not found")
+	}
+
+	res, err := h.service.GetFleetOrderDetailByPrefix(req.OrderID, orgID)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Order detail retrieved", res)
 }
 
 func (h *OrderHandler) GetOrderDetail(c *fiber.Ctx) error {

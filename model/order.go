@@ -208,7 +208,7 @@ type OrderDetailCustomer struct {
 	CustomerPhone   string `json:"customer_phone"`
 	CustomerEmail   string `json:"customer_email"`
 	CustomerAddress string `json:"customer_address"`
-	CustomerCity    string `json:"customer_city"`
+	CustomerCity    int    `json:"customer_city"`
 	CityLabel       string `json:"city_label"`
 }
 
@@ -430,6 +430,43 @@ type PaymentOrderRow struct {
 	Status          int
 	CreatedAt       time.Time
 	CreatedBy       sql.NullString
+}
+
+type FleetOrderDetailByPrefixRequest struct {
+	OrderID string `json:"order_id"`
+}
+
+type FleetOrderDetailByPrefixResponse struct {
+	OrderDetailResponse
+	PaymentHistory []FleetOrderPaymentHistoryItem `json:"payment_history"`
+}
+
+type FleetOrderPaymentHistoryItem struct {
+	PaymentType        int     `json:"payment_type"`
+	PaymentTypeLabel   string  `json:"payment_type_label"`
+	PaymentMethod      int     `json:"payment_method"`
+	PaymentMethodLabel string  `json:"payment_method_label"`
+	PaymentAmount      float64 `json:"payment_amount"`
+	TotalAmount        float64 `json:"total_amount"`
+	RemainingAmount    float64 `json:"remaining_amount"`
+	Status             int     `json:"status"`
+	CreatedAt          string  `json:"created_at"`
+	SettledAt          string  `json:"settled_at"`
+	InvoiceNumber      string  `json:"invoice_number"`
+	Notes              string  `json:"notes"`
+}
+
+type PaymentOrderHistoryRow struct {
+	PaymentType     int
+	PaymentMethod   int
+	PaymentAmount   float64
+	TotalAmount     float64
+	RemainingAmount float64
+	Status          int
+	CreatedAt       time.Time
+	SettledAt       sql.NullTime
+	InvoiceNumber   sql.NullString
+	Notes           sql.NullString
 }
 
 type PaymentSummary struct {
