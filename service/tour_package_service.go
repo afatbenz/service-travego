@@ -10,6 +10,7 @@ import (
 	"service-travego/helper"
 	"service-travego/model"
 	"service-travego/repository"
+	"service-travego/utils"
 	"strconv"
 	"strings"
 	"time"
@@ -213,12 +214,7 @@ func (s *TourPackageService) CreateTourPackageOrder(ctx context.Context, orgID, 
 		return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to get order count")
 	}
 
-	truncatedCode := orgCode
-	if len(orgCode) >= 5 {
-		truncatedCode = orgCode[:3] + orgCode[len(orgCode)-2:]
-	}
-	timePart := time.Now().Format("06020115")
-	orderID := fmt.Sprintf("%s%s%d-PCK", truncatedCode, timePart, count+1)
+	orderID := utils.GenerateOrderID(2, orgCode, count)
 
 	if err := s.repo.CreateTourPackageOrder(ctx, repository.CreateTourPackageOrderInput{
 		OrderID:          orderID,

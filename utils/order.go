@@ -43,6 +43,26 @@ func GenerateInvoiceNumberTx(tx *sql.Tx, driver, organizationID string, orderTyp
 	return formatInvoiceNumber(orderType, now, seq), nil
 }
 
+// GenerateOrderID generates order ID based on order type
+func GenerateOrderID(orderType int, orgCode string, count int) string {
+	var prefix string
+	if orderType == 1 {
+		prefix = "FO"
+	} else if orderType == 2 {
+		prefix = "TP"
+	} else {
+		prefix = "ORD"
+	}
+
+	truncatedCode := orgCode
+	if len(orgCode) >= 5 {
+		truncatedCode = orgCode[:3] + orgCode[len(orgCode)-2:]
+	}
+
+	timePart := time.Now().Format("06020115")
+	return fmt.Sprintf("%s-%s%d-%s", prefix, timePart, count+1, truncatedCode)
+}
+
 func placeholder(driver string, pos int) string {
 	if driver == "postgres" || driver == "pgx" {
 		return fmt.Sprintf("$%d", pos)

@@ -10,6 +10,7 @@ import (
 	"service-travego/helper"
 	"service-travego/model"
 	"service-travego/repository"
+	"service-travego/utils"
 	"strconv"
 	"strings"
 	"time"
@@ -618,12 +619,7 @@ func (s *FleetService) CreatePartnerOrder(orgID, userID string, req *model.Fleet
 		return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to get order count")
 	}
 
-	truncatedCode := orgCode
-	if len(orgCode) >= 5 {
-		truncatedCode = orgCode[:3] + orgCode[len(orgCode)-2:]
-	}
-	timePart := time.Now().Format("06020115")
-	orderID := fmt.Sprintf("%s%s%d-FRT", truncatedCode, timePart, count+1)
+	orderID := utils.GenerateOrderID(1, orgCode, count)
 
 	if err := s.repo.CreatePartnerOrder(orderID, req.FleetID, startDate, endDate, req.PickupCityID, pickupLoc, qty, req.PriceID, totalAmount, req.AdditionalAmount, req.CustomerID, orgID, userID, req.Itinerary, req.Addons, req.AdditionalRequest, req.Fleets); err != nil {
 		msg := "failed to create order"
