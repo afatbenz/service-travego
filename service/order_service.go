@@ -13,6 +13,7 @@ import (
 	"service-travego/helper"
 	"service-travego/model"
 	"service-travego/repository"
+	"service-travego/utils"
 	"strconv"
 	"strings"
 	"time"
@@ -80,20 +81,7 @@ func (s *OrderService) CreateOrder(req *model.CreateOrderRequest) (*model.Create
 		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, fmt.Sprintf("failed to get order count: %v", err))
 	}
 
-	// Prepare Org Code Part (3 first chars + 2 last digits)
-	orgCode := req.OrganizationCode
-	var truncatedCode string
-	if len(orgCode) >= 5 {
-		truncatedCode = orgCode[:3] + orgCode[len(orgCode)-2:]
-	} else {
-		truncatedCode = orgCode
-	}
-
-	now := time.Now()
-	// Format: YYDDMMhh -> 06020115
-	timePart := now.Format("06020115")
-
-	orderID := fmt.Sprintf("%s%s%d-FRT", truncatedCode, timePart, count+1)
+	orderID := utils.GenerateOrderID(1, req.OrganizationCode, count)
 
 	// 3. Save to DB
 	req.OrderID = orderID

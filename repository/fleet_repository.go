@@ -3179,7 +3179,7 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 
 	query := fmt.Sprintf(`
         SELECT 
-            fo.order_id, fo.fleet_id, fo.created_at, fo.price_id, fo.status,
+            fo.order_id, fo.fleet_id, fo.created_at, fo.price_id, fo.payment_status, fo.status,
             f.fleet_name, 
             fp.rent_type, fp.price, 
             fo.unit_qty, fo.total_amount, COALESCE(fo.additional_amount, 0) as additional_amount,
@@ -3205,7 +3205,7 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 	var startDate, endDate time.Time
 
 	err := r.db.QueryRow(query, orderID, orgID).Scan(
-		&res.OrderID, &res.FleetID, &createdAt, &res.PriceID, &res.Status,
+		&res.OrderID, &res.FleetID, &createdAt, &res.PriceID, &res.PaymentStatus, &res.Status,
 		&res.FleetName,
 		&res.RentType, &res.Price,
 		&res.Quantity, &res.TotalAmount, &res.AdditionalAmount,

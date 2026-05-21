@@ -37,6 +37,7 @@ func SetupRoutes(app *fiber.App, cfg *configs.Config) {
 	midtransCfg := config.InitMidtrans()
 
 	// Setup route groups
+	SetupNotificationRoutes(app, db, cfg.Database.Driver) // Register public routes first
 	SetupGeneralRoutes(api, db, cfg.Database.Driver)
 	SetupAuthRoutes(api, db, cfg.Database.Driver, cfg)
 	SetupBookingRoutes(api)

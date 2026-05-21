@@ -9,14 +9,18 @@ import (
 	"service-travego/model"
 	"service-travego/repository"
 	"strconv"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/veritrans/go-midtrans"
 )
 
 // PaymentService adalah interface untuk logika bisnis payment
 type PaymentService interface {
 	CreatePayment(req *model.PaymentRequest) (*model.PaymentResponse, error)
-	HandleWebhook(req *model.MidtransWebhookRequest) error
+	PaymentNotifications(req *model.MidtransWebhookRequest) error
+	UpdatePaymentStatus(orderID string, orderType int64, status int) error
+	ProcessPaymentNotification(req *model.MidtransWebhookRequest) error
 }
 
 type paymentService struct {
@@ -30,6 +34,61 @@ func NewPaymentService(repo repository.PaymentRepository, midtransConfig *config
 		repo:           repo,
 		midtransConfig: midtransConfig,
 	}
+}
+
+// ProcessPaymentNotification handles the logic for Midtrans notification
+func (s *paymentService) ProcessPaymentNotification(req *model.MidtransWebhookRequest) error {
+	if req.StatusCode != "200" {
+		return nil // Only handle status code 200
+	}
+
+	// 1. Get order details
+	orgID, totalAmount, orderType, err := s.repo.GetOrderDetails(req.OrderID)
+	if err != nil {
+		fmt.Println("Error getting order details:", err)
+		return fmt.Errorf("failed to get order details: %w", err)
+	}
+
+	grossAmount, err := strconv.ParseFloat(req.GrossAmount, 64)
+	if err != nil {
+		fmt.Println("Error parsing gross amount:", err)
+		return fmt.Errorf("invalid gross amount: %w", err)
+	}
+
+	remainingAmount := float64(totalAmount) - grossAmount
+	paymentStatus := 0
+	paymentOrderStatus := 0
+
+	if remainingAmount == 0 {
+		paymentStatus = 1 // Paid
+	} else if remainingAmount > 0 {
+		paymentStatus = 4 // Partial
+		paymentOrderStatus = 2
+	}
+
+	// 2. Update payment_status in orders table
+	if paymentStatus != 0 {
+		err = s.repo.UpdatePaymentStatus(req.OrderID, orderType, paymentStatus)
+		if err != nil {
+			fmt.Println("Error updating order payment status:", err)
+			return fmt.Errorf("failed to update order payment status: %w", err)
+		}
+	}
+
+	// 3. Update payment_orders table
+	settledBy := fmt.Sprintf("Midtrans - %s", req.PaymentType)
+	err = s.repo.UpdatePaymentOrder(req.OrderID, orgID, grossAmount, req.TransactionTime, settledBy, paymentOrderStatus, remainingAmount)
+	if err != nil {
+		fmt.Println("Error updating payment order:", err)
+		return fmt.Errorf("failed to update payment order: %w", err)
+	}
+
+	return nil
+}
+
+// UpdatePaymentStatus updates the payment status directly
+func (s *paymentService) UpdatePaymentStatus(orderID string, orderType int64, status int) error {
+	return s.repo.UpdatePaymentStatus(orderID, orderType, status)
 }
 
 // CreatePayment menangani pembuatan token Snap Midtrans
@@ -53,7 +112,28 @@ func (s *paymentService) CreatePayment(req *model.PaymentRequest) (*model.Paymen
 		paymentAmount = req.PaymentAmount
 	}
 
-	// 4. Panggil Midtrans Snap API untuk generate snap_token
+	// 4. Update status_payment menjadi 3 di tabel order yang sesuai
+	err := s.repo.UpdatePaymentStatus(req.OrderID, req.OrderType, 3)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update order payment status: %w", err)
+	}
+
+	// 5. Generate invoice number
+	invoiceNumber, err := s.repo.GetNextInvoiceNumber(req.OrganizationID, int(req.OrderType))
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate invoice number: %w", err)
+	}
+
+	// 6. Insert ke payment_orders
+	paymentID := uuid.New().String()
+	now := time.Now().Format("2006-01-02 15:04:05")
+	fmt.Printf("[DEBUG] Service CreatePayment - calling InsertPaymentOrder with orgID: %s, userID: %s\n", req.OrganizationID, req.UserID)
+	err = s.repo.InsertPaymentOrder(paymentID, req.OrderType, req.OrderID, req.OrganizationID, req.PaymentType, 1004, invoiceNumber, now, req.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to insert payment order: %w", err)
+	}
+
+	// 7. Panggil Midtrans Snap API untuk generate snap_token
 	snapReq := &midtrans.SnapReq{
 		TransactionDetails: midtrans.TransactionDetails{
 			OrderID:  req.OrderID,
@@ -63,6 +143,7 @@ func (s *paymentService) CreatePayment(req *model.PaymentRequest) (*model.Paymen
 
 	snapResp, err := s.midtransConfig.Snap.GetToken(snapReq)
 	if err != nil {
+		fmt.Println("Midtrans error:", err)
 		return nil, fmt.Errorf("midtrans error: %w", err)
 	}
 
@@ -72,8 +153,8 @@ func (s *paymentService) CreatePayment(req *model.PaymentRequest) (*model.Paymen
 	}, nil
 }
 
-// HandleWebhook menangani notifikasi dari Midtrans
-func (s *paymentService) HandleWebhook(req *model.MidtransWebhookRequest) error {
+// PaymentNotifications menangani notifikasi dari Midtrans
+func (s *paymentService) PaymentNotifications(req *model.MidtransWebhookRequest) error {
 	// 1. Verifikasi signature key (SHA512: order_id + status_code + gross_amount + server_key)
 	serverKey := os.Getenv("MIDTRANS_SERVER_KEY")
 	payload := req.OrderID + req.StatusCode + req.GrossAmount + serverKey
@@ -87,37 +168,25 @@ func (s *paymentService) HandleWebhook(req *model.MidtransWebhookRequest) error 
 	}
 
 	// Ambil gross amount dari webhook
-	amountFloat, err := strconv.ParseFloat(req.GrossAmount, 64)
+	_, err := strconv.ParseFloat(req.GrossAmount, 64)
 	if err != nil {
 		return fmt.Errorf("invalid gross amount format: %w", err)
 	}
-	amount := int64(amountFloat)
 
-	// Kita perlu tahu orderType. Karena webhook Midtrans tidak mengirim orderType secara default,
-	// kita bisa asumsikan dari format OrderID atau menyimpannya di metadata saat create.
-	// Namun berdasarkan instruksi, kita cek fleet_orders.
-
-	// Coba cek fleet_orders dulu
-	totalAmount, err := s.repo.GetOrderTotalAmount(req.OrderID, 1) // orderType 1 = fleet
+	// Ambil orderType dengan mengecek tabel
 	orderType := int64(1)
+	_, err = s.repo.GetOrderTotalAmount(req.OrderID, 1) // orderType 1 = fleet
 	if err != nil {
 		// Jika tidak ketemu di fleet_orders, coba di tour_package_orders
-		totalAmount, err = s.repo.GetOrderTotalAmount(req.OrderID, 2) // orderType 2 = tour
+		_, err = s.repo.GetOrderTotalAmount(req.OrderID, 2) // orderType 2 = tour
 		orderType = 2
 		if err != nil {
 			return fmt.Errorf("order not found: %w", err)
 		}
 	}
 
-	// 3. Update payment_status berdasarkan amount
-	// 1: paid (full), 4: partial/settlement
-	status := 0
-	if amount >= totalAmount {
-		status = 1 // Paid
-	} else {
-		status = 4 // Partial
-	}
-
+	// Update status_payment menjadi 3 sesuai logic yang diminta
+	status := 3
 	err = s.repo.UpdatePaymentStatus(req.OrderID, orderType, status)
 	if err != nil {
 		return fmt.Errorf("failed to update payment status: %w", err)
