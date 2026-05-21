@@ -37,4 +37,5 @@ type MidtransWebhookRequest struct {
 	GrossAmount       string `json:"gross_amount"`
 	FraudStatus       string `json:"fraud_status"`
 	Currency          string `json:"currency"`
+	PaymentStatus     string `json:"payment_status"`
 }

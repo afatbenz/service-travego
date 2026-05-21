@@ -10,6 +10,7 @@ import (
 	"service-travego/database"
 	"service-travego/model"
 	"service-travego/utils"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -2272,7 +2273,7 @@ func (r *FleetRepository) FindOrderDetail(orderID, organizationID string) (*mode
             fp.rent_type, fp.price, 
             fo.unit_qty, fo.total_amount, COALESCE(fo.additional_amount, 0) as additional_amount,
             fo.pickup_location, fo.pickup_city_id, fo.start_date, fo.end_date,
-            COALESCE(c.customer_name, '') as customer_name, COALESCE(c.customer_phone, '') as customer_phone, COALESCE(c.customer_email, '') as customer_email, COALESCE(c.customer_address, '') as customer_address,
+            COALESCE(c.customer_name, '') as customer_name, COALESCE(c.customer_phone, '') as customer_phone, COALESCE(c.customer_email, '') as customer_email, COALESCE(c.customer_address, '') as customer_address, COALESCE(c.customer_city, 0) as customer_city,
             COALESCE(fo.additional_request, '') as additional_request
         FROM fleet_orders fo
         JOIN fleets f ON fo.fleet_id = f.uuid
@@ -2293,7 +2294,7 @@ func (r *FleetRepository) FindOrderDetail(orderID, organizationID string) (*mode
 		&res.RentType, &res.Price,
 		&res.Quantity, &res.TotalAmount, &res.AdditionalAmount,
 		&res.Pickup.PickupLocation, &pickupCityID, &startDate, &endDate,
-		&res.Customer.CustomerName, &res.Customer.CustomerPhone, &res.Customer.CustomerEmail, &res.Customer.CustomerAddress,
+		&res.Customer.CustomerName, &res.Customer.CustomerPhone, &res.Customer.CustomerEmail, &res.Customer.CustomerAddress, &res.Customer.CustomerCity,
 		&res.AdditionalRequest,
 	)
 	if err != nil {
@@ -2305,6 +2306,11 @@ func (r *FleetRepository) FindOrderDetail(orderID, organizationID string) (*mode
 	res.Pickup.PickupCity = pickupCityID
 	if cityLabel, ok := getCitiesMap()[strings.TrimSpace(pickupCityID)]; ok {
 		res.Pickup.CityLabel = cityLabel
+	}
+	if res.Customer.CustomerCity != 0 {
+		if cityLabel, ok := getCitiesMap()[strconv.Itoa(res.Customer.CustomerCity)]; ok {
+			res.Customer.CityLabel = cityLabel
+		}
 	}
 	res.Pickup.StartDate = startDate.Format("2006-01-02")
 	res.Pickup.EndDate = endDate.Format("2006-01-02")
@@ -2731,6 +2737,101 @@ func (r *FleetRepository) InsertServiceOrderPayment(req *model.CreateServiceOrde
 		return "", "", err
 	}
 	return paymentID, invoiceNumber, nil
+}
+
+func (r *FleetRepository) FindFleetOrderIDByPrefix(prefix, organizationID string) (string, error) {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		return "", sql.ErrNoRows
+	}
+
+	orgExpr := "organization_id::text = " + r.getPlaceholder(2)
+
+	likeExpr := "order_id ILIKE " + r.getPlaceholder(1)
+
+	query := fmt.Sprintf(`
+		SELECT order_id
+		FROM fleet_orders
+		WHERE %s AND %s
+		ORDER BY order_id
+		LIMIT 2
+	`, likeExpr, orgExpr)
+
+	rows, err := database.Query(r.db, query, prefix+"%", organizationID)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return "", err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	if len(ids) == 0 {
+		return "", sql.ErrNoRows
+	}
+	if len(ids) > 1 {
+		return "", fmt.Errorf("multiple orders match prefix")
+	}
+	return ids[0], nil
+}
+
+func (r *FleetRepository) ListFleetOrderPaymentHistory(orderID, organizationID string) ([]model.PaymentOrderHistoryRow, error) {
+	orgExpr := "organization_id::text = " + r.getPlaceholder(2)
+
+	query := fmt.Sprintf(`
+		SELECT
+			payment_type,
+			payment_method,
+			payment_amount,
+			total_amount,
+			remaining_amount,
+			COALESCE(status, 0),
+			created_at,
+			settled_at,
+			COALESCE(invoice_number, ''),
+			COALESCE(notes, '')
+		FROM payment_orders
+		WHERE order_id = %s AND order_type = 1 AND %s AND COALESCE(status, 0) > 0
+		ORDER BY created_at ASC
+	`, r.getPlaceholder(1), orgExpr)
+
+	rows, err := database.Query(r.db, query, orderID, organizationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]model.PaymentOrderHistoryRow, 0)
+	for rows.Next() {
+		var it model.PaymentOrderHistoryRow
+		if err := rows.Scan(
+			&it.PaymentType,
+			&it.PaymentMethod,
+			&it.PaymentAmount,
+			&it.TotalAmount,
+			&it.RemainingAmount,
+			&it.Status,
+			&it.CreatedAt,
+			&it.SettledAt,
+			&it.InvoiceNumber,
+			&it.Notes,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (r *FleetRepository) ListPaymentOrders(orderID string, orderType int, organizationID string) ([]model.PaymentOrderRow, error) {
@@ -3229,6 +3330,11 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 	res.Pickup.PickupCity = pickupCityID
 	if cityLabel, ok := getCitiesMap()[strings.TrimSpace(pickupCityID)]; ok {
 		res.Pickup.CityLabel = cityLabel
+	}
+	if res.Customer.CustomerCity != 0 {
+		if cityLabel, ok := getCitiesMap()[strconv.Itoa(res.Customer.CustomerCity)]; ok {
+			res.Customer.CityLabel = cityLabel
+		}
 	}
 	res.StartDate = startDate.Format("2006-01-02")
 	res.EndDate = endDate.Format("2006-01-02")
