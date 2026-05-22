@@ -12,6 +12,20 @@ type ContentRepository struct {
 	driver string
 }
 
+type OrganizationContact struct {
+	CompanyName         string
+	CompanyAddress      string
+	CityID              string
+	ProvinceID          string
+	CompanyPhone        string
+	CompanyWhatsapp     string
+	CompanyPostalCode   string
+	CompanyEmail        string
+	CompanyLat          string
+	CompanyLng          string
+	CompanyAddressLabel string
+}
+
 func NewContentRepository(db *sql.DB, driver string) *ContentRepository {
 	return &ContentRepository{
 		db:     db,
@@ -201,6 +215,72 @@ func (r *ContentRepository) FindAllByOrgID(orgID string) ([]model.Content, error
 	}
 
 	return contents, nil
+}
+
+func (r *ContentRepository) GetOrganizationContact(orgID string) (*OrganizationContact, error) {
+	query := fmt.Sprintf(`
+		SELECT company_name,
+			   address as company_address,
+			   city as city_id,
+			   province as province_id,
+			   phone as company_phone,
+			   whatsapp as company_whatsapp,
+			   email as company_email,
+			   organization_lat as company_lat,
+			   organization_lng as company_lng,
+			   address_label as company_address_label,
+			   postal_code as company_postal_code
+		FROM organizations
+		WHERE organization_id = %s
+	`, r.getPlaceholder(1))
+
+	var (
+		companyName         sql.NullString
+		companyAddress      sql.NullString
+		cityID              sql.NullString
+		provinceID          sql.NullString
+		companyPhone        sql.NullString
+		companyWhatsapp     sql.NullString
+		companyEmail        sql.NullString
+		companyLat          sql.NullString
+		companyLng          sql.NullString
+		companyAddressLabel sql.NullString
+		companyPostalCode   sql.NullString
+	)
+
+	err := database.QueryRow(r.db, query, orgID).Scan(
+		&companyName,
+		&companyAddress,
+		&cityID,
+		&provinceID,
+		&companyPhone,
+		&companyWhatsapp,
+		&companyEmail,
+		&companyLat,
+		&companyLng,
+		&companyAddressLabel,
+		&companyPostalCode,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	return &OrganizationContact{
+		CompanyName:         companyName.String,
+		CompanyAddress:      companyAddress.String,
+		CityID:              cityID.String,
+		ProvinceID:          provinceID.String,
+		CompanyPhone:        companyPhone.String,
+		CompanyWhatsapp:     companyWhatsapp.String,
+		CompanyPostalCode:   companyPostalCode.String,
+		CompanyEmail:        companyEmail.String,
+		CompanyLat:          companyLat.String,
+		CompanyLng:          companyLng.String,
+		CompanyAddressLabel: companyAddressLabel.String,
+	}, nil
 }
 
 // FindByUUIDAndTagAndOrgID checks content

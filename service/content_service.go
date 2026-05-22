@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"service-travego/model"
 	"service-travego/repository"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,6 +20,51 @@ import (
 
 type ContentService struct {
 	repo *repository.ContentRepository
+}
+
+type AllGeneralContentResponse struct {
+	Contact map[string]interface{}             `json:"contact"`
+	Content map[string][]model.ContentResponse `json:"content"`
+}
+
+var (
+	contentLocationOnce     sync.Once
+	contentCityLabelMap     map[string]string
+	contentProvinceLabelMap map[string]string
+)
+
+func ensureContentLocationLoaded() {
+	contentLocationOnce.Do(func() {
+		contentCityLabelMap = map[string]string{}
+		contentProvinceLabelMap = map[string]string{}
+
+		f, err := os.Open("config/location.json")
+		if err != nil {
+			return
+		}
+		defer f.Close()
+
+		var loc model.Location
+		if err := json.NewDecoder(f).Decode(&loc); err != nil {
+			return
+		}
+
+		for _, c := range loc.Cities {
+			id := strings.TrimSpace(c.ID)
+			if id == "" {
+				continue
+			}
+			contentCityLabelMap[id] = c.Name
+		}
+
+		for _, p := range loc.Provinces {
+			id := strings.TrimSpace(p.ID)
+			if id == "" {
+				continue
+			}
+			contentProvinceLabelMap[id] = p.Name
+		}
+	})
 }
 
 func NewContentService(repo *repository.ContentRepository) *ContentService {
@@ -319,13 +366,13 @@ func (s *ContentService) UploadContent(fileHeader *multipart.FileHeader, parent,
 }
 
 // GetAllGeneralContent retrieves all content for an organization grouped by parent
-func (s *ContentService) GetAllGeneralContent(orgID string) (map[string][]model.ContentResponse, error) {
+func (s *ContentService) GetAllGeneralContent(orgID string) (map[string]interface{}, error) {
 	contents, err := s.repo.FindAllByOrgID(orgID)
 	if err != nil {
 		return nil, err
 	}
 
-	response := make(map[string][]model.ContentResponse)
+	content := make(map[string][]model.ContentResponse)
 	for _, c := range contents {
 		item := model.ContentResponse{
 			SectionTag: c.SectionTag,
@@ -352,9 +399,55 @@ func (s *ContentService) GetAllGeneralContent(orgID string) (map[string][]model.
 			parentKey = "ungrouped"
 		}
 
-		response[parentKey] = append(response[parentKey], item)
+		content[parentKey] = append(content[parentKey], item)
 	}
-	return response, nil
+
+	orgContact, err := s.repo.GetOrganizationContact(orgID)
+	if err != nil {
+		return nil, err
+	}
+
+	ensureContentLocationLoaded()
+
+	contact := map[string]interface{}{
+		"company_name":          "",
+		"company_brand":         "",
+		"company_address":       "",
+		"company_city":          "",
+		"company_province":      "",
+		"company_phone":         "",
+		"company_whatsapp":      "",
+		"company_email":         "",
+		"company_address_label": "",
+		"company_lat":           "",
+		"company_lng":           "",
+	}
+
+	if orgContact != nil {
+		contact["company_name"] = orgContact.CompanyName
+		contact["company_brand"] = orgContact.CompanyName
+		contact["company_address"] = orgContact.CompanyAddress
+		contact["company_phone"] = orgContact.CompanyPhone
+		contact["company_whatsapp"] = orgContact.CompanyWhatsapp
+		contact["company_email"] = orgContact.CompanyEmail
+		contact["company_address_label"] = orgContact.CompanyAddressLabel
+		contact["company_lat"] = orgContact.CompanyLat
+		contact["company_lng"] = orgContact.CompanyLng
+
+		cityID := strings.TrimSpace(orgContact.CityID)
+		provinceID := strings.TrimSpace(orgContact.ProvinceID)
+		contact["company_city"] = contentCityLabelMap[cityID]
+		contact["company_province"] = contentProvinceLabelMap[provinceID]
+	}
+
+	mergedContent := map[string]interface{}{
+		"contact": contact,
+	}
+	for k, v := range content {
+		mergedContent[k] = v
+	}
+
+	return mergedContent, nil
 }
 
 func (s *ContentService) DeleteContentByUUID(uuid, orgID string) error {
