@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"fmt"
+	"service-travego/configs"
 	"service-travego/database"
 	"service-travego/model"
 	"strings"
@@ -242,4 +243,87 @@ func (r *CustomersRepository) getPlaceholder(pos int) string {
 		return fmt.Sprintf("$%d", pos)
 	}
 	return "?"
+}
+
+func (r *CustomersRepository) GetCustomerOrders(orgID, customerID string, req *model.CustomerOrdersRequest) ([]map[string]interface{}, error) {
+	pos := 3
+	query := fmt.Sprintf(
+		`SELECT co.order_id, co.order_type, co.created_at, 
+		CASE WHEN co.order_type = 1 THEN fo.status WHEN co.order_type = 2 THEN tpo.status ELSE NULL END AS order_status, 
+		CASE WHEN co.order_type = 1 THEN fo.payment_status ELSE tpo.payment_status END AS payment_status,
+		CASE WHEN co.order_type = 1 THEN fo.total_amount ELSE tpo.total_amount END AS total_amount
+		FROM customer_orders co 
+		LEFT JOIN fleet_orders fo ON co.order_id = fo.order_id AND co.order_type = 1 
+		LEFT JOIN tour_package_orders tpo ON co.order_id = tpo.order_id AND co.order_type = 2 
+		WHERE co.organization_id = %s AND co.customer_id = %s`,
+		r.getPlaceholder(1),
+		r.getPlaceholder(2),
+	)
+	args := make([]interface{}, 0, 12)
+	args = append(args, orgID, customerID)
+
+	if req.StartDate != "" {
+		query += fmt.Sprintf(" AND co.created_at >= %s", r.getPlaceholder(pos))
+		args = append(args, req.StartDate)
+		pos++
+	}
+	if req.EndDate != "" {
+		query += fmt.Sprintf(" AND co.created_at <= %s", r.getPlaceholder(pos))
+		args = append(args, req.EndDate)
+		pos++
+	}
+	if req.OrderType != "" {
+		query += fmt.Sprintf(" AND co.order_type = %s", r.getPlaceholder(pos))
+		args = append(args, req.OrderType)
+		pos++
+	}
+	query += " ORDER BY co.created_at DESC"
+	rows, err := database.Query(r.db, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]map[string]interface{}, 0)
+	for rows.Next() {
+		var orderID string
+		var orderType int
+		var createdAt time.Time
+		var orderStatus, paymentStatus sql.NullInt64
+		var totalAmount sql.NullFloat64
+		if err := rows.Scan(&orderID, &orderType, &createdAt, &orderStatus, &paymentStatus, &totalAmount); err != nil {
+			return nil, err
+		}
+		var orderTypeStr string
+		if orderType == 1 {
+			orderTypeStr = "Rental Armada"
+		} else if orderType == 2 {
+			orderTypeStr = "Paket Wisata"
+		} else {
+			orderTypeStr = ""
+
+		}
+		var orderStatusStr string
+		if orderStatus.Valid {
+			orderStatusStr = configs.OrderStatus(orderStatus.Int64).String()
+		}
+		var paymentStatusStr string
+		if paymentStatus.Valid {
+			paymentStatusStr = configs.PaymentStatus(paymentStatus.Int64).String()
+		}
+
+		out = append(out, map[string]interface{}{
+			"order_id":           orderID,
+			"order_type":         orderType,
+			"order_type_label":   orderTypeStr,
+			"created_at":         createdAt,
+			"order_status":       orderStatus.Int64,
+			"order_status_str":   orderStatusStr,
+			"total_amount":       totalAmount.Float64,
+			"payment_status":     paymentStatus.Int64,
+			"payment_status_str": paymentStatusStr,
+		})
+	}
+
+	return out, nil
 }

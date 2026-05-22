@@ -182,3 +182,25 @@ func (h *CustomersHandler) UpdateCustomer(c *fiber.Ctx) error {
 
 	return helper.SuccessResponse(c, fiber.StatusOK, "Customer updated", nil)
 }
+
+func (h *CustomersHandler) CustomerOrders(c *fiber.Ctx) error {
+	orgID, _ := c.Locals("organization_id").(string)
+	var req model.CustomerOrdersRequest
+
+	if err := c.BodyParser(&req); err != nil {
+		return helper.BadRequestResponse(c, "invalid payload")
+	}
+
+	customerID := req.CustomerID
+
+	if customerID == "" {
+		return helper.BadRequestResponse(c, "customer_id is required")
+	}
+
+	data, err := h.service.GetCustomerOrders(orgID, customerID, &req)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Customer orders loaded", data)
+}

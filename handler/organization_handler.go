@@ -217,16 +217,16 @@ func (h *OrganizationHandler) UpdateOrganizationDetail(c *fiber.Ctx) error {
 		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Organization not found")
 	}
 
-	var payload map[string]interface{}
-	if err := c.BodyParser(&payload); err != nil {
+	var req model.UpdateOrganizationDetailRequest
+	if err := c.BodyParser(&req); err != nil {
 		return helper.BadRequestResponse(c, "Invalid request body")
 	}
 
-	if payload["organization_name"] == nil || payload["company_name"] == nil || payload["phone"] == nil || payload["address"] == nil || payload["email"] == nil {
-		return helper.BadRequestResponse(c, "organization_name, company_name, phone, address, email wajib")
+	if validationErrors := helper.ValidateStruct(req); len(validationErrors) > 0 {
+		return helper.SendValidationErrorResponse(c, validationErrors)
 	}
 
-	if err := h.orgService.UpdateOrganizationDetail(orgID, payload); err != nil {
+	if err := h.orgService.UpdateOrganizationDetail(orgID, &req); err != nil {
 		code := service.GetStatusCode(err)
 		return helper.SendErrorResponse(c, code, err.Error())
 	}

@@ -23,3 +23,10 @@ type CustomerCreateRequest struct {
 	CustomerCompany   string `json:"customer_company"`
 	CustomerBOD       string `json:"customer_bod"`
 }
+
+type CustomerOrdersRequest struct {
+	CustomerID string `json:"customer_id"`
+	StartDate  string `json:"start_date"`
+	EndDate    string `json:"end_date"`
+	OrderType  string `json:"order_type"`
+}
