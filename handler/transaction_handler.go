@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"os"
+	"service-travego/configs"
 	"service-travego/helper"
 	"service-travego/model"
 	"service-travego/service"
@@ -16,33 +17,6 @@ import (
 
 var paymentStatusOnce sync.Once
 var paymentStatusMap map[int]string
-
-var transactionTypeMap = map[int]string{
-	int(model.TransactionTypeIncomeRental):      "Income Rental",
-	int(model.TransactionTypeIncomeTourPackage): "Income Tour Package",
-	int(model.TransactionTypeIncomeComission):   "Income Commission",
-	int(model.TransactionTypeIncomeOtherIncome): "Income Other Income",
-	int(model.TransactionTypeIncomeAds):         "Income Ads",
-
-	int(model.TransactionTypeExpenseFuel):               "Expense Fuel",
-	int(model.TransactionTypeExpenseTol):                "Expense Toll",
-	int(model.TransactionTypeExpenseDriverAllowance):    "Expense Driver Allowance",
-	int(model.TransactionTypeExpenseGuideFee):           "Expense Guide Fee",
-	int(model.TransactionTypeExpenseCrewMeal):           "Expense Crew Meal",
-	int(model.TransactionTypeExpenseVehicleMaintenance): "Expense Vehicle Maintenance",
-	int(model.TransactionTypeExpenseVehicleTax):         "Expense Vehicle Tax",
-	int(model.TransactionTypeExpenseVehicleInsurance):   "Expense Vehicle Insurance",
-	int(model.TransactionTypeExpenseHotel):              "Expense Hotel",
-	int(model.TransactionTypeExpenseRestaurant):         "Expense Restaurant",
-	int(model.TransactionTypeExpenseAttractionTicket):   "Expense Attraction Ticket",
-	int(model.TransactionTypeExpenseSalary):             "Expense Salary",
-	int(model.TransactionTypeExpenseOfficeRent):         "Expense Office Rent",
-	int(model.TransactionTypeExpenseUtility):            "Expense Utility",
-	int(model.TransactionTypeExpenseMarketing):          "Expense Marketing",
-	int(model.TransactionTypeExpenseBankCharge):         "Expense Bank Charge",
-	int(model.TransactionTypeExpenseOtherExpenses):      "Expense Other Expenses",
-	int(model.TransactionTypeExpenseCommission):         "Expense Commission",
-}
 
 type TransactionHandler struct {
 	service *service.TransactionService
@@ -121,7 +95,7 @@ func (h *TransactionHandler) listTransactions(c *fiber.Ctx, mode string) error {
 		}
 
 		transactionTypeLabel := ""
-		if label, ok := transactionTypeMap[row.TransactionType]; ok {
+		if label, ok := configs.TransactionTypeLabel[row.TransactionType]; ok {
 			transactionTypeLabel = label
 		}
 
@@ -235,8 +209,8 @@ func (h *TransactionHandler) ListTransactionLabels(c *fiber.Ctx) error {
 		filteredBy = "expense"
 	}
 
-	keys := make([]int, 0, len(transactionTypeMap))
-	for id := range transactionTypeMap {
+	keys := make([]int, 0, len(configs.TransactionTypeLabel))
+	for id := range configs.TransactionTypeLabel {
 		if filteredBy == "income" && id > 100 {
 			continue
 		}
@@ -251,7 +225,7 @@ func (h *TransactionHandler) ListTransactionLabels(c *fiber.Ctx) error {
 	for _, id := range keys {
 		types = append(types, map[string]interface{}{
 			"id":    id,
-			"label": transactionTypeMap[id],
+			"label": configs.TransactionTypeLabel[id],
 		})
 	}
 
