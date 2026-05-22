@@ -156,3 +156,14 @@ func (s *CustomersService) ensureLocationsLoaded() {
 	}
 	s.citiesName = cm
 }
+
+func (s *CustomersService) GetCustomerOrders(orgID, customerID string, req *model.CustomerOrdersRequest) ([]map[string]interface{}, error) {
+	data, err := s.repo.GetCustomerOrders(orgID, customerID, req)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return data, nil
+}
