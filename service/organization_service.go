@@ -16,12 +16,12 @@ import (
 )
 
 type OrganizationService struct {
-	orgRepo       *repository.OrganizationRepository
-	orgUserRepo   *repository.OrganizationUserRepository
-	userRepo      *repository.UserRepository
-	orgTypeRepo   *repository.OrganizationTypeRepository
-	citiesName    map[string]string
-	provincesName map[string]string
+	orgRepo            *repository.OrganizationRepository
+	orgUserRepo        *repository.OrganizationUserRepository
+	userRepo           *repository.UserRepository
+	orgTypeRepo        *repository.OrganizationTypeRepository
+	citiesName         map[string]string
+	provincesName      map[string]string
 	contractTypeLabels map[int]string
 }
 
@@ -175,77 +175,70 @@ func (s *OrganizationService) UpdateOrganization(userID string, org *model.Organ
 	return s.orgRepo.Update(existingOrg)
 }
 
-func (s *OrganizationService) UpdateOrganizationDetail(orgID string, payload map[string]interface{}) error {
-	name, _ := payload["organization_name"].(string)
-	company, _ := payload["company_name"].(string)
-	phone, _ := payload["phone"].(string)
-	address, _ := payload["address"].(string)
-	email, _ := payload["email"].(string)
-	orgCode, _ := payload["organization_code"].(string)
+func (s *OrganizationService) UpdateOrganizationDetail(orgID string, req *model.UpdateOrganizationDetailRequest) error {
+	updates := make(map[string]interface{})
 
-	if name == "" || company == "" || phone == "" || address == "" || email == "" {
-		return NewServiceError(ErrInvalidInput, 400, "organization_name, company_name, phone, address, email wajib")
+	if req.OrganizationName != nil {
+		updates["organization_name"] = *req.OrganizationName
 	}
-
-	var provinceStr *string
-	if v, ok := payload["province"]; ok {
-		switch t := v.(type) {
-		case float64:
-			s := fmt.Sprintf("%d", int(t))
-			provinceStr = &s
-		case int:
-			s := fmt.Sprintf("%d", t)
-			provinceStr = &s
-		case string:
-			s := t
-			provinceStr = &s
+	if req.CompanyName != nil {
+		updates["company_name"] = *req.CompanyName
+	}
+	if req.Phone != nil {
+		phone := *req.Phone
+		if strings.HasPrefix(phone, "0") {
+			phone = "62" + phone[1:]
 		}
+		updates["phone"] = phone
+	}
+	if req.CompanyAddress != nil {
+		updates["address"] = *req.CompanyAddress
+	}
+	if req.Email != nil {
+		updates["email"] = *req.Email
+	}
+	if req.ProvinceID != nil {
+		updates["province"] = *req.ProvinceID
+	}
+	if req.CityID != nil {
+		updates["city"] = *req.CityID
+	}
+	if req.NPWPNumber != nil {
+		updates["npwp_number"] = *req.NPWPNumber
+	}
+	if req.PostalCode != nil {
+		updates["postal_code"] = *req.PostalCode
+	}
+	if req.OrganizationType != nil {
+		updates["organization_type"] = *req.OrganizationType
 	}
 
-	var cityStr *string
-	if v, ok := payload["city"]; ok {
-		switch t := v.(type) {
-		case float64:
-			s := fmt.Sprintf("%d", int(t))
-			cityStr = &s
-		case int:
-			s := fmt.Sprintf("%d", t)
-			cityStr = &s
-		case string:
-			s := t
-			cityStr = &s
+	// Handle interface{} for lat/lng to support both string and float
+	if req.CompanyLat != nil {
+		updates["organization_lat"] = fmt.Sprintf("%v", req.CompanyLat)
+	}
+	if req.CompanyLng != nil {
+		updates["organization_lng"] = fmt.Sprintf("%v", req.CompanyLng)
+	}
+
+	if req.AddressLabel != nil {
+		updates["address_label"] = *req.AddressLabel
+	}
+	if req.WhatsApp != nil {
+		whatsapp := *req.WhatsApp
+		if strings.HasPrefix(whatsapp, "0") {
+			whatsapp = "62" + whatsapp[1:]
 		}
+		updates["whatsapp"] = whatsapp
 	}
 
-	var npwpPtr *string
-	if v, ok := payload["npwp_number"].(string); ok {
-		s := v
-		npwpPtr = &s
-	}
-	var postalPtr *string
-	if v, ok := payload["postal_code"].(string); ok {
-		s := v
-		postalPtr = &s
-	}
-	var orgTypePtr *int
-	if v, ok := payload["organization_type"]; ok {
-		switch t := v.(type) {
-		case float64:
-			iv := int(t)
-			orgTypePtr = &iv
-		case int:
-			iv := t
-			orgTypePtr = &iv
-		}
+	if len(updates) == 0 {
+		return nil // Nothing to update
 	}
 
-	if orgCode == "" {
-		return NewServiceError(ErrInvalidInput, 400, "organization_code diperlukan untuk verifikasi")
-	}
-
-	if err := s.orgRepo.UpdateByIDAndCode(orgID, orgCode, name, company, phone, address, email, provinceStr, cityStr, npwpPtr, postalPtr, orgTypePtr); err != nil {
+	if err := s.orgRepo.UpdateByID(orgID, updates); err != nil {
 		if err == sql.ErrNoRows {
-			return NewServiceError(ErrNotFound, 404, "organization tidak ditemukan atau code tidak cocok")
+			return NewServiceError(ErrNotFound, 404, "organization tidak ditemukan")
 		}
 		return err
 	}
@@ -473,10 +466,14 @@ func (s *OrganizationService) GetOrganizationDetail(organizationID string) (map[
 		"city":              org.City,
 		"province":          org.Province,
 		"phone":             org.Phone,
+		"whatsapp":          org.WhatsApp,
 		"npwp_number":       org.NPWPNumber,
 		"email":             org.Email,
 		"organization_type": orgTypeLabel,
 		"postal_code":       org.PostalCode,
+		"organization_lat":  org.OrganizationLat,
+		"organization_lng":  org.OrganizationLng,
+		"address_label":     org.AddressLabel,
 		"domain_url":        org.DomainURL,
 		"logo":              org.Logo,
 		"city_name":         cityName,

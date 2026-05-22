@@ -60,7 +60,7 @@ func (r *OrganizationRepository) getPlaceholder(pos int) string {
 func (r *OrganizationRepository) FindByID(id string) (*model.Organization, error) {
 	query := fmt.Sprintf(`
         SELECT organization_id, organization_code, organization_name, company_name, address, city, province,
-               phone, email, npwp_number, organization_type, postal_code, domain_url, COALESCE(logo, ''), created_by, created_at, updated_at
+               phone, whatsapp, email, npwp_number, organization_type, postal_code, organization_lat, organization_lng, address_label, domain_url, COALESCE(logo, ''), created_by, created_at, updated_at
         FROM organizations
         WHERE organization_id = %s
     `, r.getPlaceholder(1))
@@ -68,7 +68,11 @@ func (r *OrganizationRepository) FindByID(id string) (*model.Organization, error
 	var org model.Organization
 	var npwpNumber sql.NullString
 	var postalCode sql.NullString
+	var organizationLat sql.NullString
+	var organizationLng sql.NullString
+	var addressLabel sql.NullString
 	var domainURL sql.NullString
+	var whatsApp sql.NullString
 	var logo sql.NullString
 	err := database.QueryRow(r.db, query, id).Scan(
 		&org.ID,
@@ -79,10 +83,14 @@ func (r *OrganizationRepository) FindByID(id string) (*model.Organization, error
 		&org.City,
 		&org.Province,
 		&org.Phone,
+		&whatsApp,
 		&org.Email,
 		&npwpNumber,
 		&org.OrganizationType,
 		&postalCode,
+		&organizationLat,
+		&organizationLng,
+		&addressLabel,
 		&domainURL,
 		&logo,
 		&org.CreatedBy,
@@ -96,11 +104,23 @@ func (r *OrganizationRepository) FindByID(id string) (*model.Organization, error
 		if postalCode.Valid {
 			org.PostalCode = postalCode.String
 		}
+		if organizationLat.Valid {
+			org.OrganizationLat = organizationLat.String
+		}
+		if organizationLng.Valid {
+			org.OrganizationLng = organizationLng.String
+		}
+		if addressLabel.Valid {
+			org.AddressLabel = addressLabel.String
+		}
 		if domainURL.Valid {
 			org.DomainURL = domainURL.String
 		}
 		if logo.Valid {
 			org.Logo = r.getAssetURL(logo.String)
+		}
+		if whatsApp.Valid {
+			org.WhatsApp = whatsApp.String
 		}
 	}
 	if err != nil {
@@ -118,7 +138,7 @@ func (r *OrganizationRepository) FindByID(id string) (*model.Organization, error
 func (r *OrganizationRepository) FindByCode(code string) (*model.Organization, error) {
 	query := fmt.Sprintf(`
         SELECT organization_id, organization_code, organization_name, company_name, address, city, province,
-               phone, email, created_at, updated_at
+               phone, whatsapp, email, created_at, updated_at
         FROM organizations
         WHERE organization_code = %s
     `, r.getPlaceholder(1))
@@ -591,52 +611,35 @@ func (r *OrganizationRepository) Update(org *model.Organization) (*model.Organiz
 	return org, nil
 }
 
-// UpdateByIDAndCode updates organization
-func (r *OrganizationRepository) UpdateByIDAndCode(orgID, orgCode string, name, company, phone, address, email string, province, city *string, npwpNumber, postalCode *string, organizationType *int) error {
+// UpdateByID updates organization with dynamic fields
+func (r *OrganizationRepository) UpdateByID(orgID string, updates map[string]interface{}) error {
 	updatedAt := time.Now()
 
-	setParts := []string{
-		fmt.Sprintf("organization_name = %s", r.getPlaceholder(1)),
-		fmt.Sprintf("company_name = %s", r.getPlaceholder(2)),
-		fmt.Sprintf("phone = %s", r.getPlaceholder(3)),
-		fmt.Sprintf("address = %s", r.getPlaceholder(4)),
-		fmt.Sprintf("email = %s", r.getPlaceholder(5)),
-		fmt.Sprintf("updated_at = %s", r.getPlaceholder(6)),
-	}
+	var setParts []string
+	var args []interface{}
+	pos := 1
 
-	args := []interface{}{name, company, phone, address, email, updatedAt}
-	pos := 7
-
-	if province != nil {
-		setParts = append(setParts, fmt.Sprintf("province = %s", r.getPlaceholder(pos)))
-		args = append(args, sql.NullString{String: *province, Valid: *province != ""})
-		pos++
-	}
-	if city != nil {
-		setParts = append(setParts, fmt.Sprintf("city = %s", r.getPlaceholder(pos)))
-		args = append(args, sql.NullString{String: *city, Valid: *city != ""})
-		pos++
-	}
-	if npwpNumber != nil {
-		setParts = append(setParts, fmt.Sprintf("npwp_number = %s", r.getPlaceholder(pos)))
-		args = append(args, sql.NullString{String: *npwpNumber, Valid: *npwpNumber != ""})
-		pos++
-	}
-	if postalCode != nil {
-		setParts = append(setParts, fmt.Sprintf("postal_code = %s", r.getPlaceholder(pos)))
-		args = append(args, sql.NullString{String: *postalCode, Valid: *postalCode != ""})
-		pos++
-	}
-	if organizationType != nil {
-		setParts = append(setParts, fmt.Sprintf("organization_type = %s", r.getPlaceholder(pos)))
-		args = append(args, sql.NullInt32{Int32: int32(*organizationType), Valid: true})
+	for key, value := range updates {
+		setParts = append(setParts, fmt.Sprintf("%s = %s", key, r.getPlaceholder(pos)))
+		args = append(args, value)
 		pos++
 	}
 
-	query := fmt.Sprintf("UPDATE organizations SET %s WHERE organization_id = %s AND organization_code = %s",
-		strings.Join(setParts, ", "), r.getPlaceholder(pos), r.getPlaceholder(pos+1))
+	if len(setParts) == 0 {
+		// Just update updated_at if nothing else
+		setParts = append(setParts, fmt.Sprintf("updated_at = %s", r.getPlaceholder(pos)))
+		args = append(args, updatedAt)
+		pos++
+	} else {
+		setParts = append(setParts, fmt.Sprintf("updated_at = %s", r.getPlaceholder(pos)))
+		args = append(args, updatedAt)
+		pos++
+	}
 
-	args = append(args, orgID, orgCode)
+	query := fmt.Sprintf("UPDATE organizations SET %s WHERE organization_id = %s",
+		strings.Join(setParts, ", "), r.getPlaceholder(pos))
+
+	args = append(args, orgID)
 
 	res, err := database.Exec(r.db, query, args...)
 	if err != nil {
