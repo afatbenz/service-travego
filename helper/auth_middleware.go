@@ -151,6 +151,15 @@ func DualAuthMiddleware(orgRepo *repository.OrganizationRepository) fiber.Handle
 		if apiKey == "" {
 			apiKey = c.Get("API-KEY")
 		}
+		if apiKey == "" {
+			apiKey = c.Get("apikey")
+		}
+		if apiKey == "" {
+			apiKey = c.Get("ApiKey")
+		}
+		if apiKey == "" {
+			apiKey = c.Get("APIKEY")
+		}
 
 		if apiKey != "" {
 			var orgID string

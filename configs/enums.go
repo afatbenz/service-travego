@@ -135,6 +135,14 @@ var TransactionTypeLabel = map[int]string{
 	int(model.TransactionTypeExpenseCommission):         "Expense Commission",
 }
 
+var MessageTypeLabel = map[string]string{
+	"MSG001": "Rental Mobil",
+	"MSG002": "Travel Antar Kota",
+	"MSG003": "Paket Wisata",
+	"MSG004": "Airport Transfer",
+	"MSG005": "Lainnya",
+}
+
 const (
 	PaymentStatusPaid            PaymentStatus = 1
 	PaymentStatusWaitingPayment  PaymentStatus = 2
