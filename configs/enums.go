@@ -1,5 +1,7 @@
 package configs
 
+import "service-travego/model"
+
 // OrganizationRole represents the role of a user in an organization
 type OrganizationRole int
 
@@ -105,6 +107,33 @@ func (u UploadType) GetStoragePath() string {
 type RentType int
 
 type PaymentStatus int
+
+var TransactionTypeLabel = map[int]string{
+	int(model.TransactionTypeIncomeRental):      "Income Rental",
+	int(model.TransactionTypeIncomeTourPackage): "Income Tour Package",
+	int(model.TransactionTypeIncomeComission):   "Income Commission",
+	int(model.TransactionTypeIncomeOtherIncome): "Income Other Income",
+	int(model.TransactionTypeIncomeAds):         "Income Ads",
+
+	int(model.TransactionTypeExpenseFuel):               "Expense Fuel",
+	int(model.TransactionTypeExpenseTol):                "Expense Toll",
+	int(model.TransactionTypeExpenseDriverAllowance):    "Expense Driver Allowance",
+	int(model.TransactionTypeExpenseGuideFee):           "Expense Guide Fee",
+	int(model.TransactionTypeExpenseCrewMeal):           "Expense Crew Meal",
+	int(model.TransactionTypeExpenseVehicleMaintenance): "Expense Vehicle Maintenance",
+	int(model.TransactionTypeExpenseVehicleTax):         "Expense Vehicle Tax",
+	int(model.TransactionTypeExpenseVehicleInsurance):   "Expense Vehicle Insurance",
+	int(model.TransactionTypeExpenseHotel):              "Expense Hotel",
+	int(model.TransactionTypeExpenseRestaurant):         "Expense Restaurant",
+	int(model.TransactionTypeExpenseAttractionTicket):   "Expense Attraction Ticket",
+	int(model.TransactionTypeExpenseSalary):             "Expense Salary",
+	int(model.TransactionTypeExpenseOfficeRent):         "Expense Office Rent",
+	int(model.TransactionTypeExpenseUtility):            "Expense Utility",
+	int(model.TransactionTypeExpenseMarketing):          "Expense Marketing",
+	int(model.TransactionTypeExpenseBankCharge):         "Expense Bank Charge",
+	int(model.TransactionTypeExpenseOtherExpenses):      "Expense Other Expenses",
+	int(model.TransactionTypeExpenseCommission):         "Expense Commission",
+}
 
 const (
 	PaymentStatusPaid            PaymentStatus = 1
