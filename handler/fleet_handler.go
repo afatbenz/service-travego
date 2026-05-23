@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"service-travego/configs"
 	"service-travego/helper"
 	"service-travego/model"
 	"service-travego/service"
@@ -1126,6 +1127,67 @@ func (h *FleetHandler) ProcessFleetOrder(c *fiber.Ctx) error {
 	if err != nil {
 		code := service.GetStatusCode(err)
 		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	if processType == "approve" {
+		orderDetail, derr := h.service.GetPartnerOrderDetail(orderID, orgID)
+		if derr == nil && strings.TrimSpace(orderDetail.Customer.CustomerEmail) != "" {
+			tokenPayload := model.OrderTokenPayload{
+				OrderID: orderID,
+				PriceID: "",
+			}
+			tokenBytes, _ := json.Marshal(tokenPayload)
+			token, terr := helper.EncryptString(string(tokenBytes))
+			if terr == nil && strings.TrimSpace(token) != "" {
+				emailCfg := &configs.EmailConfig{
+					From:     os.Getenv("EMAIL_FROM"),
+					Password: os.Getenv("EMAIL_PASSWORD"),
+					SMTPHost: os.Getenv("EMAIL_SMTP_HOST"),
+					SMTPPort: os.Getenv("EMAIL_SMTP_PORT"),
+				}
+				if configs.ValidateEmailConfig(emailCfg) == nil {
+					orgName, _ := c.Locals("organization_name").(string)
+
+					addonNames := make([]string, 0, len(orderDetail.Addon))
+					for i := range orderDetail.Addon {
+						if n := strings.TrimSpace(orderDetail.Addon[i].AddonName); n != "" {
+							addonNames = append(addonNames, n)
+						}
+					}
+					facilities := strings.Join(addonNames, ", ")
+
+					destinations := make([]string, 0, len(orderDetail.Destination))
+					for i := range orderDetail.Destination {
+						if d := strings.TrimSpace(orderDetail.Destination[i].Location); d != "" {
+							destinations = append(destinations, d)
+						}
+					}
+					destStr := strings.Join(destinations, ", ")
+
+					baseURL := "http://localhost:5174"
+					baseURL = strings.TrimSuffix(baseURL, "/")
+
+					emailData := helper.OrderSuccessEmailData{
+						CustomerName:   orderDetail.Customer.CustomerName,
+						OrderID:        orderDetail.OrderID,
+						FleetName:      orderDetail.FleetName,
+						Duration:       orderDetail.Duration,
+						Facilities:     facilities,
+						PickupLocation: orderDetail.Pickup.PickupLocation,
+						Destination:    destStr,
+						TotalPrice:     helper.FormatRupiah(orderDetail.TotalAmount),
+						PaymentUrl:     fmt.Sprintf("%s/payment/armada/%s", baseURL, token),
+						OrderDetailUrl: fmt.Sprintf("%s/order/detail/armada/%s", baseURL, token),
+					}
+
+					go func() {
+						if err := helper.SendOrderApprovedEmail(emailCfg, orderDetail.Customer.CustomerEmail, orgName, emailData); err != nil {
+							fmt.Println("failed to send approved order email:", err)
+						}
+					}()
+				}
+			}
+		}
 	}
 
 	return nil

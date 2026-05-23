@@ -3,12 +3,16 @@ package service
 import (
 	"crypto/sha512"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"service-travego/config"
+	"service-travego/configs"
+	"service-travego/helper"
 	"service-travego/model"
 	"service-travego/repository"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,7 +23,7 @@ import (
 type PaymentService interface {
 	CreatePayment(req *model.PaymentRequest) (*model.PaymentResponse, error)
 	PaymentNotifications(req *model.MidtransWebhookRequest) error
-	UpdatePaymentStatus(orderID string, orderType int64, status int) error
+	UpdatePaymentStatus(orderID string, orderType int64, status int, paymentStatus int) error
 	ProcessPaymentNotification(req *model.MidtransWebhookRequest) error
 }
 
@@ -36,13 +40,12 @@ func NewPaymentService(repo repository.PaymentRepository, midtransConfig *config
 	}
 }
 
-// ProcessPaymentNotification handles the logic for Midtrans notification
 func (s *paymentService) ProcessPaymentNotification(req *model.MidtransWebhookRequest) error {
 	if req.StatusCode != "200" {
 		return nil
 	}
 
-	orgID, totalAmount, orderType, err := s.repo.GetOrderDetails(req.OrderID)
+	orgID, totalAmount, orderTypeFromOrder, err := s.repo.GetOrderDetails(req.OrderID)
 	if err != nil {
 		return fmt.Errorf("failed to get order details: %w", err)
 	}
@@ -52,11 +55,21 @@ func (s *paymentService) ProcessPaymentNotification(req *model.MidtransWebhookRe
 		return fmt.Errorf("invalid gross amount: %w", err)
 	}
 
-	if err := s.repo.UpdatePaymentOrderNotification(req.OrderID, orgID, totalAmount, grossAmount, req.TransactionID); err != nil {
+	if err := s.repo.UpdatePaymentOrderNotification(req.OrderID, orgID, totalAmount, grossAmount, req.TransactionID, req.PaymentType); err != nil {
 		return fmt.Errorf("failed to update payment order: %w", err)
 	}
+	fmt.Println("--- Remaining")
+	remaining, err := s.repo.GetLatestPaymentOrderRemainingAmount(req.OrderID, orgID, orderTypeFromOrder)
+	if err != nil {
+		return fmt.Errorf("failed to get remaining amount: %w", err)
+	}
 
-	if err := s.UpdatePaymentStatus(req.OrderID, orderType, 1); err != nil {
+	paymentStatus := 4
+	if !remaining.Valid || remaining.Float64 <= 0 {
+		paymentStatus = 1
+	}
+	fmt.Println("--- UpdatePaymentStatus")
+	if err := s.UpdatePaymentStatus(req.OrderID, orderTypeFromOrder, 1, paymentStatus); err != nil {
 		return fmt.Errorf("failed to update order status: %w", err)
 	}
 
@@ -65,21 +78,159 @@ func (s *paymentService) ProcessPaymentNotification(req *model.MidtransWebhookRe
 		return fmt.Errorf("failed to insert payment midtrans: %w", err)
 	}
 
+	invoiceNumber, orderTypeFromPaymentOrder, createdBy, err := s.repo.GetPaymentOrderMeta(req.OrderID, orgID)
+	if err != nil {
+		return fmt.Errorf("failed to get payment order meta: %w", err)
+	}
+
+	orderType := orderTypeFromOrderID(req.OrderID)
+	if orderType == 0 {
+		orderType = orderTypeFromPaymentOrder
+	}
+	if orderType == 0 {
+		orderType = orderTypeFromOrder
+	}
+
+	if invoiceNumber != "" {
+		exists, err := s.repo.TransactionExistsByInvoice(orgID, invoiceNumber)
+		if err != nil {
+			return fmt.Errorf("failed to check existing transaction: %w", err)
+		}
+		if exists {
+			return nil
+		}
+	}
+
+	transactionDate := parseMidtransTransactionTime(req.TransactionTime)
+
+	transactionType := int(model.TransactionTypeIncomeOtherIncome)
+	if orderType == 1 {
+		transactionType = int(model.TransactionTypeIncomeRental)
+	} else if orderType == 2 {
+		transactionType = int(model.TransactionTypeIncomeTourPackage)
+	}
+
+	transactionID, err := uuid.NewV7()
+	if err != nil {
+		return fmt.Errorf("failed to generate transaction_id: %w", err)
+	}
+
+	if err := s.repo.InsertTransactionMidtrans(
+		transactionID.String(),
+		orderType,
+		invoiceNumber,
+		"Midtrans - Order ID "+req.OrderID,
+		transactionDate,
+		1004,
+		grossAmount,
+		orgID,
+		transactionType,
+		int(model.TransactionMarkIncome),
+		time.Now(),
+		createdBy,
+	); err != nil {
+		return fmt.Errorf("failed to insert transaction: %w", err)
+	}
+
+	customerName, customerEmail, fleetName, pickupLocation, startDate, endDate, destination, err := s.repo.GetFleetOrderEmailData(req.OrderID, orgID)
+	if err == nil && strings.TrimSpace(customerEmail) != "" {
+		tokenPayload := model.OrderTokenPayload{
+			OrderID: req.OrderID,
+			PriceID: "",
+		}
+		tokenBytes, _ := json.Marshal(tokenPayload)
+		token, terr := helper.EncryptString(string(tokenBytes))
+		if terr == nil && strings.TrimSpace(token) != "" {
+			emailCfg := &configs.EmailConfig{
+				From:     os.Getenv("EMAIL_FROM"),
+				Password: os.Getenv("EMAIL_PASSWORD"),
+				SMTPHost: os.Getenv("EMAIL_SMTP_HOST"),
+				SMTPPort: os.Getenv("EMAIL_SMTP_PORT"),
+			}
+			if configs.ValidateEmailConfig(emailCfg) == nil {
+				baseURL := "http://localhost:5174"
+				baseURL = strings.TrimSuffix(baseURL, "/")
+
+				duration := ""
+				if !startDate.IsZero() && !endDate.IsZero() {
+					days := int(endDate.Sub(startDate).Hours()/24) + 1
+					if days < 1 {
+						days = 1
+					}
+					duration = fmt.Sprintf("%d hari", days)
+				}
+
+				emailData := helper.PaymentSuccessEmailData{
+					CustomerName:   customerName,
+					TransactionID:  req.TransactionID,
+					OrderID:        req.OrderID,
+					PaymentMethod:  req.PaymentType,
+					PaymentDate:    req.TransactionTime,
+					TotalPrice:     helper.FormatRupiah(grossAmount),
+					FleetName:      fleetName,
+					Duration:       duration,
+					PickupLocation: pickupLocation,
+					Destination:    destination,
+					OrderDetailUrl: fmt.Sprintf("%s/order/detail/armada/%s", baseURL, token),
+					ReviewUrl:      fmt.Sprintf("%s/order/review", baseURL),
+				}
+
+				go func() {
+					if err := helper.SendPaymentSuccessEmail(emailCfg, customerEmail, emailData); err != nil {
+						fmt.Println("failed to send payment success email:", err)
+					}
+				}()
+			}
+		}
+	}
+
 	return nil
 }
 
-func (s *paymentService) UpdatePaymentStatus(orderID string, orderType int64, status int) error {
-	return s.repo.UpdateOrderStatus(orderID, orderType, status)
+func orderTypeFromOrderID(orderID string) int64 {
+	id := strings.TrimSpace(orderID)
+	if id == "" {
+		return 0
+	}
+	id = strings.ToUpper(id)
+
+	prefix := id
+	if i := strings.Index(prefix, "-"); i > 0 {
+		prefix = prefix[:i]
+	}
+
+	if strings.HasPrefix(prefix, "FO") {
+		return 1
+	}
+	if strings.HasPrefix(prefix, "TO") {
+		return 2
+	}
+	return 0
+}
+
+func parseMidtransTransactionTime(s string) time.Time {
+	raw := strings.TrimSpace(s)
+	if raw == "" {
+		return time.Now()
+	}
+	if t, err := time.ParseInLocation("2006-01-02 15:04:05", raw, time.Local); err == nil {
+		return t
+	}
+	if t, err := time.Parse(time.RFC3339, raw); err == nil {
+		return t
+	}
+	return time.Now()
+}
+
+func (s *paymentService) UpdatePaymentStatus(orderID string, orderType int64, status int, paymentStatus int) error {
+	return s.repo.UpdateOrderStatus(orderID, orderType, status, paymentStatus)
 }
 
 func (s *paymentService) CreatePayment(req *model.PaymentRequest) (*model.PaymentResponse, error) {
-	if req.PaymentType != 1 && req.PaymentType != 2 {
-		return nil, fmt.Errorf("invalid payment type: %d", req.PaymentType)
-	}
 
 	var paymentAmount int64
 
-	if req.PaymentType == 1 {
+	if req.PaymentType == 1004 {
 		amount, err := s.repo.GetOrderTotalAmount(req.OrderID, req.OrderType)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get order amount: %w", err)

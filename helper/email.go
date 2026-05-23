@@ -39,6 +39,27 @@ type OrderSuccessEmailData struct {
 	CompanyName      string
 	ContactList      []model.ContentListItem
 	OrderDetailUrl   string
+	PaymentUrl       string
+}
+
+type PaymentSuccessEmailData struct {
+	CustomerName     string
+	OrganizationLogo string
+	TransactionID    string
+	OrderID          string
+	PaymentMethod    string
+	PaymentDate      string
+	TotalPrice       string
+	FleetName        string
+	Duration         string
+	Facilities       string
+	PickupLocation   string
+	Destination      string
+	OrderDetailUrl   string
+	ReviewUrl        string
+	Year             int
+	BrandName        string
+	CompanyName      string
 }
 
 // GetOTPLength returns the OTP length from environment variable or default to 8
@@ -222,5 +243,27 @@ func SendOrderSuccessEmail(cfg *configs.EmailConfig, to string, data OrderSucces
 	}
 
 	subject := fmt.Sprintf("Order Confirmation - %s", data.OrderID)
+	return sendHTMLEmail(cfg, to, subject, htmlBody)
+}
+
+func SendOrderApprovedEmail(cfg *configs.EmailConfig, to string, organizationName string, data OrderSuccessEmailData) error {
+	data.Year = time.Now().Year()
+	htmlBody, err := renderEmailTemplate("order_approved.html", data)
+	if err != nil {
+		return err
+	}
+
+	subject := fmt.Sprintf("Pesanan Dikonfirmasi oleh Tim %s - %s", organizationName, data.OrderID)
+	return sendHTMLEmail(cfg, to, subject, htmlBody)
+}
+
+func SendPaymentSuccessEmail(cfg *configs.EmailConfig, to string, data PaymentSuccessEmailData) error {
+	data.Year = time.Now().Year()
+	htmlBody, err := renderEmailTemplate("payment_success.html", data)
+	if err != nil {
+		return err
+	}
+
+	subject := fmt.Sprintf("Pembayaran Berhasil - %s", data.OrderID)
 	return sendHTMLEmail(cfg, to, subject, htmlBody)
 }
