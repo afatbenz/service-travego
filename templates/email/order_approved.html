@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Pesanan Dikonfirmasi - TraveGO</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+
+        body {
+            font-family: 'Plus Jakarta Sans', Arial, sans-serif;
+            line-height: 1.6;
+            color: #1a1a2e;
+            background-color: #f0f4f8;
+            margin: 0;
+            padding: 20px 0;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+        }
+
+        /* HEADER */
+        .header {
+            background: linear-gradient(135deg, #0f4c81 0%, #1a73c1 60%, #2196f3 100%);
+            padding: 32px 36px 28px;
+            text-align: center;
+            position: relative;
+        }
+
+        .header::after {
+            content: '';
+            position: absolute;
+            bottom: -1px;
+            left: 0;
+            right: 0;
+            height: 32px;
+            background: #ffffff;
+            border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+        }
+
+        .header img {
+            max-height: 52px;
+            width: auto;
+            margin-bottom: 16px;
+            display: block;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .header h2 {
+            color: #ffffff;
+            font-size: 22px;
+            font-weight: 700;
+            margin: 0;
+            letter-spacing: 0.3px;
+        }
+
+        /* BADGE KONFIRMASI */
+        .badge-wrap {
+            text-align: center;
+            padding: 24px 36px 4px;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background-color: #e8f5e9;
+            color: #2e7d32;
+            font-size: 13px;
+            font-weight: 600;
+            padding: 7px 18px;
+            border-radius: 100px;
+            border: 1.5px solid #a5d6a7;
+        }
+
+        .badge svg {
+            flex-shrink: 0;
+        }
+
+        /* BODY */
+        .body {
+            padding: 8px 36px 28px;
+        }
+
+        .body p {
+            font-size: 15px;
+            color: #374151;
+            margin: 14px 0;
+        }
+
+        .body p strong {
+            color: #1a1a2e;
+        }
+
+        /* DETAIL BOX */
+        .details {
+            background: linear-gradient(145deg, #f7faff, #eef3fb);
+            border: 1px solid #d6e4f7;
+            border-radius: 12px;
+            padding: 20px 24px;
+            margin: 20px 0;
+        }
+
+        .details ul {
+            list-style-type: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .details li {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 10px 0;
+            border-bottom: 1px solid #dce8f7;
+            font-size: 14px;
+        }
+
+        .details li:last-child {
+            border-bottom: none;
+            padding-bottom: 0;
+        }
+
+        .details li:first-child {
+            padding-top: 0;
+        }
+
+        .label {
+            font-weight: 600;
+            color: #4b6a9b;
+            min-width: 145px;
+            flex-shrink: 0;
+            font-size: 13.5px;
+        }
+
+        .value {
+            color: #1a1a2e;
+            font-weight: 500;
+        }
+
+        /* HIGHLIGHT TOTAL */
+        .details li.total-row {
+            background-color: #e8f0fb;
+            margin: 8px -24px -20px;
+            padding: 12px 24px;
+            border-bottom: none;
+            border-radius: 0 0 11px 11px;
+        }
+
+        .details li.total-row .label {
+            color: #1a4d9c;
+            font-size: 14.5px;
+        }
+
+        .details li.total-row .value {
+            color: #0f4c81;
+            font-size: 15px;
+            font-weight: 700;
+        }
+
+        /* DIVIDER */
+        .divider {
+            border: none;
+            border-top: 1px solid #e5eaf2;
+            margin: 8px 0 20px;
+        }
+
+        /* TOMBOL */
+        .btn-wrap {
+            text-align: center;
+            margin: 24px 0 8px;
+        }
+
+        .btn-pay {
+            display: inline-block;
+            background: linear-gradient(135deg, #e65c00, #f9a825);
+            color: #ffffff !important;
+            font-size: 15px;
+            font-weight: 700;
+            padding: 14px 40px;
+            border-radius: 50px;
+            text-decoration: none;
+            letter-spacing: 0.3px;
+            box-shadow: 0 4px 16px rgba(230, 92, 0, 0.35);
+            transition: opacity 0.2s;
+        }
+
+        .btn-detail {
+            display: inline-block;
+            margin-top: 12px;
+            background-color: transparent;
+            color: #1a73c1 !important;
+            font-size: 13.5px;
+            font-weight: 600;
+            padding: 10px 28px;
+            border-radius: 50px;
+            text-decoration: none;
+            border: 1.5px solid #1a73c1;
+        }
+
+        /* INFO */
+        .info-note {
+            background-color: #fff8e1;
+            border-left: 4px solid #f9a825;
+            border-radius: 0 8px 8px 0;
+            padding: 12px 16px;
+            font-size: 13.5px;
+            color: #5d4037;
+            margin: 20px 0;
+        }
+
+        /* FOOTER */
+        .footer {
+            background-color: #f7faff;
+            border-top: 1px solid #dce8f7;
+            padding: 20px 36px;
+            font-size: 12px;
+            color: #8898b0;
+            text-align: center;
+        }
+
+        .footer p { margin: 4px 0; }
+        .footer .brand { font-weight: 700; color: #4b6a9b; font-size: 13px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+
+        <!-- HEADER -->
+        <div class="header">
+            {{if .OrganizationLogo}}
+            <img src="{{.OrganizationLogo}}" alt="Logo">
+            {{end}}
+            <h2>✈️ Konfirmasi Pesanan</h2>
+        </div>
+
+        <!-- BADGE STATUS -->
+        <div class="badge-wrap">
+            <span class="badge">
+                <svg width="15" height="15" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="10" cy="10" r="9" stroke="#2e7d32" stroke-width="1.8"/>
+                    <path d="M5.5 10.5L8.5 13.5L14.5 7.5" stroke="#2e7d32" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                Pesanan Dikonfirmasi
+            </span>
+        </div>
+
+        <!-- BODY -->
+        <div class="body">
+            <p>Halo, <strong>{{.CustomerName}}</strong>,</p>
+            <p>Pesanan Anda telah <strong>berhasil dikonfirmasi</strong>. Silakan lakukan pembayaran untuk melanjutkan proses pemesanan Anda. Berikut adalah detail pesanan Anda:</p>
+
+            <!-- DETAIL PESANAN -->
+            <div class="details">
+                <ul>
+                    <li>
+                        <span class="label">ID Pesanan</span>
+                        <span class="value">{{.OrderID}}</span>
+                    </li>
+                    <li>
+                        <span class="label">Nama Armada</span>
+                        <span class="value">{{.FleetName}}</span>
+                    </li>
+                    <li>
+                        <span class="label">Durasi</span>
+                        <span class="value">{{.Duration}}</span>
+                    </li>
+                    <li>
+                        <span class="label">Fasilitas</span>
+                        <span class="value">{{.Facilities}}</span>
+                    </li>
+                    <li>
+                        <span class="label">Lokasi Penjemputan</span>
+                        <span class="value">{{.PickupLocation}}</span>
+                    </li>
+                    <li>
+                        <span class="label">Tujuan</span>
+                        <span class="value">{{.Destination}}</span>
+                    </li>
+                    <li class="total-row">
+                        <span class="label">Total Harga</span>
+                        <span class="value">{{.TotalPrice}}</span>
+                    </li>
+                </ul>
+            </div>
+
+            <!-- CATATAN -->
+            <div class="info-note">
+                ⚠️ Segera lakukan pembayaran sebelum batas waktu yang ditentukan agar pesanan Anda tidak dibatalkan secara otomatis.
+            </div>
+
+            <!-- TOMBOL BAYAR -->
+            <div class="btn-wrap">
+                <a href="{{.PaymentUrl}}" class="btn-pay">💳 Bayar Sekarang</a>
+                <br>
+                <a href="{{.OrderDetailUrl}}" class="btn-detail">Lihat Detail Pesanan</a>
+            </div>
+
+            <hr class="divider">
+
+            <p style="font-size:13.5px; color:#6b7280;">Jika Anda memiliki pertanyaan, silakan hubungi tim dukungan kami. Kami siap membantu Anda.</p>
+            <p style="font-size:14px;">Terima kasih telah memilih <strong>TraveGO</strong>! 🙏</p>
+        </div>
+
+        <!-- FOOTER -->
+        <div class="footer">
+            {{if .CompanyName}}<p class="brand">{{.CompanyName}}</p>{{end}}
+            {{if .BrandName}}<p>{{.BrandName}}</p>{{end}}
+            <p>&copy; {{.Year}} TraveGO. Seluruh hak cipta dilindungi.</p>
+        </div>
+
+    </div>
+</body>
+</html>
