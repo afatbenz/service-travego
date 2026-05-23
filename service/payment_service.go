@@ -58,7 +58,7 @@ func (s *paymentService) ProcessPaymentNotification(req *model.MidtransWebhookRe
 	if err := s.repo.UpdatePaymentOrderNotification(req.OrderID, orgID, totalAmount, grossAmount, req.TransactionID, req.PaymentType); err != nil {
 		return fmt.Errorf("failed to update payment order: %w", err)
 	}
-
+	fmt.Println("--- Remaining")
 	remaining, err := s.repo.GetLatestPaymentOrderRemainingAmount(req.OrderID, orgID, orderTypeFromOrder)
 	if err != nil {
 		return fmt.Errorf("failed to get remaining amount: %w", err)
@@ -68,7 +68,7 @@ func (s *paymentService) ProcessPaymentNotification(req *model.MidtransWebhookRe
 	if !remaining.Valid || remaining.Float64 <= 0 {
 		paymentStatus = 1
 	}
-
+	fmt.Println("--- UpdatePaymentStatus")
 	if err := s.UpdatePaymentStatus(req.OrderID, orderTypeFromOrder, 1, paymentStatus); err != nil {
 		return fmt.Errorf("failed to update order status: %w", err)
 	}
