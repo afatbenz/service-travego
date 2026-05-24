@@ -22,6 +22,8 @@ type ServiceFleetItem struct {
 	Duration       int       `json:"duration"`
 	Cities         []string  `json:"cities"`
 	Capacities     string    `json:"capacities"`
+	Rating         float64   `json:"rating"`
+	TotalUlasan    int64     `json:"total_ulasan"`
 }
 
 type ServiceFleetDetailRequest struct {

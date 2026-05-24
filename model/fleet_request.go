@@ -59,23 +59,33 @@ type ListFleetRequest struct {
 }
 
 type FleetListItem struct {
-	FleetID    string `json:"fleet_id"`
-	FleetType  string `json:"fleet_type"`
-	FleetName  string `json:"fleet_name"`
-	Capacity   int    `json:"capacity"`
-	Engine     string `json:"engine"`
-	Engines    string `json:"engines"`
-	Capacities string `json:"capacities"`
-	Body       string `json:"body"`
-	TotalUnit  int    `json:"total_unit"`
-	Active     bool   `json:"active"`
-	Status     int    `json:"status"`
-	Thumbnail  string `json:"thumbnail"`
+	FleetID     string  `json:"fleet_id"`
+	FleetType   string  `json:"fleet_type"`
+	FleetName   string  `json:"fleet_name"`
+	Capacity    int     `json:"capacity"`
+	Engine      string  `json:"engine"`
+	Engines     string  `json:"engines"`
+	Capacities  string  `json:"capacities"`
+	Body        string  `json:"body"`
+	TotalUnit   int     `json:"total_unit"`
+	Active      bool    `json:"active"`
+	Status      int     `json:"status"`
+	Thumbnail   string  `json:"thumbnail"`
+	Rating      float64 `json:"rating"`
+	TotalUlasan int64   `json:"total_ulasan"`
 }
 
 type FleetUnitSearchItem struct {
-	FleetID   string `json:"fleet_id"`
-	FleetName string `json:"fleet_name"`
+	FleetID     string  `json:"fleet_id"`
+	FleetName   string  `json:"fleet_name"`
+	Rating      float64 `json:"rating"`
+	TotalUlasan int64   `json:"total_ulasan"`
+}
+
+type FleetRatingSummary struct {
+	FleetID     string  `json:"fleet_id"`
+	Rating      float64 `json:"rating"`
+	TotalUlasan int64   `json:"total_ulasan"`
 }
 
 type FleetDetailRequest struct {
@@ -165,27 +175,29 @@ type UpdateFleetRequest struct {
 }
 
 type FleetDetailMeta struct {
-	FleetID        string `json:"fleet_id"`
-	FleetType      string `json:"fleet_type"`
-	FleetTypeLabel string `json:"fleet_type_label"`
-	FleetName      string `json:"fleet_name"`
-	Capacity       int    `json:"capacity"`
-	ProductionYear int    `json:"production_year"`
-	Engine         string `json:"engine"`
-	Engines        string `json:"engines"`
-	Capacities     string `json:"capacities"`
-	Body           string `json:"body"`
-	FuelType       string `json:"fuel_type"`
-	FuelTypeLabel  string `json:"fuel_type_label"`
-	Transmission   string `json:"transmission"`
-	Description    string `json:"description"`
-	Thumbnail      string `json:"thumbnail"`
-	Active         bool   `json:"active"`
-	Status         int    `json:"status"`
-	CreatedAt      string `json:"created_at"`
-	CreatedBy      string `json:"created_by"`
-	UpdatedAt      string `json:"updated_at"`
-	UpdatedBy      string `json:"updated_by"`
+	FleetID        string  `json:"fleet_id"`
+	FleetType      string  `json:"fleet_type"`
+	FleetTypeLabel string  `json:"fleet_type_label"`
+	FleetName      string  `json:"fleet_name"`
+	Capacity       int     `json:"capacity"`
+	ProductionYear int     `json:"production_year"`
+	Engine         string  `json:"engine"`
+	Engines        string  `json:"engines"`
+	Capacities     string  `json:"capacities"`
+	Body           string  `json:"body"`
+	FuelType       string  `json:"fuel_type"`
+	FuelTypeLabel  string  `json:"fuel_type_label"`
+	Transmission   string  `json:"transmission"`
+	Description    string  `json:"description"`
+	Thumbnail      string  `json:"thumbnail"`
+	Active         bool    `json:"active"`
+	Status         int     `json:"status"`
+	CreatedAt      string  `json:"created_at"`
+	CreatedBy      string  `json:"created_by"`
+	UpdatedAt      string  `json:"updated_at"`
+	UpdatedBy      string  `json:"updated_by"`
+	Rating         float64 `json:"rating"`
+	TotalUlasan    int64   `json:"total_ulasan"`
 }
 
 type FleetPickupItem struct {

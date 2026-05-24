@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type FleetService struct {
@@ -1100,4 +1102,69 @@ func (s *FleetService) ProcessFleetOrder(orgID, userID, orderID string, processT
 		return err
 	}
 	return nil
+}
+
+func (s *FleetService) SubmitOrderReview(orgID, orderID string, star int, review string) error {
+	if orgID == "" {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "organization_id is required")
+	}
+	if orderID == "" {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "order_id is required")
+	}
+	if star < 1 || star > 5 {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "star must be between 1 and 5")
+	}
+	if strings.TrimSpace(review) == "" {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "review is required")
+	}
+
+	customerID, orderType, err := s.repo.GetCustomerOrderMeta(orderID, orgID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return NewServiceError(ErrNotFound, http.StatusNotFound, "order not found")
+		}
+		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to load order")
+	}
+
+	reviewID, err := uuid.NewV7()
+	if err != nil {
+		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to generate review_id")
+	}
+
+	if err := s.repo.InsertOrderReview(reviewID.String(), orderID, star, review, orgID, customerID, orderType, time.Now()); err != nil {
+		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to submit review")
+	}
+	return nil
+}
+
+func (s *FleetService) GetOrderReviews(orderID, orgID string) ([]model.OrderReviewItem, error) {
+	items, err := s.repo.GetOrderReviews(orderID, orgID)
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to load reviews")
+	}
+	return items, nil
+}
+
+func (s *FleetService) GetOrderRatingSummary(orderID, orgID string) (*model.OrderRatingSummary, error) {
+	rating, err := s.repo.GetOrderRatingSummary(orderID, orgID)
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to load rating")
+	}
+	return rating, nil
+}
+
+func (s *FleetService) GetFleetRatings(orgID string, fleetIDs []string) (map[string]model.FleetRatingSummary, error) {
+	ratings, err := s.repo.GetFleetRatings(orgID, fleetIDs)
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to load rating")
+	}
+	return ratings, nil
+}
+
+func (s *FleetService) GetFleetReviews(fleetID, orgID string) ([]model.OrderReviewItem, error) {
+	items, err := s.repo.GetFleetReviews(fleetID, orgID)
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to load reviews")
+	}
+	return items, nil
 }

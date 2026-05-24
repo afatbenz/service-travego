@@ -131,6 +131,19 @@ type OrderDetailResponse struct {
 	Scheduled         bool                      `json:"scheduled"`
 }
 
+type OrderReviewItem struct {
+	OrderID      string `json:"order_id"`
+	Star         int    `json:"star"`
+	Review       string `json:"review"`
+	CustomerName string `json:"customer_name"`
+	CreatedAt    string `json:"created_at"`
+}
+
+type OrderRatingSummary struct {
+	Rating      float64 `json:"rating"`
+	TotalUlasan int64   `json:"total_ulasan"`
+}
+
 type PaymentDetail struct {
 	BankCode          string        `json:"bank_code"`
 	AccountName       string        `json:"account_name"`
