@@ -358,6 +358,120 @@ func (s *ScheduleService) GetScheduleDetail(input model.ScheduleDetailServiceInp
 	return response, nil
 }
 
+func (s *ScheduleService) GetDailyAvailabilityFleet(input model.DailyAvailabilityFleetServiceInput) ([]model.DailyAvailabilityFleetScheduleItem, error) {
+	startDate, startErr := time.Parse("2006-01-02", strings.TrimSpace(input.StartDate))
+	if startErr != nil {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "start_date must be YYYY-MM-DD")
+	}
+	endDate, endErr := time.Parse("2006-01-02", strings.TrimSpace(input.EndDate))
+	if endErr != nil {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "end_date must be YYYY-MM-DD")
+	}
+	if endDate.Before(startDate) {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "end_date must be greater than or equal start_date")
+	}
+
+	fleetName, units, exists, err := s.repo.GetFleetWithUnitsForDailyAvailability(input.OrganizationID, strings.TrimSpace(input.FleetID))
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, s.internalMessage("failed to get fleet", err))
+	}
+	if !exists {
+		return nil, NewServiceError(ErrNotFound, http.StatusNotFound, "FLEET_NOT_FOUND")
+	}
+
+	scheduledRows, err := s.repo.ListScheduledFleetUnitDaysForDailyAvailability(input.OrganizationID, startDate, endDate, strings.TrimSpace(input.FleetID))
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, s.internalMessage("failed to get daily fleet availability", err))
+	}
+
+	scheduledByDate := make(map[string]map[string]struct{})
+	for _, row := range scheduledRows {
+		dateKey := row.Day.Format("2006-01-02")
+		if _, ok := scheduledByDate[dateKey]; !ok {
+			scheduledByDate[dateKey] = make(map[string]struct{})
+		}
+		if strings.TrimSpace(row.UnitID) != "" {
+			scheduledByDate[dateKey][row.UnitID] = struct{}{}
+		}
+	}
+
+	schedules := make([]model.DailyAvailabilityFleetScheduleItem, 0)
+	for d := startDate; !d.After(endDate); d = d.AddDate(0, 0, 1) {
+		dateKey := d.Format("2006-01-02")
+		scheduledSet := scheduledByDate[dateKey]
+
+		availableUnits := make([]model.DailyAvailabilityFleetAvailableUnitItem, 0)
+		for _, u := range units {
+			if scheduledSet != nil {
+				if _, ok := scheduledSet[u.UnitID]; ok {
+					continue
+				}
+			}
+			availableUnits = append(availableUnits, model.DailyAvailabilityFleetAvailableUnitItem{
+				UnitID:      u.UnitID,
+				VehicleID:   u.VehicleID,
+				PlateNumber: u.PlateNumber,
+			})
+		}
+
+		schedules = append(schedules, model.DailyAvailabilityFleetScheduleItem{
+			Date:           dateKey,
+			FleetID:        strings.TrimSpace(input.FleetID),
+			FleetName:      fleetName,
+			Available:      len(availableUnits) > 0,
+			AvailableUnits: availableUnits,
+		})
+	}
+
+	return schedules, nil
+}
+
+func (s *ScheduleService) GetDailyAvailabilityFleetUnit(input model.DailyAvailabilityFleetUnitServiceInput) ([]model.DailyAvailabilityFleetUnitScheduleItem, error) {
+	startDate, startErr := time.Parse("2006-01-02", strings.TrimSpace(input.StartDate))
+	if startErr != nil {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "start_date must be YYYY-MM-DD")
+	}
+	endDate, endErr := time.Parse("2006-01-02", strings.TrimSpace(input.EndDate))
+	if endErr != nil {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "end_date must be YYYY-MM-DD")
+	}
+	if endDate.Before(startDate) {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "end_date must be greater than or equal start_date")
+	}
+
+	unit, exists, err := s.repo.GetFleetUnitForDailyAvailability(input.OrganizationID, strings.TrimSpace(input.UnitID))
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, s.internalMessage("failed to get fleet unit", err))
+	}
+	if !exists {
+		return nil, NewServiceError(ErrNotFound, http.StatusNotFound, "UNIT_NOT_FOUND")
+	}
+
+	scheduledRows, err := s.repo.ListScheduledUnitDaysForDailyAvailability(input.OrganizationID, startDate, endDate, strings.TrimSpace(input.UnitID))
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, s.internalMessage("failed to get daily fleet unit availability", err))
+	}
+
+	scheduledDays := make(map[string]struct{})
+	for _, row := range scheduledRows {
+		scheduledDays[row.Day.Format("2006-01-02")] = struct{}{}
+	}
+
+	items := make([]model.DailyAvailabilityFleetUnitScheduleItem, 0)
+	for d := startDate; !d.After(endDate); d = d.AddDate(0, 0, 1) {
+		dateKey := d.Format("2006-01-02")
+		_, scheduled := scheduledDays[dateKey]
+		items = append(items, model.DailyAvailabilityFleetUnitScheduleItem{
+			Date:      dateKey,
+			UnitID:    unit.UnitID,
+			VehicleID: unit.VehicleID,
+			Available: !scheduled,
+		})
+	}
+
+	return items, nil
+}
+
 func (s *ScheduleService) GetScheduleDetailByDate(input model.ScheduleDetailByDateServiceInput) ([]model.ScheduleDetailByDateItem, error) {
 	if strings.TrimSpace(input.Date) == "" {
 		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "date is required")

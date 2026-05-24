@@ -936,6 +936,272 @@ func (r *ScheduleRepository) ListAvailableScheduleFleetUnits(organizationID stri
 	return result, nil
 }
 
+func (r *ScheduleRepository) GetFleetWithUnitsForDailyAvailability(organizationID, fleetID string) (string, []model.DailyAvailabilityFleetUnitRow, bool, error) {
+	orgExpr := "f.organization_id = " + r.placeholder(1)
+	fleetExpr := "f.uuid = " + r.placeholder(2)
+	unitOrgJoinExpr := "fu.organization_id = f.organization_id"
+	unitFleetJoinExpr := "fu.fleet_id = f.uuid"
+	unitIDExpr := "COALESCE(CAST(fu.unit_id AS CHAR), '')"
+	vehicleIDExpr := "COALESCE(CAST(fu.vehicle_id AS CHAR), '')"
+	if r.driver == "postgres" || r.driver == "pgx" {
+		orgExpr = "f.organization_id::text = " + r.placeholder(1)
+		fleetExpr = "f.uuid::text = " + r.placeholder(2)
+		unitOrgJoinExpr = "fu.organization_id::text = f.organization_id::text"
+		unitFleetJoinExpr = "fu.fleet_id::text = f.uuid::text"
+		unitIDExpr = "COALESCE(fu.unit_id::text, '')"
+		vehicleIDExpr = "COALESCE(fu.vehicle_id::text, '')"
+	}
+
+	query := `
+		SELECT
+			COALESCE(f.fleet_name, '') AS fleet_name,
+			` + unitIDExpr + ` AS unit_id,
+			` + vehicleIDExpr + ` AS vehicle_id,
+			COALESCE(fu.plate_number, '') AS plate_number
+		FROM fleets f
+		LEFT JOIN fleet_units fu ON ` + unitFleetJoinExpr + ` AND ` + unitOrgJoinExpr + `
+		WHERE ` + orgExpr + `
+		  AND ` + fleetExpr + `
+		ORDER BY fu.created_at ASC
+	`
+
+	rows, err := database.Query(r.db, query, organizationID, strings.TrimSpace(fleetID))
+	if err != nil {
+		return "", nil, false, err
+	}
+	defer rows.Close()
+
+	var fleetName string
+	units := make([]model.DailyAvailabilityFleetUnitRow, 0)
+
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return "", nil, false, err
+		}
+		return "", nil, false, nil
+	}
+
+	for {
+		var unitID, vehicleID, plateNumber string
+		if err := rows.Scan(&fleetName, &unitID, &vehicleID, &plateNumber); err != nil {
+			return "", nil, false, err
+		}
+		if strings.TrimSpace(unitID) != "" {
+			units = append(units, model.DailyAvailabilityFleetUnitRow{
+				UnitID:      unitID,
+				VehicleID:   vehicleID,
+				PlateNumber: plateNumber,
+			})
+		}
+		if !rows.Next() {
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return "", nil, false, err
+	}
+
+	return fleetName, units, true, nil
+}
+
+func (r *ScheduleRepository) ListScheduledFleetUnitDaysForDailyAvailability(organizationID string, startDate, endDate time.Time, fleetID string) ([]model.DailyAvailabilityFleetScheduledUnitDayRow, error) {
+	if r.driver == "postgres" || r.driver == "pgx" {
+		query := `
+			SELECT DISTINCT
+				gs.day::date AS day,
+				COALESCE(sf.unit_id::text, '') AS unit_id
+			FROM schedule_fleets sf
+			INNER JOIN fleet_orders fo ON fo.order_id::text = sf.order_id::text AND fo.organization_id::text = sf.organization_id::text
+			INNER JOIN fleet_units fu ON fu.unit_id::text = sf.unit_id::text AND fu.organization_id::text = sf.organization_id::text
+			CROSS JOIN LATERAL generate_series(date_trunc('day', fo.start_date), date_trunc('day', fo.end_date), interval '1 day') gs(day)
+			WHERE sf.organization_id::text = ` + r.placeholder(1) + `
+			  AND fu.fleet_id::text = ` + r.placeholder(4) + `
+			  AND COALESCE(sf.status, 0) = 1
+			  AND gs.day::date >= ` + r.placeholder(2) + `::date
+			  AND gs.day::date <= ` + r.placeholder(3) + `::date
+		`
+
+		rows, err := database.Query(r.db, query, organizationID, startDate, endDate, strings.TrimSpace(fleetID))
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		result := make([]model.DailyAvailabilityFleetScheduledUnitDayRow, 0)
+		for rows.Next() {
+			var item model.DailyAvailabilityFleetScheduledUnitDayRow
+			if err := rows.Scan(&item.Day, &item.UnitID); err != nil {
+				return nil, err
+			}
+			result = append(result, item)
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		return result, nil
+	}
+
+	orgExpr := "sf.organization_id = " + r.placeholder(1)
+	fleetFilterExpr := "fu.fleet_id = " + r.placeholder(2)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		orgExpr = "sf.organization_id::text = " + r.placeholder(1)
+		fleetFilterExpr = "fu.fleet_id::text = " + r.placeholder(2)
+	}
+
+	query := `
+		SELECT DISTINCT
+			COALESCE(CAST(sf.unit_id AS CHAR), '') AS unit_id
+		FROM schedule_fleets sf
+		INNER JOIN fleet_orders fo ON fo.order_id = sf.order_id AND fo.organization_id = sf.organization_id
+		INNER JOIN fleet_units fu ON fu.unit_id = sf.unit_id AND fu.organization_id = sf.organization_id
+		WHERE ` + orgExpr + `
+		  AND ` + fleetFilterExpr + `
+		  AND COALESCE(sf.status, 0) = 1
+		  AND fo.start_date <= ` + r.placeholder(3) + `
+		  AND fo.end_date >= ` + r.placeholder(4) + `
+	`
+
+	days := make(map[string]map[string]struct{})
+	for d := startDate; !d.After(endDate); d = d.AddDate(0, 0, 1) {
+		rows, err := database.Query(r.db, query, organizationID, strings.TrimSpace(fleetID), d, d)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var unitID string
+			if err := rows.Scan(&unitID); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			dateKey := d.Format("2006-01-02")
+			if _, ok := days[dateKey]; !ok {
+				days[dateKey] = make(map[string]struct{})
+			}
+			if strings.TrimSpace(unitID) != "" {
+				days[dateKey][unitID] = struct{}{}
+			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+
+	result := make([]model.DailyAvailabilityFleetScheduledUnitDayRow, 0)
+	for dateKey, unitSet := range days {
+		day, _ := time.Parse("2006-01-02", dateKey)
+		for unitID := range unitSet {
+			result = append(result, model.DailyAvailabilityFleetScheduledUnitDayRow{
+				Day:    day,
+				UnitID: unitID,
+			})
+		}
+	}
+
+	return result, nil
+}
+
+func (r *ScheduleRepository) GetFleetUnitForDailyAvailability(organizationID, unitID string) (model.DailyAvailabilityFleetUnitRow, bool, error) {
+	orgExpr := "organization_id = " + r.placeholder(1)
+	unitExpr := "unit_id = " + r.placeholder(2)
+	unitIDExpr := "COALESCE(CAST(unit_id AS CHAR), '')"
+	vehicleIDExpr := "COALESCE(CAST(vehicle_id AS CHAR), '')"
+	if r.driver == "postgres" || r.driver == "pgx" {
+		orgExpr = "organization_id::text = " + r.placeholder(1)
+		unitExpr = "unit_id::text = " + r.placeholder(2)
+		unitIDExpr = "COALESCE(unit_id::text, '')"
+		vehicleIDExpr = "COALESCE(vehicle_id::text, '')"
+	}
+
+	query := `
+		SELECT
+			` + unitIDExpr + ` AS unit_id,
+			` + vehicleIDExpr + ` AS vehicle_id,
+			COALESCE(plate_number, '') AS plate_number
+		FROM fleet_units
+		WHERE ` + orgExpr + ` AND ` + unitExpr + `
+		LIMIT 1
+	`
+
+	var row model.DailyAvailabilityFleetUnitRow
+	if err := database.QueryRow(r.db, query, organizationID, strings.TrimSpace(unitID)).Scan(&row.UnitID, &row.VehicleID, &row.PlateNumber); err != nil {
+		if err == sql.ErrNoRows {
+			return model.DailyAvailabilityFleetUnitRow{}, false, nil
+		}
+		return model.DailyAvailabilityFleetUnitRow{}, false, err
+	}
+	return row, true, nil
+}
+
+func (r *ScheduleRepository) ListScheduledUnitDaysForDailyAvailability(organizationID string, startDate, endDate time.Time, unitID string) ([]model.DailyAvailabilityFleetUnitScheduledDayRow, error) {
+	if r.driver == "postgres" || r.driver == "pgx" {
+		query := `
+			SELECT DISTINCT
+				gs.day::date AS day
+			FROM schedule_fleets sf
+			INNER JOIN fleet_orders fo ON fo.order_id::text = sf.order_id::text AND fo.organization_id::text = sf.organization_id::text
+			CROSS JOIN LATERAL generate_series(date_trunc('day', fo.start_date), date_trunc('day', fo.end_date), interval '1 day') gs(day)
+			WHERE sf.organization_id::text = ` + r.placeholder(1) + `
+			  AND sf.unit_id::text = ` + r.placeholder(4) + `
+			  AND COALESCE(sf.status, 0) = 1
+			  AND gs.day::date >= ` + r.placeholder(2) + `::date
+			  AND gs.day::date <= ` + r.placeholder(3) + `::date
+		`
+
+		rows, err := database.Query(r.db, query, organizationID, startDate, endDate, strings.TrimSpace(unitID))
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		result := make([]model.DailyAvailabilityFleetUnitScheduledDayRow, 0)
+		for rows.Next() {
+			var item model.DailyAvailabilityFleetUnitScheduledDayRow
+			if err := rows.Scan(&item.Day); err != nil {
+				return nil, err
+			}
+			result = append(result, item)
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		return result, nil
+	}
+
+	orgExpr := "sf.organization_id = " + r.placeholder(1)
+	unitExpr := "sf.unit_id = " + r.placeholder(2)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		orgExpr = "sf.organization_id::text = " + r.placeholder(1)
+		unitExpr = "sf.unit_id::text = " + r.placeholder(2)
+	}
+
+	query := `
+		SELECT 1
+		FROM schedule_fleets sf
+		INNER JOIN fleet_orders fo ON fo.order_id = sf.order_id AND fo.organization_id = sf.organization_id
+		WHERE ` + orgExpr + `
+		  AND ` + unitExpr + `
+		  AND COALESCE(sf.status, 0) = 1
+		  AND fo.start_date <= ` + r.placeholder(3) + `
+		  AND fo.end_date >= ` + r.placeholder(4) + `
+		LIMIT 1
+	`
+
+	days := make([]model.DailyAvailabilityFleetUnitScheduledDayRow, 0)
+	for d := startDate; !d.After(endDate); d = d.AddDate(0, 0, 1) {
+		var exists int
+		err := database.QueryRow(r.db, query, organizationID, strings.TrimSpace(unitID), d, d).Scan(&exists)
+		if err != nil && err != sql.ErrNoRows {
+			return nil, err
+		}
+		if err == nil {
+			days = append(days, model.DailyAvailabilityFleetUnitScheduledDayRow{Day: d})
+		}
+	}
+	return days, nil
+}
+
 func (r *ScheduleRepository) buildFleetFilterClause(columnName, queryValue string, position int) (string, []interface{}) {
 	value := strings.TrimSpace(queryValue)
 	if value == "" {

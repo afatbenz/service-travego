@@ -168,6 +168,62 @@ func (h *ScheduleHandler) GetFleetAvailability(c *fiber.Ctx) error {
 	})
 }
 
+func (h *ScheduleHandler) GetDailyAvailabilityFleet(c *fiber.Ctx) error {
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.BadRequestResponse(c, "missing organization context")
+	}
+
+	var req model.DailyAvailabilityFleetRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.BadRequestResponse(c, "invalid payload")
+	}
+	if validationErrors := helper.ValidateStruct(&req); len(validationErrors) > 0 {
+		return helper.SendValidationErrorResponse(c, validationErrors)
+	}
+
+	result, err := h.service.GetDailyAvailabilityFleet(model.DailyAvailabilityFleetServiceInput{
+		OrganizationID: orgID,
+		FleetID:        strings.TrimSpace(req.FleetID),
+		StartDate:      strings.TrimSpace(req.StartDate),
+		EndDate:        strings.TrimSpace(req.EndDate),
+	})
+	if err != nil {
+		return helper.SendErrorResponse(c, service.GetStatusCode(err), err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "OK", fiber.Map{
+		"schedules": result,
+	})
+}
+
+func (h *ScheduleHandler) GetDailyAvailabilityFleetUnit(c *fiber.Ctx) error {
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.BadRequestResponse(c, "missing organization context")
+	}
+
+	var req model.DailyAvailabilityFleetUnitRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.BadRequestResponse(c, "invalid payload")
+	}
+	if validationErrors := helper.ValidateStruct(&req); len(validationErrors) > 0 {
+		return helper.SendValidationErrorResponse(c, validationErrors)
+	}
+
+	result, err := h.service.GetDailyAvailabilityFleetUnit(model.DailyAvailabilityFleetUnitServiceInput{
+		OrganizationID: orgID,
+		UnitID:         strings.TrimSpace(req.UnitID),
+		StartDate:      strings.TrimSpace(req.StartDate),
+		EndDate:        strings.TrimSpace(req.EndDate),
+	})
+	if err != nil {
+		return helper.SendErrorResponse(c, service.GetStatusCode(err), err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "OK", result)
+}
+
 func (h *ScheduleHandler) GetScheduleDetail(c *fiber.Ctx) error {
 	orgID, ok := c.Locals("organization_id").(string)
 	if !ok || orgID == "" {

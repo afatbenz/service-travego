@@ -153,7 +153,24 @@ func (h *FleetUnitHandler) Detail(c *fiber.Ctx) error {
 		code := service.GetStatusCode(err)
 		return helper.SendErrorResponse(c, code, err.Error())
 	}
-	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet unit detail loaded", res)
+	rating, err := h.service.UnitRating(orgID, id)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	reviews, err := h.service.UnitReviews(orgID, id)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	raw, _ := json.Marshal(res)
+	var m map[string]interface{}
+	_ = json.Unmarshal(raw, &m)
+	m["rating"] = rating
+	m["reviews"] = reviews
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet unit detail loaded", m)
 }
 
 func (h *FleetUnitHandler) OrderHistory(c *fiber.Ctx) error {
@@ -174,5 +191,15 @@ func (h *FleetUnitHandler) OrderHistory(c *fiber.Ctx) error {
 		code := service.GetStatusCode(err)
 		return helper.SendErrorResponse(c, code, err.Error())
 	}
-	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet unit order history loaded", items)
+	totalSchedules, latestSchedule, upcomingSchedule, err := h.service.UnitScheduleStats(orgID, strings.TrimSpace(req.UnitID))
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet unit order history loaded", fiber.Map{
+		"history":           items,
+		"total_schedule":    totalSchedules,
+		"latest_schedule":   latestSchedule,
+		"upcoming_schedule": upcomingSchedule,
+	})
 }
