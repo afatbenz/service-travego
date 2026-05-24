@@ -10,6 +10,7 @@ import (
 	"service-travego/repository"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type FleetUnitService struct {
@@ -263,26 +264,102 @@ func (s *FleetUnitService) UnitOrderHistory(orgID, unitID, startDate, endDate st
 		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, msg)
 	}
 	for i := range items {
-		cityIDs := destCityIDs[strings.TrimSpace(items[i].OrderID)]
-		if len(cityIDs) == 0 {
-			continue
-		}
-		labels := make([]string, 0, len(cityIDs))
+		labels := make([]string, 0)
 		seenLabel := map[string]struct{}{}
-		for _, id := range cityIDs {
-			name := s.citiesName[strings.TrimSpace(id)]
-			if name == "" {
-				continue
+
+		if strings.TrimSpace(items[i].DestinationIDs) != "" {
+			rawIDs := strings.Split(items[i].DestinationIDs, ",")
+			for _, raw := range rawIDs {
+				id := strings.TrimSpace(raw)
+				if id == "" {
+					continue
+				}
+				name := s.citiesName[id]
+				if name == "" {
+					continue
+				}
+				if _, ok := seenLabel[name]; ok {
+					continue
+				}
+				seenLabel[name] = struct{}{}
+				labels = append(labels, name)
 			}
-			if _, ok := seenLabel[name]; ok {
-				continue
+		} else {
+			cityIDs := destCityIDs[strings.TrimSpace(items[i].OrderID)]
+			for _, id := range cityIDs {
+				name := s.citiesName[strings.TrimSpace(id)]
+				if name == "" {
+					continue
+				}
+				if _, ok := seenLabel[name]; ok {
+					continue
+				}
+				seenLabel[name] = struct{}{}
+				labels = append(labels, name)
 			}
-			seenLabel[name] = struct{}{}
-			labels = append(labels, name)
 		}
+
 		if len(labels) > 0 {
-			items[i].Destinations = strings.Join(labels, ", ")
+			items[i].DestinationCity = strings.Join(labels, ", ")
+			if strings.TrimSpace(items[i].Destinations) == "" {
+				items[i].Destinations = items[i].DestinationCity
+			}
 		}
 	}
 	return items, nil
+}
+
+func (s *FleetUnitService) UnitRating(orgID, unitID string) (float64, error) {
+	rating, err := s.repo.UnitRating(orgID, unitID)
+	if err != nil {
+		msg := "failed to get fleet unit rating"
+		if env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV"))); env != "production" && env != "prod" {
+			msg = fmt.Sprintf("%s: %v", msg, err)
+		}
+		return 0, NewServiceError(ErrInternalServer, http.StatusInternalServerError, msg)
+	}
+	return rating, nil
+}
+
+func (s *FleetUnitService) UnitReviews(orgID, unitID string) ([]model.OrderReviewItem, error) {
+	items, err := s.repo.UnitReviews(orgID, unitID)
+	if err != nil {
+		msg := "failed to get fleet unit reviews"
+		if env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV"))); env != "production" && env != "prod" {
+			msg = fmt.Sprintf("%s: %v", msg, err)
+		}
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, msg)
+	}
+	return items, nil
+}
+
+func (s *FleetUnitService) UnitScheduleStats(orgID, unitID string) (int64, *model.FleetUnitScheduleRange, *model.FleetUnitScheduleRange, error) {
+	total, err := s.repo.UnitTotalSchedules(orgID, unitID)
+	if err != nil {
+		msg := "failed to get fleet unit schedules"
+		if env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV"))); env != "production" && env != "prod" {
+			msg = fmt.Sprintf("%s: %v", msg, err)
+		}
+		return 0, nil, nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, msg)
+	}
+
+	today := time.Now().Format("2006-01-02")
+	latest, err := s.repo.UnitLatestSchedule(orgID, unitID, today)
+	if err != nil {
+		msg := "failed to get fleet unit schedules"
+		if env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV"))); env != "production" && env != "prod" {
+			msg = fmt.Sprintf("%s: %v", msg, err)
+		}
+		return 0, nil, nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, msg)
+	}
+	upcoming, err := s.repo.UnitUpcomingSchedule(orgID, unitID, today)
+	if err != nil {
+		msg := "failed to get fleet unit schedules"
+		if env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV"))); env != "production" && env != "prod" {
+			msg = fmt.Sprintf("%s: %v", msg, err)
+		}
+		return 0, nil, nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, msg)
+	}
+
+	return total, latest, upcoming, nil
 }

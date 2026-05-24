@@ -90,14 +90,21 @@ type FleetUnitOrderHistoryRequest struct {
 }
 
 type FleetUnitOrderHistoryItem struct {
-	UnitOrderID     string `json:"unit_order_id"`
 	OrderID         string `json:"order_id"`
 	UnitID          string `json:"unit_id"`
 	DriverID        string `json:"driver_id"`
 	DriverName      string `json:"driver_name"`
 	StartDate       string `json:"start_date"`
 	EndDate         string `json:"end_date"`
+	Status          int    `json:"status"`
 	PickupCityID    string `json:"pickup_city_id"`
 	PickupCityLabel string `json:"pickup_city_label"`
 	Destinations    string `json:"destinations"`
+	DestinationIDs  string `json:"destination_ids"`
+	DestinationCity string `json:"destination_city"`
+}
+
+type FleetUnitScheduleRange struct {
+	StartDate string `json:"start_date"`
+	EndDate   string `json:"end_date"`
 }

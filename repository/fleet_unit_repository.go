@@ -346,23 +346,6 @@ LEFT JOIN users uu ON fu.updated_by = uu.user_id
 WHERE fu.unit_id = ? AND fu.organization_id = ?
 `
 
-const unitOrderHistoryPostgres = `
-SELECT
-	COALESCE(fuo.unit_order_id::text, '') AS unit_order_id,
-	COALESCE(fuo.order_id::text, '') AS order_id,
-	COALESCE(fuo.unit_id::text, '') AS unit_id,
-	COALESCE(fuo.driver_id::text, '') AS driver_id,
-	COALESCE(d.fullname, '') AS driver_name,
-	fo.start_date,
-	fo.end_date,
-	COALESCE(fo.pickup_city_id::text, '') AS pickup_city_id
-FROM fleet_unit_orders fuo
-INNER JOIN fleet_orders fo ON fuo.order_id::text = fo.order_id::text
-LEFT JOIN users d ON d.user_id::text = fuo.driver_id::text
-WHERE fo.organization_id::text = $1 AND fuo.unit_id::text = $2 AND fo.start_date >= $3 AND fo.end_date <= $4
-ORDER BY fo.start_date DESC
-`
-
 const unitOrderHistoryMySQL = `
 SELECT
 	fuo.unit_order_id,
@@ -378,6 +361,94 @@ INNER JOIN fleet_orders fo ON fuo.order_id = fo.order_id
 LEFT JOIN users d ON d.user_id = fuo.driver_id
 WHERE fo.organization_id = ? AND fuo.unit_id = ? AND fo.start_date >= ? AND fo.end_date <= ?
 ORDER BY fo.start_date DESC
+`
+
+const unitRatingPostgres = `
+SELECT
+	COALESCE(ROUND(AVG(r.star), 1), 0)::float8 AS rating
+FROM order_reviews r
+INNER JOIN fleet_orders fo ON r.order_id = fo.order_id
+INNER JOIN schedule_fleets sf ON sf.order_id = r.order_id
+WHERE sf.unit_id::text = $1 AND sf.organization_id::text = $2
+`
+
+const unitRatingMySQL = `
+SELECT
+	COALESCE(ROUND(AVG(r.star), 1), 0) AS rating
+FROM order_reviews r
+INNER JOIN fleet_orders fo ON r.order_id = fo.order_id
+INNER JOIN schedule_fleets sf ON sf.order_id = r.order_id
+WHERE sf.unit_id = ? AND sf.organization_id = ?
+`
+
+const unitReviewsPostgres = `
+SELECT r.star, r.review, c.customer_name, r.created_at
+FROM order_reviews r
+INNER JOIN fleet_orders fo ON r.order_id = fo.order_id
+INNER JOIN schedule_fleets sf ON sf.order_id = r.order_id
+INNER JOIN customers c ON c.customer_id = r.customer_id
+WHERE sf.unit_id::text = $1 AND sf.organization_id::text = $2
+ORDER BY r.created_at DESC
+LIMIT 10
+`
+
+const unitReviewsMySQL = `
+SELECT r.star, r.review, c.customer_name, r.created_at
+FROM order_reviews r
+INNER JOIN fleet_orders fo ON r.order_id = fo.order_id
+INNER JOIN schedule_fleets sf ON sf.order_id = r.order_id
+INNER JOIN customers c ON c.customer_id = r.customer_id
+WHERE sf.unit_id = ? AND sf.organization_id = ?
+ORDER BY r.created_at DESC
+LIMIT 10
+`
+
+const unitTotalSchedulesPostgres = `
+SELECT COUNT(*) AS total_schedules
+FROM schedule_fleets
+WHERE unit_id::text = $1 AND organization_id::text = $2
+`
+
+const unitTotalSchedulesMySQL = `
+SELECT COUNT(*) AS total_schedules
+FROM schedule_fleets
+WHERE unit_id = ? AND organization_id = ?
+`
+
+const unitLatestSchedulePostgres = `
+SELECT fo.start_date, fo.end_date
+FROM schedule_fleets sf
+INNER JOIN fleet_orders fo ON sf.order_id = fo.order_id
+WHERE sf.unit_id::text = $1 AND sf.organization_id::text = $2 AND fo.end_date <= $3
+ORDER BY fo.end_date DESC
+LIMIT 1
+`
+
+const unitLatestScheduleMySQL = `
+SELECT fo.start_date, fo.end_date
+FROM schedule_fleets sf
+INNER JOIN fleet_orders fo ON sf.order_id = fo.order_id
+WHERE sf.unit_id = ? AND sf.organization_id = ? AND fo.end_date <= ?
+ORDER BY fo.end_date DESC
+LIMIT 1
+`
+
+const unitUpcomingSchedulePostgres = `
+SELECT fo.start_date, fo.end_date
+FROM schedule_fleets sf
+INNER JOIN fleet_orders fo ON sf.order_id = fo.order_id
+WHERE sf.unit_id::text = $1 AND sf.organization_id::text = $2 AND fo.start_date >= $3
+ORDER BY fo.start_date ASC
+LIMIT 1
+`
+
+const unitUpcomingScheduleMySQL = `
+SELECT fo.start_date, fo.end_date
+FROM schedule_fleets sf
+INNER JOIN fleet_orders fo ON sf.order_id = fo.order_id
+WHERE sf.unit_id = ? AND sf.organization_id = ? AND fo.start_date >= ?
+ORDER BY fo.start_date ASC
+LIMIT 1
 `
 
 func (r *FleetUnitRepository) GetFleetPickupCityIDs(orgID, fleetID string) ([]int, error) {
@@ -621,10 +692,25 @@ func (r *FleetUnitRepository) Detail(orgID, id string) (*model.FleetUnitDetailRe
 }
 
 func (r *FleetUnitRepository) UnitOrderHistory(orgID, unitID, startDate, endDate string) ([]model.FleetUnitOrderHistoryItem, error) {
-	query := unitOrderHistoryMySQL
-	if r.driver == "postgres" || r.driver == "pgx" {
-		query = unitOrderHistoryPostgres
-	}
+	query := `SELECT
+		COALESCE(fuo.order_id::text, '') AS order_id,
+		COALESCE(fuo.unit_id::text, '') AS unit_id,
+		COALESCE(sft.driver_id::text, '') AS driver_id,
+		COALESCE(d.fullname, '') AS driver_name,
+		fo.start_date,
+		fo.end_date,
+		fo.status,
+		COALESCE(fo.pickup_city_id::text, '') AS pickup_city_id,
+		STRING_AGG(DISTINCT fi.city_id::text, ', ') AS destination_ids
+	FROM schedule_fleets fuo
+	INNER JOIN fleet_orders fo ON fuo.order_id::text = fo.order_id::text
+	INNER JOIN schedule_fleet_teams sft ON sft.schedule_fleet_id = fuo.uuid
+	INNER JOIN fleet_order_itinerary fi ON fi.order_id = fo.order_id
+	LEFT JOIN employee d ON d.uuid::text = sft.driver_id::text
+	WHERE fo.organization_id::text = $1 AND fuo.unit_id::text = $2 AND fo.start_date >= $3 AND fo.end_date <= $4
+	GROUP BY fuo.order_id, fuo.unit_id, sft.driver_id, d.fullname, fo.start_date, fo.end_date, fo.status, fo.pickup_city_id, fi.city_id
+	ORDER BY fo.start_date DESC
+	`
 
 	rows, err := database.Query(r.db, query, orgID, unitID, startDate, endDate)
 	if err != nil {
@@ -639,14 +725,15 @@ func (r *FleetUnitRepository) UnitOrderHistory(orgID, unitID, startDate, endDate
 		var endDate sql.NullTime
 
 		if err := rows.Scan(
-			&it.UnitOrderID,
 			&it.OrderID,
 			&it.UnitID,
 			&it.DriverID,
 			&it.DriverName,
 			&startDate,
 			&endDate,
+			&it.Status,
 			&it.PickupCityID,
+			&it.Destinations,
 		); err != nil {
 			return nil, err
 		}
@@ -664,6 +751,111 @@ func (r *FleetUnitRepository) UnitOrderHistory(orgID, unitID, startDate, endDate
 	return out, nil
 }
 
+func (r *FleetUnitRepository) UnitRating(orgID, unitID string) (float64, error) {
+	query := unitRatingMySQL
+	if r.driver == "postgres" || r.driver == "pgx" {
+		query = unitRatingPostgres
+	}
+	var rating sql.NullFloat64
+	if err := database.QueryRow(r.db, query, unitID, orgID).Scan(&rating); err != nil {
+		return 0, err
+	}
+	if rating.Valid {
+		return rating.Float64, nil
+	}
+	return 0, nil
+}
+
+func (r *FleetUnitRepository) UnitReviews(orgID, unitID string) ([]model.OrderReviewItem, error) {
+	query := unitReviewsMySQL
+	if r.driver == "postgres" || r.driver == "pgx" {
+		query = unitReviewsPostgres
+	}
+
+	rows, err := database.Query(r.db, query, unitID, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]model.OrderReviewItem, 0)
+	for rows.Next() {
+		var it model.OrderReviewItem
+		var createdAt time.Time
+		if err := rows.Scan(&it.Star, &it.Review, &it.CustomerName, &createdAt); err != nil {
+			return nil, err
+		}
+		it.CreatedAt = createdAt.Format("2006-01-02 15:04:05")
+		out = append(out, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (r *FleetUnitRepository) UnitTotalSchedules(orgID, unitID string) (int64, error) {
+	query := `
+			SELECT COUNT(*) AS total_schedules
+			FROM schedule_fleets
+			WHERE unit_id::text = $1 AND organization_id::text = $2
+			`
+	var total int64
+	if err := database.QueryRow(r.db, query, unitID, orgID).Scan(&total); err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
+func (r *FleetUnitRepository) UnitLatestSchedule(orgID, unitID, today string) (*model.FleetUnitScheduleRange, error) {
+	query := `SELECT fo.start_date, fo.end_date
+			FROM schedule_fleets sf
+			INNER JOIN fleet_orders fo ON sf.order_id = fo.order_id
+			WHERE sf.unit_id::text = $1 AND sf.organization_id::text = $2 AND fo.end_date <= $3
+			ORDER BY fo.end_date DESC
+			LIMIT 1
+			`
+	var startDate sql.NullTime
+	var endDate sql.NullTime
+	if err := database.QueryRow(r.db, query, unitID, orgID, today).Scan(&startDate, &endDate); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	out := &model.FleetUnitScheduleRange{}
+	if startDate.Valid {
+		out.StartDate = startDate.Time.Format("2006-01-02")
+	}
+	if endDate.Valid {
+		out.EndDate = endDate.Time.Format("2006-01-02")
+	}
+	return out, nil
+}
+
+func (r *FleetUnitRepository) UnitUpcomingSchedule(orgID, unitID, today string) (*model.FleetUnitScheduleRange, error) {
+	query := unitUpcomingScheduleMySQL
+	if r.driver == "postgres" || r.driver == "pgx" {
+		query = unitUpcomingSchedulePostgres
+	}
+	var startDate sql.NullTime
+	var endDate sql.NullTime
+	if err := database.QueryRow(r.db, query, unitID, orgID, today).Scan(&startDate, &endDate); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	out := &model.FleetUnitScheduleRange{}
+	if startDate.Valid {
+		out.StartDate = startDate.Time.Format("2006-01-02")
+	}
+	if endDate.Valid {
+		out.EndDate = endDate.Time.Format("2006-01-02")
+	}
+	return out, nil
+}
+
 func (r *FleetUnitRepository) GetOrderDestinationCityIDs(orderIDs []string) (map[string][]string, error) {
 	out := map[string][]string{}
 	if len(orderIDs) == 0 {
@@ -677,9 +869,9 @@ func (r *FleetUnitRepository) GetOrderDestinationCityIDs(orderIDs []string) (map
 		args = append(args, strings.TrimSpace(id))
 	}
 
-	query := "SELECT COALESCE(order_id, '') AS order_id, COALESCE(CAST(city_id AS CHAR), '') AS city_id FROM fleet_order_destinations WHERE order_id IN (" + strings.Join(in, ",") + ")"
+	query := "SELECT COALESCE(order_id, '') AS order_id, COALESCE(CAST(city_id AS CHAR), '') AS city_id FROM fleet_order_itinerary WHERE order_id IN (" + strings.Join(in, ",") + ")"
 	if r.driver == "postgres" || r.driver == "pgx" {
-		query = "SELECT COALESCE(order_id::text, '') AS order_id, COALESCE(city_id::text, '') AS city_id FROM fleet_order_destinations WHERE order_id::text IN (" + strings.Join(in, ",") + ")"
+		query = "SELECT COALESCE(order_id::text, '') AS order_id, COALESCE(city_id::text, '') AS city_id FROM fleet_order_itinerary WHERE order_id::text IN (" + strings.Join(in, ",") + ")"
 	}
 
 	rows, err := database.Query(r.db, query, args...)

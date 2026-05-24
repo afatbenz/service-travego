@@ -71,6 +71,68 @@ type ScheduleFleetUnitAvailabilityRow struct {
 	PlateNumber string
 }
 
+type DailyAvailabilityFleetRequest struct {
+	FleetID   string `json:"fleet_id" validate:"required"`
+	StartDate string `json:"start_date" validate:"required"`
+	EndDate   string `json:"end_date" validate:"required"`
+}
+
+type DailyAvailabilityFleetUnitRequest struct {
+	UnitID    string `json:"unit_id" validate:"required"`
+	StartDate string `json:"start_date" validate:"required"`
+	EndDate   string `json:"end_date" validate:"required"`
+}
+
+type DailyAvailabilityFleetServiceInput struct {
+	OrganizationID string
+	FleetID        string
+	StartDate      string
+	EndDate        string
+}
+
+type DailyAvailabilityFleetUnitServiceInput struct {
+	OrganizationID string
+	UnitID         string
+	StartDate      string
+	EndDate        string
+}
+
+type DailyAvailabilityFleetAvailableUnitItem struct {
+	UnitID      string `json:"unit_id"`
+	VehicleID   string `json:"vehicle_id"`
+	PlateNumber string `json:"plate_number"`
+}
+
+type DailyAvailabilityFleetScheduleItem struct {
+	Date           string                                    `json:"date"`
+	FleetID        string                                    `json:"fleet_id"`
+	FleetName      string                                    `json:"fleet_name"`
+	Available      bool                                      `json:"available"`
+	AvailableUnits []DailyAvailabilityFleetAvailableUnitItem `json:"available_units"`
+}
+
+type DailyAvailabilityFleetUnitScheduleItem struct {
+	Date      string `json:"date"`
+	UnitID    string `json:"unit_id"`
+	VehicleID string `json:"vehicle_id"`
+	Available bool   `json:"available"`
+}
+
+type DailyAvailabilityFleetUnitRow struct {
+	UnitID      string
+	VehicleID   string
+	PlateNumber string
+}
+
+type DailyAvailabilityFleetScheduledUnitDayRow struct {
+	Day    time.Time
+	UnitID string
+}
+
+type DailyAvailabilityFleetUnitScheduledDayRow struct {
+	Day time.Time
+}
+
 type ScheduleFleetInsertItem struct {
 	FleetID string
 	UnitID  string
