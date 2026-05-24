@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"fmt"
 	"service-travego/helper"
 	"service-travego/model"
@@ -34,6 +35,28 @@ func (h *ServiceHandler) GetServiceFleets(c *fiber.Ctx) error {
 		fmt.Println("Error fetching service fleets:", err)
 		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, err.Error())
 	}
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.BadRequestResponse(c, "Invalid or missing organization_id")
+	}
+
+	fleetIDs := make([]string, 0, len(items))
+	for i := range items {
+		if items[i].FleetID != "" {
+			fleetIDs = append(fleetIDs, items[i].FleetID)
+		}
+	}
+	ratings, err := h.service.GetFleetRatings(orgID, fleetIDs)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	for i := range items {
+		if v, ok := ratings[items[i].FleetID]; ok {
+			items[i].Rating = v.Rating
+			items[i].TotalUlasan = v.TotalUlasan
+		}
+	}
 	return helper.SuccessResponse(c, fiber.StatusOK, "Service fleets retrieved", items)
 }
 
@@ -46,6 +69,10 @@ func (h *ServiceHandler) GetServiceFleetDetail(c *fiber.Ctx) error {
 	if req.FleetID == "" {
 		return helper.BadRequestResponse(c, "fleet_id is required")
 	}
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.BadRequestResponse(c, "Invalid or missing organization_id")
+	}
 
 	res, err := h.service.GetServiceFleetDetail(req.FleetID)
 	if err != nil {
@@ -56,7 +83,27 @@ func (h *ServiceHandler) GetServiceFleetDetail(c *fiber.Ctx) error {
 		}
 		return helper.SendErrorResponse(c, code, err.Error())
 	}
-	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet detail retrieved", res)
+	ratings, err := h.service.GetFleetRatings(orgID, []string{req.FleetID})
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	if v, ok := ratings[req.FleetID]; ok {
+		res.Meta.Rating = v.Rating
+		res.Meta.TotalUlasan = v.TotalUlasan
+	}
+	reviews, err := h.service.GetFleetReviews(req.FleetID, orgID)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	raw, _ := json.Marshal(res)
+	var m map[string]interface{}
+	_ = json.Unmarshal(raw, &m)
+	m["reviews"] = reviews
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet detail retrieved", m)
 }
 
 func (h *ServiceHandler) GetServiceFleetAddons(c *fiber.Ctx) error {
@@ -169,4 +216,43 @@ func (h *ServiceHandler) CheckCustomerAvailibility(c *fiber.Ctx) error {
 	}
 
 	return helper.SuccessResponse(c, fiber.StatusOK, "Customer found", data)
+}
+
+func (h *ServiceHandler) SubmitReview(c *fiber.Ctx) error {
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.BadRequestResponse(c, "Invalid or missing organization_id")
+	}
+
+	var req struct {
+		Token  string `json:"token" validate:"required"`
+		Star   int    `json:"star" validate:"required"`
+		Review string `json:"review" validate:"required"`
+	}
+	if err := c.BodyParser(&req); err != nil {
+		return helper.BadRequestResponse(c, "Invalid payload")
+	}
+	if validationErrors := helper.ValidateStruct(req); len(validationErrors) > 0 {
+		return helper.SendValidationErrorResponse(c, validationErrors)
+	}
+
+	decrypted, err := helper.DecryptString(req.Token)
+	if err != nil {
+		return helper.BadRequestResponse(c, "Invalid token")
+	}
+
+	var orderID string
+	var payload model.OrderTokenPayload
+	if err := json.Unmarshal([]byte(decrypted), &payload); err == nil && payload.OrderID != "" {
+		orderID = payload.OrderID
+	} else {
+		orderID = decrypted
+	}
+
+	if err := h.service.SubmitOrderReview(orgID, orderID, req.Star, req.Review); err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Review submitted", nil)
 }

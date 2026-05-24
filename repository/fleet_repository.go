@@ -3579,8 +3579,8 @@ func (r *FleetRepository) GetFleetDetailMeta(orgID, fleetID string) (*model.Flee
 			%s AS created_by,
 			f.updated_at,
 			f.updated_by,
-			STRING_AGG(DISTINCT fu.engine::text, ', ') AS engines,
-			STRING_AGG(DISTINCT fu.capacity::text, ', ') AS capacities
+			COALESCE(STRING_AGG(DISTINCT fu.engine::text, ', '), f.engine::text) AS engines,
+			COALESCE(STRING_AGG(DISTINCT fu.capacity::text, ', '), f.capacity::text) AS capacities
         FROM fleets f
 		LEFT JOIN fleet_types ft ON f.fleet_type = ft.id
 		LEFT JOIN users u ON u.user_id = f.created_by
@@ -4007,4 +4007,204 @@ func (r *FleetRepository) ProcessFleetOrder(orgID, userID, orderID string, proce
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+func (r *FleetRepository) GetCustomerOrderMeta(orderID, organizationID string) (string, int, error) {
+	query := fmt.Sprintf(`
+		SELECT customer_id, order_type
+		FROM customer_orders
+		WHERE order_id = %s AND organization_id = %s
+		LIMIT 1
+	`, r.getPlaceholder(1), r.getPlaceholder(2))
+
+	var customerID string
+	var orderType int
+	if err := database.QueryRow(r.db, query, orderID, organizationID).Scan(&customerID, &orderType); err != nil {
+		return "", 0, err
+	}
+	return customerID, orderType, nil
+}
+
+func (r *FleetRepository) InsertOrderReview(reviewID, orderID string, star int, review string, organizationID string, customerID string, orderType int, createdAt time.Time) error {
+	query := fmt.Sprintf(`
+		INSERT INTO order_reviews (
+			review_id, star, review, organization_id, customer_id, order_type, order_id, created_at
+		) VALUES (
+			%s, %s, %s, %s, %s, %s, %s, %s
+		)
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8))
+
+	_, err := database.Exec(r.db, query, reviewID, star, review, organizationID, customerID, orderType, orderID, createdAt)
+	return err
+}
+
+func (r *FleetRepository) GetOrderReviews(orderID, organizationID string) ([]model.OrderReviewItem, error) {
+	query := fmt.Sprintf(`
+		SELECT r.star, r.review, c.customer_name, r.created_at
+		FROM order_reviews r
+		INNER JOIN fleet_orders fo ON r.order_id = fo.order_id
+		INNER JOIN customers c ON c.customer_id = r.customer_id
+		WHERE fo.order_id = %s AND r.organization_id = %s
+		ORDER BY r.created_at DESC
+		LIMIT 20
+	`, r.getPlaceholder(1), r.getPlaceholder(2))
+
+	rows, err := database.Query(r.db, query, orderID, organizationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]model.OrderReviewItem, 0)
+	for rows.Next() {
+		var it model.OrderReviewItem
+		var createdAt time.Time
+		if err := rows.Scan(&it.Star, &it.Review, &it.CustomerName, &createdAt); err != nil {
+			return nil, err
+		}
+		it.CreatedAt = createdAt.Format("2006-01-02 15:04:05")
+		out = append(out, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (r *FleetRepository) GetOrderRatingSummary(orderID, organizationID string) (*model.OrderRatingSummary, error) {
+	query := fmt.Sprintf(`
+		SELECT ROUND(AVG(r.star),1) AS rating, COUNT(r.review_id) AS total_ulasan
+		FROM order_reviews r
+		INNER JOIN fleet_orders fo ON r.order_id = fo.order_id
+		WHERE fo.order_id = %s AND r.organization_id = %s
+	`, r.getPlaceholder(1), r.getPlaceholder(2))
+
+	var ratingAny interface{}
+	var total int64
+	if err := database.QueryRow(r.db, query, orderID, organizationID).Scan(&ratingAny, &total); err != nil {
+		return nil, err
+	}
+
+	rating := 0.0
+	switch v := ratingAny.(type) {
+	case nil:
+		rating = 0
+	case float64:
+		rating = v
+	case int64:
+		rating = float64(v)
+	case []byte:
+		if f, err := strconv.ParseFloat(string(v), 64); err == nil {
+			rating = f
+		}
+	case string:
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			rating = f
+		}
+	}
+
+	return &model.OrderRatingSummary{
+		Rating:      rating,
+		TotalUlasan: total,
+	}, nil
+}
+
+func (r *FleetRepository) GetFleetRatings(organizationID string, fleetIDs []string) (map[string]model.FleetRatingSummary, error) {
+	if len(fleetIDs) == 0 {
+		return map[string]model.FleetRatingSummary{}, nil
+	}
+
+	placeholders := make([]string, 0, len(fleetIDs))
+	args := make([]interface{}, 0, len(fleetIDs)+1)
+	for i, id := range fleetIDs {
+		placeholders = append(placeholders, r.getPlaceholder(i+1))
+		args = append(args, id)
+	}
+	args = append(args, organizationID)
+
+	query := fmt.Sprintf(`
+		SELECT
+			COALESCE(ROUND(AVG(r.star), 1), 0) AS rating,
+			COUNT(r.review_id) AS total_ulasan,
+			fo.fleet_id
+		FROM order_reviews r
+		INNER JOIN fleet_orders fo ON r.order_id = fo.order_id
+		WHERE fo.fleet_id IN (%s) AND fo.organization_id = %s
+		GROUP BY fo.fleet_id
+	`, strings.Join(placeholders, ","), r.getPlaceholder(len(fleetIDs)+1))
+
+	rows, err := database.Query(r.db, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make(map[string]model.FleetRatingSummary, 0)
+	for rows.Next() {
+		var ratingAny interface{}
+		var total int64
+		var fleetID string
+		if err := rows.Scan(&ratingAny, &total, &fleetID); err != nil {
+			return nil, err
+		}
+
+		rating := 0.0
+		switch v := ratingAny.(type) {
+		case nil:
+			rating = 0
+		case float64:
+			rating = v
+		case int64:
+			rating = float64(v)
+		case []byte:
+			if f, err := strconv.ParseFloat(string(v), 64); err == nil {
+				rating = f
+			}
+		case string:
+			if f, err := strconv.ParseFloat(v, 64); err == nil {
+				rating = f
+			}
+		}
+
+		out[fleetID] = model.FleetRatingSummary{
+			FleetID:     fleetID,
+			Rating:      rating,
+			TotalUlasan: total,
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (r *FleetRepository) GetFleetReviews(fleetID, organizationID string) ([]model.OrderReviewItem, error) {
+	query := fmt.Sprintf(`
+		SELECT r.star, r.review, r.order_id, c.customer_name, r.created_at
+		FROM order_reviews r
+		INNER JOIN fleet_orders fo ON r.order_id = fo.order_id
+		INNER JOIN customers c ON c.customer_id = r.customer_id
+		WHERE fo.fleet_id = %s AND r.organization_id = %s
+	`, r.getPlaceholder(1), r.getPlaceholder(2))
+
+	rows, err := database.Query(r.db, query, fleetID, organizationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]model.OrderReviewItem, 0)
+	for rows.Next() {
+		var it model.OrderReviewItem
+		var createdAt time.Time
+		if err := rows.Scan(&it.Star, &it.Review, &it.OrderID, &it.CustomerName, &createdAt); err != nil {
+			return nil, err
+		}
+		it.CreatedAt = createdAt.Format("2006-01-02 15:04:05")
+		out = append(out, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }

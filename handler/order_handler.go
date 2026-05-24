@@ -224,7 +224,24 @@ func (h *OrderHandler) GetOrderDetail(c *fiber.Ctx) error {
 		return helper.SendErrorResponse(c, code, err.Error())
 	}
 
-	return helper.SuccessResponse(c, fiber.StatusOK, "Order detail retrieved", res)
+	reviews, err := h.service.GetOrderReviews(res.OrderID, orgID)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	rating, err := h.service.GetOrderRatingSummary(res.OrderID, orgID)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	raw, _ := json.Marshal(res)
+	var m map[string]interface{}
+	_ = json.Unmarshal(raw, &m)
+	m["reviews"] = reviews
+	m["rating"] = rating
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Order detail retrieved", m)
 }
 
 func (h *OrderHandler) FindOrder(c *fiber.Ctx) error {

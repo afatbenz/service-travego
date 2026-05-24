@@ -475,6 +475,23 @@ func (h *FleetHandler) ListFleets(c *fiber.Ctx) error {
 			code := service.GetStatusCode(err)
 			return helper.SendErrorResponse(c, code, err.Error())
 		}
+		fleetIDs := make([]string, 0, len(items))
+		for i := range items {
+			if items[i].FleetID != "" {
+				fleetIDs = append(fleetIDs, items[i].FleetID)
+			}
+		}
+		ratings, err := h.service.GetFleetRatings(orgID, fleetIDs)
+		if err != nil {
+			code := service.GetStatusCode(err)
+			return helper.SendErrorResponse(c, code, err.Error())
+		}
+		for i := range items {
+			if v, ok := ratings[items[i].FleetID]; ok {
+				items[i].Rating = v.Rating
+				items[i].TotalUlasan = v.TotalUlasan
+			}
+		}
 		return helper.SuccessResponse(c, fiber.StatusOK, "Fleet list loaded", items)
 	}
 
@@ -483,6 +500,23 @@ func (h *FleetHandler) ListFleets(c *fiber.Ctx) error {
 	if err != nil {
 		code := service.GetStatusCode(err)
 		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	fleetIDs := make([]string, 0, len(items))
+	for i := range items {
+		if items[i].FleetID != "" {
+			fleetIDs = append(fleetIDs, items[i].FleetID)
+		}
+	}
+	ratings, err := h.service.GetFleetRatings(orgID, fleetIDs)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	for i := range items {
+		if v, ok := ratings[items[i].FleetID]; ok {
+			items[i].Rating = v.Rating
+			items[i].TotalUlasan = v.TotalUlasan
+		}
 	}
 	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet list loaded", items)
 }
@@ -549,7 +583,27 @@ func (h *FleetHandler) FleetDetail(c *fiber.Ctx) error {
 		code := service.GetStatusCode(err)
 		return helper.SendErrorResponse(c, code, err.Error())
 	}
-	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet detail loaded", res)
+	ratings, err := h.service.GetFleetRatings(orgID, []string{req.FleetID})
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	if v, ok := ratings[req.FleetID]; ok {
+		res.Meta.Rating = v.Rating
+		res.Meta.TotalUlasan = v.TotalUlasan
+	}
+	reviews, err := h.service.GetFleetReviews(req.FleetID, orgID)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	raw, _ := json.Marshal(res)
+	var m map[string]interface{}
+	_ = json.Unmarshal(raw, &m)
+	m["reviews"] = reviews
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet detail loaded", m)
 }
 
 func (h *FleetHandler) SetFleetActiveStatus(c *fiber.Ctx) error {
@@ -670,10 +724,23 @@ func (h *FleetHandler) GetPartnerOrderDetail(c *fiber.Ctx) error {
 		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "failed to load payment")
 	}
 
+	reviews, err := h.service.GetOrderReviews(orderID, orgID)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	rating, err := h.service.GetOrderRatingSummary(orderID, orgID)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
 	raw, _ := json.Marshal(res)
 	var m map[string]interface{}
 	_ = json.Unmarshal(raw, &m)
 	m["payment"] = payment
+	m["reviews"] = reviews
+	m["rating"] = rating
 
 	return helper.SuccessResponse(c, fiber.StatusOK, "Order detail loaded", m)
 }

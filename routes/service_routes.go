@@ -49,6 +49,8 @@ func SetupServiceRoutes(api fiber.Router, db *sql.DB, driver string) {
 	// customers
 	svcGroup.Post("/customer/availibility", h.CheckCustomerAvailibility)
 
+	svcGroup.Post("/review/submit", h.SubmitReview)
+
 	// tour packages
 	svcGroup.Get("/tour-packages", tourH.GetTourPackages)
 	svcGroup.Post("/tour-packages/detail", tourH.TourPackageDetail)

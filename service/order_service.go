@@ -322,6 +322,22 @@ func (s *OrderService) GetOrderDetail(encryptedOrderID, organizationID string) (
 	return res, nil
 }
 
+func (s *OrderService) GetOrderReviews(orderID, organizationID string) ([]model.OrderReviewItem, error) {
+	items, err := s.fleetRepo.GetOrderReviews(orderID, organizationID)
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to load reviews")
+	}
+	return items, nil
+}
+
+func (s *OrderService) GetOrderRatingSummary(orderID, organizationID string) (*model.OrderRatingSummary, error) {
+	rating, err := s.fleetRepo.GetOrderRatingSummary(orderID, organizationID)
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to load rating")
+	}
+	return rating, nil
+}
+
 func (s *OrderService) mapOrderDetailLabels(res *model.OrderDetailResponse) {
 	switch res.RentType {
 	case 1:
