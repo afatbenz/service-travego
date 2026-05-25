@@ -247,3 +247,18 @@ type ModuleScheduleInfo struct {
 	CreatedAt     time.Time `json:"created_at"`
 	CreatedBy     string    `json:"created_by"`
 }
+
+type FleetRevenueRequest struct {
+	StartDate string `json:"start_date"`
+	EndDate   string `json:"end_date"`
+	FleetIDID string `json:"fleet_id"`
+	Period    string `json:"period"`
+}
+
+type FleetRevenue struct {
+	Period       string  `json:"period,omitempty"`
+	StartDate    string  `json:"start_date,omitempty"`
+	EndDate      string  `json:"end_date,omitempty"`
+	TotalRevenue float64 `json:"total_revenue"`
+	TotalBooking int64   `json:"total_booking"`
+}

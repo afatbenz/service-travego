@@ -18,13 +18,16 @@ type FleetUnitListItem struct {
 }
 
 type FleetUnitCreateRequest struct {
-	VehicleID      string `json:"vehicle_id" validate:"required"`
-	PlateNumber    string `json:"plate_number" validate:"required"`
-	FleetID        string `json:"fleet_id" validate:"required"`
-	Engine         string `json:"engine" validate:"required"`
-	Transmission   string `json:"transmission" validate:"required"`
-	Capacity       int    `json:"capacity" validate:"required"`
-	ProductionYear int    `json:"production_year" validate:"required"`
+	VehicleID      string  `json:"vehicle_id" validate:"required"`
+	PlateNumber    string  `json:"plate_number" validate:"required"`
+	FleetID        string  `json:"fleet_id" validate:"required"`
+	Engine         string  `json:"engine" validate:"required"`
+	Transmission   string  `json:"transmission" validate:"required"`
+	Capacity       int     `json:"capacity" validate:"required"`
+	ProductionYear int     `json:"production_year" validate:"required"`
+	PartnerID      *string `json:"partner_id"`
+	PartnerName    *string `json:"partner_name"`
+	PartnerPhone   *string `json:"partner_phone"`
 
 	OrganizationID string `json:"-"`
 	CreatedBy      string `json:"-"`
@@ -33,12 +36,15 @@ type FleetUnitCreateRequest struct {
 }
 
 type FleetUnitCreateUnit struct {
-	VehicleID      string `json:"vehicle_id" validate:"required"`
-	PlateNumber    string `json:"plate_number" validate:"required"`
-	Engine         string `json:"engine" validate:"required"`
-	Transmission   string `json:"transmission" validate:"required"`
-	Capacity       int    `json:"capacity" validate:"required"`
-	ProductionYear int    `json:"production_year" validate:"required"`
+	VehicleID      string  `json:"vehicle_id" validate:"required"`
+	PlateNumber    string  `json:"plate_number" validate:"required"`
+	Engine         string  `json:"engine" validate:"required"`
+	Transmission   string  `json:"transmission" validate:"required"`
+	Capacity       int     `json:"capacity" validate:"required"`
+	ProductionYear int     `json:"production_year" validate:"required"`
+	PartnerID      *string `json:"partner_id"`
+	PartnerName    *string `json:"partner_name"`
+	PartnerPhone   *string `json:"partner_phone"`
 }
 
 type FleetUnitBatchCreateRequest struct {
@@ -47,14 +53,17 @@ type FleetUnitBatchCreateRequest struct {
 }
 
 type FleetUnitUpdateRequest struct {
-	UnitID         string `json:"unit_id" validate:"required"`
-	VehicleID      string `json:"vehicle_id" validate:"required"`
-	PlateNumber    string `json:"plate_number" validate:"required"`
-	FleetID        string `json:"fleet_id" validate:"required"`
-	Engine         string `json:"engine" validate:"required"`
-	Transmission   string `json:"transmission" validate:"required"`
-	Capacity       int    `json:"capacity" validate:"required"`
-	ProductionYear int    `json:"production_year" validate:"required"`
+	UnitID         string  `json:"unit_id" validate:"required"`
+	VehicleID      string  `json:"vehicle_id" validate:"required"`
+	PlateNumber    string  `json:"plate_number" validate:"required"`
+	FleetID        string  `json:"fleet_id" validate:"required"`
+	Engine         string  `json:"engine" validate:"required"`
+	Transmission   string  `json:"transmission" validate:"required"`
+	Capacity       int     `json:"capacity" validate:"required"`
+	ProductionYear int     `json:"production_year" validate:"required"`
+	PartnerID      *string `json:"partner_id"`
+	PartnerName    *string `json:"partner_name"`
+	PartnerPhone   *string `json:"partner_phone"`
 
 	OrganizationID string `json:"-"`
 	UpdatedBy      string `json:"-"`

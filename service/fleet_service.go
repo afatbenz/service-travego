@@ -361,12 +361,14 @@ func (s *FleetService) GetPartnerOrderDetail(orderID, orgID string) (*model.Orde
 	res.Fleets = fleetItems
 
 	// Get schedule info
+	res.Scheduled = false
 	schedule, err := s.repo.GetScheduleByOrderID(orderID)
-
-	if schedule != nil {
+	if err != nil && err != sql.ErrNoRows {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to get schedule")
+	}
+	if err == nil && schedule != nil {
 		res.Scheduled = true
 	}
-
 	return res, nil
 }
 
@@ -1167,4 +1169,13 @@ func (s *FleetService) GetFleetReviews(fleetID, orgID string) ([]model.OrderRevi
 		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to load reviews")
 	}
 	return items, nil
+}
+
+func (s *FleetService) GetFleetRevenue(orgID, fleetID string, startDate, endDate string) (*model.FleetRevenue, error) {
+	revenue, err := s.repo.GetFleetRevenue(orgID, fleetID, startDate, endDate)
+	if err != nil {
+		fmt.Println(err)
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to load revenue")
+	}
+	return revenue, nil
 }

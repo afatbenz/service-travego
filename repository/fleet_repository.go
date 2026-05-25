@@ -2389,12 +2389,12 @@ func (r *FleetRepository) FindOrderDetail(orderID, organizationID string) (*mode
 	paymentQuery := fmt.Sprintf(`
 		SELECT 
 			ba.bank_code, ba.account_name, ba.account_number, bl.name as bank_name, 
-			op.payment_type, op.payment_percentage, op.payment_amount, op.total_amount, 
-			op.payment_remaining, op.status, op.created_at, op.order_payment_id
-		FROM fleet_order_payment op
-		LEFT JOIN organization_bank_accounts ba ON op.bank_account_id = ba.bank_account_id
+			op.payment_type, 0 as payment_percentage, op.payment_amount, op.total_amount, 
+			op.remaining_amount, op.status, op.created_at, op.payment_id
+		FROM payment_orders op
+		LEFT JOIN organization_bank_accounts ba ON op.bank_account = ba.bank_account_id
 		LEFT JOIN bank_lists bl ON ba.bank_code = bl.code
-		WHERE op.order_id = %s
+		WHERE op.order_id = %s AND op.order_type = 1 AND COALESCE(op.status, 0) > 0
 		ORDER BY op.created_at DESC
 	`, r.getPlaceholder(1))
 
@@ -2426,6 +2426,8 @@ func (r *FleetRepository) FindOrderDetail(orderID, organizationID string) (*mode
 				if pd.Status != 1 {
 					allStatus1 = false
 				}
+			} else {
+				fmt.Println("Payment scan error:", err)
 			}
 		}
 
@@ -2898,10 +2900,7 @@ func (r *FleetRepository) ListPaymentOrders(orderID string, orderType int, organ
 }
 
 func (r *FleetRepository) GetLatestPaymentOrder(orderID string, orderType int, organizationID string) (*model.PaymentOrderRow, error) {
-	orgExpr := "organization_id = " + r.getPlaceholder(3)
-	if r.driver == "postgres" || r.driver == "pgx" {
-		orgExpr = "organization_id::text = " + r.getPlaceholder(3)
-	}
+	orgExpr := "organization_id::text = " + r.getPlaceholder(3)
 	query := fmt.Sprintf(`
 		SELECT
 			payment_id,
@@ -2946,6 +2945,7 @@ func (r *FleetRepository) GetLatestPaymentOrder(orderID string, orderType int, o
 	if err != nil {
 		return nil, err
 	}
+	fmt.Println("it:", it)
 	return &it, nil
 }
 
@@ -3159,12 +3159,8 @@ func (r *FleetRepository) GetPartnerOrderSummary(orgID string, filter *model.Par
 }
 
 func (r *FleetRepository) GetPartnerOrderFleetItems(organizationId, orderId string) ([]model.OrderDetailFleetItem, error) {
-	priceJoinExpr := "p.uuid = oi.price_id"
-	fleetJoinExpr := "f.uuid = oi.fleet_id"
-	if r.driver == "postgres" || r.driver == "pgx" {
-		priceJoinExpr = "p.uuid::text = oi.price_id::text"
-		fleetJoinExpr = "f.uuid::text = oi.fleet_id::text"
-	}
+	priceJoinExpr := "p.uuid::text = oi.price_id::text"
+	fleetJoinExpr := "f.uuid::text = oi.fleet_id::text"
 
 	query := fmt.Sprintf(`
 		SELECT oi.order_item_id, oi.order_id, oi.fleet_id, f.fleet_name,
@@ -3215,20 +3211,14 @@ func (r *FleetRepository) GetPartnerOrderFleetItems(organizationId, orderId stri
 		return items, nil
 	}
 
-	orgExpr := "oi.organization_id = " + r.getPlaceholder(1)
-	orderExpr := "oi.order_id = " + r.getPlaceholder(2)
-	itemJoinExpr := "oi.order_item_id = foa.order_item_id"
-	addonJoinExpr := "foa.addon_id = a.uuid"
-	if r.driver == "postgres" || r.driver == "pgx" {
-		orgExpr = "oi.organization_id::text = " + r.getPlaceholder(1)
-		orderExpr = "oi.order_id::text = " + r.getPlaceholder(2)
-		itemJoinExpr = "oi.order_item_id::text = foa.order_item_id::text"
-		addonJoinExpr = "foa.addon_id::text = a.uuid::text"
-	}
+	orgExpr := "oi.organization_id::text = " + r.getPlaceholder(1)
+	orderExpr := "oi.order_id::text = " + r.getPlaceholder(2)
+	itemJoinExpr := "oi.order_id::text = foa.order_id::text"
+	addonJoinExpr := "foa.addon_id::text = a.uuid::text"
 
 	addonsQuery := fmt.Sprintf(`
-		SELECT oi.order_item_id, COALESCE(a.addon_name, ''), COALESCE(a.addon_desc, ''), COALESCE(foa.addon_price, 0)
-		FROM fleet_order_items oi
+		SELECT foa.order_addon_id, COALESCE(a.addon_name, ''), COALESCE(a.addon_desc, ''), COALESCE(foa.addon_price, 0)
+		FROM fleet_orders oi
 		INNER JOIN fleet_order_addons foa ON %s
 		INNER JOIN fleet_addon a ON %s
 		WHERE %s AND %s
@@ -3236,6 +3226,7 @@ func (r *FleetRepository) GetPartnerOrderFleetItems(organizationId, orderId stri
 
 	aRows, err := database.Query(r.db, addonsQuery, organizationId, orderId)
 	if err != nil {
+		fmt.Println("GetPartnerOrderFleetItems err:", err)
 		return nil, err
 	}
 	defer aRows.Close()
@@ -3246,12 +3237,14 @@ func (r *FleetRepository) GetPartnerOrderFleetItems(organizationId, orderId stri
 		var orderItemID string
 		var a model.OrderDetailAddon
 		if err := aRows.Scan(&orderItemID, &a.AddonName, &a.AddonDesc, &a.AddonPrice); err != nil {
+			fmt.Println("GetPartnerOrderFleetItems err1:", err)
 			return nil, err
 		}
 		addonsByItem[orderItemID] = append(addonsByItem[orderItemID], a)
 		addonAmountByItem[orderItemID] += a.AddonPrice
 	}
 	if err := aRows.Err(); err != nil {
+		fmt.Println("GetPartnerOrderFleetItems err:", err)
 		return nil, err
 	}
 
@@ -4207,4 +4200,57 @@ func (r *FleetRepository) GetFleetReviews(fleetID, organizationID string) ([]mod
 		return nil, err
 	}
 	return out, nil
+}
+
+func (r *FleetRepository) GetFleetRevenue(orgID, fleetID, startDate, endDate string) (*model.FleetRevenue, error) {
+	query := fmt.Sprintf(`
+		SELECT SUM(po.payment_amount) AS revenue,
+		COUNT(fo.order_id) as total_booking
+		FROM fleet_orders fo
+		INNER JOIN payment_orders po ON po.order_id = fo.order_id
+		WHERE fo.fleet_id = %s AND fo.organization_id = %s AND fo.status = 1 AND fo.payment_status NOT IN (0,2) AND po.created_at BETWEEN %s AND %s 
+		GROUP BY fo.fleet_id
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))
+	var revenueAny interface{}
+	var totalBooking int64
+	if err := database.QueryRow(r.db, query, fleetID, orgID, startDate, endDate).Scan(&revenueAny, &totalBooking); err != nil {
+		return nil, err
+	}
+	switch v := revenueAny.(type) {
+	case nil:
+		return nil, nil
+	case float64:
+		return &model.FleetRevenue{
+			StartDate:    startDate,
+			EndDate:      endDate,
+			TotalRevenue: v,
+			TotalBooking: totalBooking,
+		}, nil
+	case int64:
+		return &model.FleetRevenue{
+			StartDate:    startDate,
+			EndDate:      endDate,
+			TotalRevenue: float64(v),
+			TotalBooking: totalBooking,
+		}, nil
+	case []byte:
+		if f, err := strconv.ParseFloat(string(v), 64); err == nil {
+			return &model.FleetRevenue{
+				StartDate:    startDate,
+				EndDate:      endDate,
+				TotalRevenue: f,
+				TotalBooking: totalBooking,
+			}, nil
+		}
+	case string:
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return &model.FleetRevenue{
+				StartDate:    startDate,
+				EndDate:      endDate,
+				TotalRevenue: f,
+				TotalBooking: totalBooking,
+			}, nil
+		}
+	}
+	return nil, nil
 }
