@@ -15,12 +15,13 @@ import (
 
 type FleetUnitService struct {
 	repo              *repository.FleetUnitRepository
+	partnerRepo       *repository.PartnerRepository
 	citiesName        map[string]string
 	transmissionLabel map[string]string
 }
 
-func NewFleetUnitService(repo *repository.FleetUnitRepository) *FleetUnitService {
-	return &FleetUnitService{repo: repo}
+func NewFleetUnitService(repo *repository.FleetUnitRepository, partnerRepo *repository.PartnerRepository) *FleetUnitService {
+	return &FleetUnitService{repo: repo, partnerRepo: partnerRepo}
 }
 
 func (s *FleetUnitService) ensureCitiesLoaded() {
@@ -84,6 +85,14 @@ func (s *FleetUnitService) List(orgID, fleetId string) ([]model.FleetUnitListIte
 func (s *FleetUnitService) Create(orgID, userID string, req *model.FleetUnitCreateRequest) (string, error) {
 	req.OrganizationID = orgID
 	req.CreatedBy = userID
+
+	if req.PartnerID == nil && req.PartnerName != nil && req.PartnerPhone != nil {
+		partnerIDStr, err := s.partnerRepo.GetOrCreateByNamePhone(orgID, userID, *req.PartnerName, *req.PartnerPhone)
+		if err != nil {
+			return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to handle partner")
+		}
+		req.PartnerID = &partnerIDStr
+	}
 
 	vehicleID := strings.ToUpper(strings.TrimSpace(req.VehicleID))
 	plateNumber := strings.ToUpper(strings.TrimSpace(req.PlateNumber))
@@ -169,6 +178,9 @@ func (s *FleetUnitService) CreateBatch(orgID, userID, fleetID string, units []mo
 			Transmission:   u.Transmission,
 			Capacity:       u.Capacity,
 			ProductionYear: u.ProductionYear,
+			PartnerID:      u.PartnerID,
+			PartnerName:    u.PartnerName,
+			PartnerPhone:   u.PartnerPhone,
 		}
 		id, err := s.Create(orgID, userID, req)
 		if err != nil {
@@ -182,6 +194,15 @@ func (s *FleetUnitService) CreateBatch(orgID, userID, fleetID string, units []mo
 func (s *FleetUnitService) Update(orgID, userID string, req *model.FleetUnitUpdateRequest) error {
 	req.OrganizationID = orgID
 	req.UpdatedBy = userID
+
+	if req.PartnerID == nil && req.PartnerName != nil && req.PartnerPhone != nil {
+		partnerIDStr, err := s.partnerRepo.GetOrCreateByNamePhone(orgID, userID, *req.PartnerName, *req.PartnerPhone)
+		if err != nil {
+			return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to handle partner")
+		}
+		req.PartnerID = &partnerIDStr
+	}
+
 	if err := s.repo.Update(req); err != nil {
 		if err == sql.ErrNoRows {
 			return NewServiceError(ErrNotFound, http.StatusNotFound, "fleet unit not found")

@@ -673,7 +673,7 @@ func (s *OrderService) CreateServiceOrderPayment(req *model.CreateServiceOrderPa
 	if req.OrderType != 1 && req.OrderType != 2 {
 		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "order_type tidak valid")
 	}
-	if req.PaymentType != 1001 && req.PaymentType != 1002 && req.PaymentType != 1003 {
+	if req.PaymentType != 1001 && req.PaymentType != 1002 && req.PaymentType != 1003 && req.PaymentType != 1004 {
 		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "payment_type tidak valid")
 	}
 	if req.PaymentMethod == 1002 { // transfer

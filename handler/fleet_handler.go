@@ -721,7 +721,11 @@ func (h *FleetHandler) GetPartnerOrderDetail(c *fiber.Ctx) error {
 
 	payment, err := h.service.GetPartnerOrderPaymentSummary(orderID, orgID, res.TotalAmount)
 	if err != nil {
-		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "failed to load payment")
+		payment = &model.PaymentSummary{
+			PaidAmount:       0,
+			PaymentRemaining: res.TotalAmount,
+			PaymentStatus:    "unpaid",
+		}
 	}
 
 	reviews, err := h.service.GetOrderReviews(orderID, orgID)
@@ -738,7 +742,7 @@ func (h *FleetHandler) GetPartnerOrderDetail(c *fiber.Ctx) error {
 	raw, _ := json.Marshal(res)
 	var m map[string]interface{}
 	_ = json.Unmarshal(raw, &m)
-	m["payment"] = payment
+	m["payment_summary"] = payment
 	m["reviews"] = reviews
 	m["rating"] = rating
 
@@ -1258,4 +1262,68 @@ func (h *FleetHandler) ProcessFleetOrder(c *fiber.Ctx) error {
 	}
 
 	return nil
+}
+
+func formatPeriodIndonesian(t time.Time) string {
+	months := [...]string{"", "Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"}
+	mm := ""
+	if int(t.Month()) >= 1 && int(t.Month()) <= 12 {
+		mm = months[int(t.Month())]
+	}
+	if mm == "" {
+		mm = t.Month().String()
+	}
+	return fmt.Sprintf("%s %04d", mm, t.Year())
+}
+
+func (h *FleetHandler) FleetRevenue(c *fiber.Ctx) error {
+	var req model.FleetRevenueRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.BadRequestResponse(c, "Invalid payload")
+	}
+	orgID, _ := c.Locals("organization_id").(string)
+	if orgID == "" {
+		return helper.BadRequestResponse(c, "missing organization context")
+	}
+
+	if req.Period != "" {
+		t, err := time.Parse("2006-01", req.Period)
+		if err != nil {
+			return helper.BadRequestResponse(c, "Invalid period format. Use YYYY-MM")
+		}
+
+		currentStart := t.Format("2006-01-02")
+		currentEnd := t.AddDate(0, 1, -1).Format("2006-01-02")
+
+		prevT := t.AddDate(0, -1, 0)
+		prevStart := prevT.Format("2006-01-02")
+		prevEnd := prevT.AddDate(0, 1, -1).Format("2006-01-02")
+
+		currRev, err := h.service.GetFleetRevenue(orgID, req.FleetIDID, currentStart, currentEnd)
+		if err != nil {
+			code := service.GetStatusCode(err)
+			return helper.SendErrorResponse(c, code, err.Error())
+		}
+		currRev.Period = formatPeriodIndonesian(t)
+		currRev.StartDate = ""
+		currRev.EndDate = ""
+
+		prevRev, err := h.service.GetFleetRevenue(orgID, req.FleetIDID, prevStart, prevEnd)
+		if err != nil {
+			code := service.GetStatusCode(err)
+			return helper.SendErrorResponse(c, code, err.Error())
+		}
+		prevRev.Period = formatPeriodIndonesian(prevT)
+		prevRev.StartDate = ""
+		prevRev.EndDate = ""
+
+		return helper.SuccessResponse(c, fiber.StatusOK, "Fleet revenue", []interface{}{currRev, prevRev})
+	}
+
+	revenue, err := h.service.GetFleetRevenue(orgID, req.FleetIDID, req.StartDate, req.EndDate)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet revenue", revenue)
 }

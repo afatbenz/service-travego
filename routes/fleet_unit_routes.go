@@ -12,7 +12,8 @@ import (
 
 func SetupFleetUnitRoutes(api fiber.Router, db *sql.DB, driver string) {
 	repo := repository.NewFleetUnitRepository(db, driver)
-	srv := service.NewFleetUnitService(repo)
+	partnerRepo := repository.NewPartnerRepository(db, driver)
+	srv := service.NewFleetUnitService(repo, partnerRepo)
 	h := handler.NewFleetUnitHandler(srv)
 
 	services := api.Group("/services")
