@@ -13,7 +13,8 @@ import (
 func SetupFleetUnitRoutes(api fiber.Router, db *sql.DB, driver string) {
 	repo := repository.NewFleetUnitRepository(db, driver)
 	partnerRepo := repository.NewPartnerRepository(db, driver)
-	srv := service.NewFleetUnitService(repo, partnerRepo)
+	orgRepo := repository.NewOrganizationRepository(db, driver)
+	srv := service.NewFleetUnitService(repo, partnerRepo, orgRepo)
 	h := handler.NewFleetUnitHandler(srv)
 
 	services := api.Group("/services")
@@ -23,6 +24,7 @@ func SetupFleetUnitRoutes(api fiber.Router, db *sql.DB, driver string) {
 	units.Post("/create", helper.JWTAuthorizationMiddleware(), h.Create)
 	units.Post("/update", helper.JWTAuthorizationMiddleware(), h.Update)
 	units.Get("/detail/:unit_id", helper.JWTAuthorizationMiddleware(), h.Detail)
+	units.Post("/revenue", helper.JWTAuthorizationMiddleware(), h.UnitRevenue)
 
 	fleetUnits := api.Group("/fleet-units")
 	fleetUnits.Post("/order/history", helper.JWTAuthorizationMiddleware(), h.OrderHistory)

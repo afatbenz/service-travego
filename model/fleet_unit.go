@@ -25,9 +25,11 @@ type FleetUnitCreateRequest struct {
 	Transmission   string  `json:"transmission" validate:"required"`
 	Capacity       int     `json:"capacity" validate:"required"`
 	ProductionYear int     `json:"production_year" validate:"required"`
+	OwnershipType  *int    `json:"ownership_type"`
 	PartnerID      *string `json:"partner_id"`
 	PartnerName    *string `json:"partner_name"`
 	PartnerPhone   *string `json:"partner_phone"`
+	PartnerEmail   *string `json:"partner_email"`
 
 	OrganizationID string `json:"-"`
 	CreatedBy      string `json:"-"`
@@ -42,9 +44,11 @@ type FleetUnitCreateUnit struct {
 	Transmission   string  `json:"transmission" validate:"required"`
 	Capacity       int     `json:"capacity" validate:"required"`
 	ProductionYear int     `json:"production_year" validate:"required"`
+	OwnershipType  *int    `json:"ownership_type"`
 	PartnerID      *string `json:"partner_id"`
 	PartnerName    *string `json:"partner_name"`
 	PartnerPhone   *string `json:"partner_phone"`
+	PartnerEmail   *string `json:"partner_email"`
 }
 
 type FleetUnitBatchCreateRequest struct {
@@ -61,9 +65,11 @@ type FleetUnitUpdateRequest struct {
 	Transmission   string  `json:"transmission" validate:"required"`
 	Capacity       int     `json:"capacity" validate:"required"`
 	ProductionYear int     `json:"production_year" validate:"required"`
+	OwnershipType  *int    `json:"ownership_type"`
 	PartnerID      *string `json:"partner_id"`
 	PartnerName    *string `json:"partner_name"`
 	PartnerPhone   *string `json:"partner_phone"`
+	PartnerEmail   *string `json:"partner_email"`
 
 	OrganizationID string `json:"-"`
 	UpdatedBy      string `json:"-"`
@@ -71,25 +77,45 @@ type FleetUnitUpdateRequest struct {
 }
 
 type FleetUnitDetailResponse struct {
-	UnitID         string   `json:"unit_id"`
-	VehicleID      string   `json:"vehicle_id"`
-	PlateNumber    string   `json:"plate_number"`
-	FleetID        string   `json:"fleet_id"`
-	FleetName      string   `json:"fleet_name"`
-	FleetType      string   `json:"fleet_type"`
-	Engine         string   `json:"engine"`
-	TransmissionID string   `json:"transmission_id"`
-	Transmission   string   `json:"transmission"`
-	Capacity       int      `json:"capacity"`
-	ProductionYear int      `json:"production_year"`
-	Status         int      `json:"status"`
-	Description    string   `json:"description"`
-	Thumbnail      string   `json:"thumbnail"`
-	PickupPoint    []string `json:"pickup_point"`
-	CreatedBy      string   `json:"created_by"`
-	CreatedDate    string   `json:"created_date"`
-	UpdatedBy      string   `json:"updated_by"`
-	UpdatedDate    string   `json:"updated_date"`
+	UnitID               string                         `json:"unit_id"`
+	VehicleID            string                         `json:"vehicle_id"`
+	PlateNumber          string                         `json:"plate_number"`
+	FleetID              string                         `json:"fleet_id"`
+	FleetName            string                         `json:"fleet_name"`
+	FleetType            string                         `json:"fleet_type"`
+	Engine               string                         `json:"engine"`
+	TransmissionID       string                         `json:"transmission_id"`
+	Transmission         string                         `json:"transmission"`
+	Capacity             int                            `json:"capacity"`
+	ProductionYear       int                            `json:"production_year"`
+	Status               int                            `json:"status"`
+	Description          string                         `json:"description"`
+	Thumbnail            string                         `json:"thumbnail"`
+	PickupPoint          []string                       `json:"pickup_point"`
+	CreatedBy            string                         `json:"created_by"`
+	CreatedDate          string                         `json:"created_date"`
+	UpdatedBy            string                         `json:"updated_by"`
+	UpdatedDate          string                         `json:"updated_date"`
+	OwnershipType        *int                           `json:"ownership_type"`
+	OwnershipInformation *FleetUnitOwnershipInformation `json:"ownership_information"`
+}
+
+type FleetUnitOwnershipInformation struct {
+	PartnerID    string  `json:"partner_id"`
+	PartnerName  string  `json:"partner_name"`
+	PartnerPhone string  `json:"partner_phone"`
+	PartnerEmail *string `json:"partner_email"`
+}
+
+type FleetUnitRevenueRequest struct {
+	UnitID  string `json:"unit_id"`
+	Period  string `json:"period"`
+}
+
+type FleetUnitRevenue struct {
+	Period       string  `json:"period,omitempty"`
+	TotalRevenue float64 `json:"total_revenue"`
+	TotalBooking int64   `json:"total_booking"`
 }
 
 type FleetUnitOrderHistoryRequest struct {
