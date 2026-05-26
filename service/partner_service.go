@@ -43,9 +43,14 @@ func (s *PartnerService) Detail(partnerID, orgID string) (*model.OperationPartne
 	}
 
 	label := s.repo.GetCityLabel(partner.PartnerCity)
+	fleetUnits, _ := s.repo.GetPartnerFleetUnits(partnerID, orgID)
+	if fleetUnits == nil {
+		fleetUnits = []model.PartnerFleetUnit{}
+	}
 
 	return &model.OperationPartnerDetailResponse{
 		OperationPartner: *partner,
 		PartnerCityLabel: label,
+		FleetUnits:       fleetUnits,
 	}, nil
 }

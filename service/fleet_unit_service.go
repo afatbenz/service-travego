@@ -16,12 +16,13 @@ import (
 type FleetUnitService struct {
 	repo              *repository.FleetUnitRepository
 	partnerRepo       *repository.PartnerRepository
+	orgRepo           *repository.OrganizationRepository
 	citiesName        map[string]string
 	transmissionLabel map[string]string
 }
 
-func NewFleetUnitService(repo *repository.FleetUnitRepository, partnerRepo *repository.PartnerRepository) *FleetUnitService {
-	return &FleetUnitService{repo: repo, partnerRepo: partnerRepo}
+func NewFleetUnitService(repo *repository.FleetUnitRepository, partnerRepo *repository.PartnerRepository, orgRepo *repository.OrganizationRepository) *FleetUnitService {
+	return &FleetUnitService{repo: repo, partnerRepo: partnerRepo, orgRepo: orgRepo}
 }
 
 func (s *FleetUnitService) ensureCitiesLoaded() {
@@ -86,12 +87,15 @@ func (s *FleetUnitService) Create(orgID, userID string, req *model.FleetUnitCrea
 	req.OrganizationID = orgID
 	req.CreatedBy = userID
 
+	var partnerID *string
 	if req.PartnerID == nil && req.PartnerName != nil && req.PartnerPhone != nil {
-		partnerIDStr, err := s.partnerRepo.GetOrCreateByNamePhone(orgID, userID, *req.PartnerName, *req.PartnerPhone)
+		partnerIDStr, err := s.partnerRepo.GetOrCreateByNamePhone(orgID, userID, *req.PartnerName, *req.PartnerPhone, req.PartnerEmail)
 		if err != nil {
 			return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to handle partner")
 		}
-		req.PartnerID = &partnerIDStr
+		partnerID = &partnerIDStr
+	} else if req.PartnerID != nil {
+		partnerID = req.PartnerID
 	}
 
 	vehicleID := strings.ToUpper(strings.TrimSpace(req.VehicleID))
@@ -123,6 +127,13 @@ func (s *FleetUnitService) Create(orgID, userID string, req *model.FleetUnitCrea
 		}
 		return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, msg)
 	}
+
+	if req.OwnershipType != nil && *req.OwnershipType == 1 && partnerID != nil {
+		if err := s.repo.SetUnitOwnership(id, *partnerID, orgID, userID); err != nil {
+			return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to set unit ownership")
+		}
+	}
+
 	return id, nil
 }
 
@@ -178,9 +189,11 @@ func (s *FleetUnitService) CreateBatch(orgID, userID, fleetID string, units []mo
 			Transmission:   u.Transmission,
 			Capacity:       u.Capacity,
 			ProductionYear: u.ProductionYear,
+			OwnershipType:  u.OwnershipType,
 			PartnerID:      u.PartnerID,
 			PartnerName:    u.PartnerName,
 			PartnerPhone:   u.PartnerPhone,
+			PartnerEmail:   u.PartnerEmail,
 		}
 		id, err := s.Create(orgID, userID, req)
 		if err != nil {
@@ -195,12 +208,15 @@ func (s *FleetUnitService) Update(orgID, userID string, req *model.FleetUnitUpda
 	req.OrganizationID = orgID
 	req.UpdatedBy = userID
 
+	var partnerID *string
 	if req.PartnerID == nil && req.PartnerName != nil && req.PartnerPhone != nil {
-		partnerIDStr, err := s.partnerRepo.GetOrCreateByNamePhone(orgID, userID, *req.PartnerName, *req.PartnerPhone)
+		partnerIDStr, err := s.partnerRepo.GetOrCreateByNamePhone(orgID, userID, *req.PartnerName, *req.PartnerPhone, req.PartnerEmail)
 		if err != nil {
 			return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to handle partner")
 		}
-		req.PartnerID = &partnerIDStr
+		partnerID = &partnerIDStr
+	} else if req.PartnerID != nil {
+		partnerID = req.PartnerID
 	}
 
 	if err := s.repo.Update(req); err != nil {
@@ -209,6 +225,13 @@ func (s *FleetUnitService) Update(orgID, userID string, req *model.FleetUnitUpda
 		}
 		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to update fleet unit")
 	}
+
+	if req.OwnershipType != nil && *req.OwnershipType == 1 && partnerID != nil {
+		if err := s.repo.SetUnitOwnership(req.UnitID, *partnerID, orgID, userID); err != nil {
+			return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to set unit ownership")
+		}
+	}
+
 	return nil
 }
 
@@ -246,6 +269,22 @@ func (s *FleetUnitService) Detail(orgID, uuid string) (*model.FleetUnitDetailRes
 				out = append(out, name)
 			}
 			res.PickupPoint = out
+		}
+	}
+
+	if res.OwnershipType != nil {
+		if *res.OwnershipType == 1 {
+			ownershipInfo, err := s.repo.GetOwnershipInformation(orgID, uuid)
+			if err == nil && ownershipInfo != nil {
+				res.OwnershipInformation = ownershipInfo
+			}
+		} else if *res.OwnershipType == 2 {
+			org, err := s.orgRepo.FindByID(orgID)
+			if err == nil && org != nil {
+				res.OwnershipInformation = &model.FleetUnitOwnershipInformation{
+					PartnerName: org.OrganizationName,
+				}
+			}
 		}
 	}
 
@@ -328,6 +367,18 @@ func (s *FleetUnitService) UnitOrderHistory(orgID, unitID, startDate, endDate st
 		}
 	}
 	return items, nil
+}
+
+func (s *FleetUnitService) GetUnitRevenue(orgID, unitID, startDate, endDate string) (*model.FleetUnitRevenue, error) {
+	revenue, err := s.repo.GetUnitRevenue(orgID, unitID, startDate, endDate)
+	if err != nil {
+		fmt.Println(err)
+		return &model.FleetUnitRevenue{TotalRevenue: 0, TotalBooking: 0}, nil
+	}
+	if revenue == nil {
+		return &model.FleetUnitRevenue{TotalRevenue: 0, TotalBooking: 0}, nil
+	}
+	return revenue, nil
 }
 
 func (s *FleetUnitService) UnitRating(orgID, unitID string) (float64, error) {

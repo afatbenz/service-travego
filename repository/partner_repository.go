@@ -61,18 +61,20 @@ func (r *PartnerRepository) GetCityLabel(cityID *int) string {
 
 func (r *PartnerRepository) List(orgID, partnerName string) ([]model.OperationPartner, error) {
 	query := `
-		SELECT partner_id, partner_name, partner_address, partner_city, partner_phone, pic_name, created_at, created_by, updated_at, updated_by, organization_id
-		FROM operation_partner
-		WHERE organization_id = $1
+		SELECT op.partner_id, op.partner_name, op.partner_address, op.partner_city, op.partner_phone, op.partner_email, op.pic_name, op.created_at, op.created_by, op.updated_at, op.updated_by, op.organization_id, COUNT(fuo.unit_id) as total_unit
+		FROM operation_partner op
+		LEFT JOIN fleet_unit_ownership fuo ON fuo.partner_id = op.partner_id
+		WHERE op.organization_id = $1
+		GROUP BY op.partner_id, op.partner_name, op.partner_address, op.partner_city, op.partner_phone, op.partner_email, op.pic_name, op.created_at, op.created_by, op.updated_at, op.updated_by, op.organization_id
 	`
 	args := []interface{}{orgID}
 
 	if partnerName != "" {
-		query += ` AND partner_name ILIKE $2`
+		query += ` AND op.partner_name ILIKE $2`
 		args = append(args, "%"+partnerName+"%")
 	}
 
-	query += ` ORDER BY created_at DESC`
+	query += ` ORDER BY op.created_at DESC`
 
 	// adjust for mysql
 	if r.driver == "mysql" {
@@ -91,12 +93,13 @@ func (r *PartnerRepository) List(orgID, partnerName string) ([]model.OperationPa
 	for rows.Next() {
 		var p model.OperationPartner
 		err := rows.Scan(
-			&p.PartnerID, &p.PartnerName, &p.PartnerAddress, &p.PartnerCity, &p.PartnerPhone, &p.PicName,
-			&p.CreatedAt, &p.CreatedBy, &p.UpdatedAt, &p.UpdatedBy, &p.OrganizationID,
+			&p.PartnerID, &p.PartnerName, &p.PartnerAddress, &p.PartnerCity, &p.PartnerPhone, &p.PartnerEmail, &p.PicName,
+			&p.CreatedAt, &p.CreatedBy, &p.UpdatedAt, &p.UpdatedBy, &p.OrganizationID, &p.TotalUnit,
 		)
 		if err != nil {
 			return nil, err
 		}
+		p.PartnerCityLabel = r.GetCityLabel(p.PartnerCity)
 		result = append(result, p)
 	}
 	return result, nil
@@ -107,8 +110,8 @@ func (r *PartnerRepository) Create(req model.CreateOperationPartnerRequest, orgI
 	now := time.Now()
 
 	query := `
-		INSERT INTO operation_partner (partner_id, partner_name, partner_address, partner_city, partner_phone, pic_name, created_at, created_by, updated_at, updated_by, organization_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		INSERT INTO operation_partner (partner_id, partner_name, partner_address, partner_city, partner_phone, partner_email, pic_name, created_at, created_by, updated_at, updated_by, organization_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 	`
 	if r.driver == "mysql" {
 		query = strings.ReplaceAll(query, "$1", "?")
@@ -122,9 +125,10 @@ func (r *PartnerRepository) Create(req model.CreateOperationPartnerRequest, orgI
 		query = strings.ReplaceAll(query, "$9", "?")
 		query = strings.ReplaceAll(query, "$10", "?")
 		query = strings.ReplaceAll(query, "$11", "?")
+		query = strings.ReplaceAll(query, "$12", "?")
 	}
 
-	_, err := r.db.Exec(query, partnerID, req.PartnerName, req.PartnerAddress, req.PartnerCity, req.PartnerPhone, req.PicName, now, userID, now, userID, orgID)
+	_, err := r.db.Exec(query, partnerID, req.PartnerName, req.PartnerAddress, req.PartnerCity, req.PartnerPhone, req.PartnerEmail, req.PicName, now, userID, now, userID, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -137,8 +141,8 @@ func (r *PartnerRepository) Update(req model.UpdateOperationPartnerRequest, orgI
 
 	query := `
 		UPDATE operation_partner
-		SET partner_name = $1, partner_address = $2, partner_city = $3, partner_phone = $4, pic_name = $5, updated_at = $6, updated_by = $7
-		WHERE partner_id = $8 AND organization_id = $9
+		SET partner_name = $1, partner_address = $2, partner_city = $3, partner_phone = $4, partner_email = $5, pic_name = $6, updated_at = $7, updated_by = $8
+		WHERE partner_id = $9 AND organization_id = $10
 	`
 	if r.driver == "mysql" {
 		query = strings.ReplaceAll(query, "$1", "?")
@@ -150,9 +154,10 @@ func (r *PartnerRepository) Update(req model.UpdateOperationPartnerRequest, orgI
 		query = strings.ReplaceAll(query, "$7", "?")
 		query = strings.ReplaceAll(query, "$8", "?")
 		query = strings.ReplaceAll(query, "$9", "?")
+		query = strings.ReplaceAll(query, "$10", "?")
 	}
 
-	_, err := r.db.Exec(query, req.PartnerName, req.PartnerAddress, req.PartnerCity, req.PartnerPhone, req.PicName, now, userID, req.PartnerID, orgID)
+	_, err := r.db.Exec(query, req.PartnerName, req.PartnerAddress, req.PartnerCity, req.PartnerPhone, req.PartnerEmail, req.PicName, now, userID, req.PartnerID, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +167,7 @@ func (r *PartnerRepository) Update(req model.UpdateOperationPartnerRequest, orgI
 
 func (r *PartnerRepository) GetByID(partnerID, orgID string) (*model.OperationPartner, error) {
 	query := `
-		SELECT partner_id, partner_name, partner_address, partner_city, partner_phone, pic_name, created_at, created_by, updated_at, updated_by, organization_id
+		SELECT partner_id, partner_name, partner_address, partner_city, partner_phone, partner_email, pic_name, created_at, created_by, updated_at, updated_by, organization_id
 		FROM operation_partner
 		WHERE partner_id = $1 AND organization_id = $2
 	`
@@ -173,7 +178,7 @@ func (r *PartnerRepository) GetByID(partnerID, orgID string) (*model.OperationPa
 
 	var p model.OperationPartner
 	err := r.db.QueryRow(query, partnerID, orgID).Scan(
-		&p.PartnerID, &p.PartnerName, &p.PartnerAddress, &p.PartnerCity, &p.PartnerPhone, &p.PicName,
+		&p.PartnerID, &p.PartnerName, &p.PartnerAddress, &p.PartnerCity, &p.PartnerPhone, &p.PartnerEmail, &p.PicName,
 		&p.CreatedAt, &p.CreatedBy, &p.UpdatedAt, &p.UpdatedBy, &p.OrganizationID,
 	)
 	if err != nil {
@@ -185,7 +190,7 @@ func (r *PartnerRepository) GetByID(partnerID, orgID string) (*model.OperationPa
 	return &p, nil
 }
 
-func (r *PartnerRepository) GetOrCreateByNamePhone(orgID, userID, partnerName, partnerPhone string) (string, error) {
+func (r *PartnerRepository) GetOrCreateByNamePhone(orgID, userID, partnerName, partnerPhone string, partnerEmail *string) (string, error) {
 	query := `
 		SELECT partner_id
 		FROM operation_partner
@@ -210,6 +215,7 @@ func (r *PartnerRepository) GetOrCreateByNamePhone(orgID, userID, partnerName, p
 	createReq := model.CreateOperationPartnerRequest{
 		PartnerName:  partnerName,
 		PartnerPhone: partnerPhone,
+		PartnerEmail: partnerEmail,
 		PicName:      partnerName,
 	}
 
@@ -219,4 +225,35 @@ func (r *PartnerRepository) GetOrCreateByNamePhone(orgID, userID, partnerName, p
 	}
 
 	return partner.PartnerID, nil
+}
+
+func (r *PartnerRepository) GetPartnerFleetUnits(partnerID, orgID string) ([]model.PartnerFleetUnit, error) {
+	query := `
+		SELECT f.fleet_name, fu.plate_number, fu.vehicle_id, fu.unit_id 
+		FROM fleets f 
+		INNER JOIN fleet_units fu ON fu.fleet_id = f.uuid 
+		INNER JOIN fleet_unit_ownership fuo ON fuo.unit_id = fu.unit_id 
+		WHERE fuo.partner_id = $1 AND fuo.organization_id = $2
+	`
+	if r.driver == "mysql" {
+		query = strings.ReplaceAll(query, "$1", "?")
+		query = strings.ReplaceAll(query, "$2", "?")
+	}
+
+	rows, err := r.db.Query(query, partnerID, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []model.PartnerFleetUnit
+	for rows.Next() {
+		var fu model.PartnerFleetUnit
+		err := rows.Scan(&fu.FleetName, &fu.PlateNumber, &fu.VehicleID, &fu.UnitID)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, fu)
+	}
+	return result, nil
 }
