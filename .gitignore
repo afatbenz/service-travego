@@ -52,3 +52,6 @@ assets/log.json
 # Assets uploads (optional, if you don't want to track uploaded files)
 # assets/uploads/*
 
+.cursor/
+.trae/
+.specs/

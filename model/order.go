@@ -241,9 +241,11 @@ type OrderDetailDest struct {
 }
 
 type OrderDetailAddon struct {
-	AddonName  string  `json:"addon_name"`
-	AddonDesc  string  `json:"addon_desc"`
-	AddonPrice float64 `json:"addon_price"`
+	AddonID     string  `json:"addon_id"`
+	AddonName   string  `json:"addon_name"`
+	AddonDesc   string  `json:"addon_desc"`
+	AddonPrice  float64 `json:"addon_price"`
+	OrderItemID string  `json:"order_item_id"`
 }
 
 type OrderDetailFleetItem struct {

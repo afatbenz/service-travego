@@ -62,6 +62,12 @@ type FleetOrderUpdateItineraryItem struct {
 	Destination      string `json:"destination"`
 }
 
+type FleetOrderDeleteAddonRequest struct {
+	OrderID     string `json:"order_id"`
+	OrderItemID string `json:"order_item_id"`
+	AddonID     string `json:"addon_id"`
+}
+
 func NewFleetService(repo *repository.FleetRepository) *FleetService {
 	return &FleetService{repo: repo}
 }
@@ -1179,3 +1185,68 @@ func (s *FleetService) GetFleetRevenue(orgID, fleetID string, startDate, endDate
 	}
 	return revenue, nil
 }
+
+func (s *FleetService) GetOrderAvailability(orgID, fleetID string, cityID int, startDateStr, endDateStr string, serviceType *int) (*model.OrderAvailabilityResponse, error) {
+	if orgID == "" {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "missing organization context")
+	}
+	if fleetID == "" {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "fleet_id is required")
+	}
+	if cityID == 0 {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "city_id is required")
+	}
+	if startDateStr == "" {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "start_date is required")
+	}
+
+	// Parse start date
+	layout := "2006-01-02"
+	startDate, err := time.ParseInLocation(layout, startDateStr, time.Local)
+	if err != nil {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "invalid start_date format")
+	}
+
+	var endDate *time.Time
+	daysCount := 1 // Default to 1 day if no end date
+	if endDateStr != "" {
+		ed, err := time.ParseInLocation(layout, endDateStr, time.Local)
+		if err != nil {
+			return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "invalid end_date format")
+		}
+		endDate = &ed
+		daysCount = int(ed.Sub(startDate).Hours()/24) + 1
+	}
+
+	// Call repository
+	repoResult, err := s.repo.GetOrderAvailability(orgID, fleetID, cityID, startDate, endDate, daysCount, serviceType)
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to get availability")
+	}
+
+	// Build response
+	response := &model.OrderAvailabilityResponse{
+		Available: repoResult.Available,
+		Prices:    repoResult.Prices,
+	}
+
+	return response, nil
+}
+
+func (s *FleetService) DeleteFleetOrderAddon(orgID string, req *FleetOrderDeleteAddonRequest) error {
+	if req.OrderID == "" {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "order_id is required")
+	}
+	if req.OrderItemID == "" {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "order_item_id is required")
+	}
+	if req.AddonID == "" {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "addon_id is required")
+	}
+	err := s.repo.DeleteFleetOrderAddon(req.OrderID, req.OrderItemID, req.AddonID, orgID)
+	if err != nil {
+		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to delete addon: " + err.Error())
+	}
+	return nil
+}
+
