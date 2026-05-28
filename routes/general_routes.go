@@ -26,6 +26,13 @@ func SetupGeneralRoutes(api fiber.Router, db *sql.DB, driver string) {
 	fmService := service.NewFleetMetaService(fmRepo)
 	generalHandler.SetFleetMetaService(fmService)
 
+	// Preference city service (DB-backed)
+	pcRepo := repository.NewPreferenceCityRepository(db, driver)
+	pcService := service.NewPreferenceCityService(pcRepo, "config/location.json")
+	generalHandler.SetPreferenceCityService(pcService)
+
+	orgRepo := repository.NewOrganizationRepository(db, driver)
+
 	// General routes
 	general := api.Group("/general")
 	general.Get("/config", generalHandler.GetGeneralConfig)
@@ -41,4 +48,5 @@ func SetupGeneralRoutes(api fiber.Router, db *sql.DB, driver string) {
 	general.Get("/fleet-types", generalHandler.GetFleetTypes)
 	general.Get("/fleet-body", helper.JWTAuthorizationMiddleware(), generalHandler.GetFleetBodies)
 	general.Get("/fleet-engine", helper.JWTAuthorizationMiddleware(), generalHandler.GetFleetEngines)
+	general.Get("/preferences/cities", helper.DualAuthMiddleware(orgRepo), generalHandler.GetPreferenceCities)
 }

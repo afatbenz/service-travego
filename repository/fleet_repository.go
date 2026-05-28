@@ -1410,7 +1410,12 @@ func (r *FleetRepository) RecalculateFleetOrderTotal(tx *sql.Tx, orderID, organi
 		total = 0
 	}
 
-	updateQuery := fmt.Sprintf(`UPDATE fleet_orders SET total_amount = %s WHERE order_id = %s AND %s`, r.getPlaceholder(1), r.getPlaceholder(2), orgExpr)
+	orgExprUpdate := "organization_id = " + r.getPlaceholder(3)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		orgExprUpdate = "organization_id::text = " + r.getPlaceholder(3)
+	}
+
+	updateQuery := fmt.Sprintf(`UPDATE fleet_orders SET total_amount = %s WHERE order_id = %s AND %s`, r.getPlaceholder(1), r.getPlaceholder(2), orgExprUpdate)
 	if _, err := database.TxExec(tx, updateQuery, total, orderID, organizationID); err != nil {
 		return 0, err
 	}
@@ -2442,6 +2447,96 @@ func (r *FleetRepository) FindOrderDetail(orderID, organizationID string) (*mode
 	return &res, nil
 }
 
+func (r *FleetRepository) DeleteFleetOrderAddon(orderID, orderItemID, addonID, orgID string) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	orgExpr := "organization_id = " + r.getPlaceholder(4)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		orgExpr = "organization_id::text = " + r.getPlaceholder(4)
+	}
+
+	// 1. Recalculate addon_amount (excluding the to-be-deleted one)
+	sumAddonQuery := fmt.Sprintf(`SELECT COALESCE(SUM(addon_price), 0) FROM fleet_order_addons WHERE order_id = %s AND order_item_id = %s AND addon_id != %s AND %s`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), orgExpr)
+	var newAddonAmount float64
+	err = database.TxQueryRow(tx, sumAddonQuery, orderID, orderItemID, addonID, orgID).Scan(&newAddonAmount)
+	if err != nil && err != sql.ErrNoRows {
+		sumAddonQueryLegacy := fmt.Sprintf(`SELECT COALESCE(SUM(addon_price), 0) FROM fleet_order_addons WHERE order_id = %s AND order_item_id = %s AND addon_id != %s`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
+		err = database.TxQueryRow(tx, sumAddonQueryLegacy, orderID, orderItemID, addonID).Scan(&newAddonAmount)
+		if err != nil && err != sql.ErrNoRows {
+			return err
+		}
+	}
+
+	// 2. Update fleet_order_items.addon_amount
+	orgExprItem := "organization_id = " + r.getPlaceholder(3)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		orgExprItem = "organization_id::text = " + r.getPlaceholder(3)
+	}
+	updateItemQuery := fmt.Sprintf(`UPDATE fleet_order_items SET addon_amount = %s WHERE order_item_id = %s AND %s`, r.getPlaceholder(1), r.getPlaceholder(2), orgExprItem)
+	_, err = database.TxExec(tx, updateItemQuery, newAddonAmount, orderItemID, orgID)
+	if err != nil {
+		updateItemQueryLegacy := fmt.Sprintf(`UPDATE fleet_order_items SET addon_amount = %s WHERE order_item_id = %s`, r.getPlaceholder(1), r.getPlaceholder(2))
+		_, err = database.TxExec(tx, updateItemQueryLegacy, newAddonAmount, orderItemID)
+		if err != nil {
+			return err
+		}
+	}
+
+	// 3. Recalculate sub_total
+	var priceID string
+	var quantity, chargeAmount, discount float64
+	fetchItemQuery := fmt.Sprintf(`SELECT price_id, quantity, COALESCE(charge_amount, 0), COALESCE(discount, 0) FROM fleet_order_items WHERE order_item_id = %s`, r.getPlaceholder(1))
+	err = database.TxQueryRow(tx, fetchItemQuery, orderItemID).Scan(&priceID, &quantity, &chargeAmount, &discount)
+	if err != nil {
+		return err
+	}
+
+	var originalPrice float64
+	priceQuery := fmt.Sprintf(`SELECT price FROM fleet_prices WHERE uuid = %s`, r.getPlaceholder(1))
+	err = database.TxQueryRow(tx, priceQuery, priceID).Scan(&originalPrice)
+	if err != nil && err != sql.ErrNoRows {
+		return err
+	}
+
+	newSubTotal := (originalPrice + chargeAmount + newAddonAmount - discount) * quantity
+	if newSubTotal < 0 {
+		newSubTotal = 0
+	}
+
+	updateSubTotalQuery := fmt.Sprintf(`UPDATE fleet_order_items SET sub_total = %s WHERE order_item_id = %s`, r.getPlaceholder(1), r.getPlaceholder(2))
+	_, err = database.TxExec(tx, updateSubTotalQuery, newSubTotal, orderItemID)
+	if err != nil {
+		return err
+	}
+
+	// 4. Recalculate total_amount in fleet_orders
+	_, err = r.RecalculateFleetOrderTotal(tx, orderID, orgID)
+	if err != nil {
+		return err
+	}
+
+	// 5. Delete from fleet_order_addons
+	deleteAddonQuery := fmt.Sprintf(`DELETE FROM fleet_order_addons WHERE order_id = %s AND order_item_id = %s AND addon_id = %s AND %s`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), orgExpr)
+	_, err = database.TxExec(tx, deleteAddonQuery, orderID, orderItemID, addonID, orgID)
+	if err != nil {
+		deleteAddonQueryLegacy := fmt.Sprintf(`DELETE FROM fleet_order_addons WHERE order_id = %s AND order_item_id = %s AND addon_id = %s`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
+		_, err = database.TxExec(tx, deleteAddonQueryLegacy, orderID, orderItemID, addonID)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
 func (r *FleetRepository) UpdatePaymentEvidence(orderID, organizationID, filePath string) error {
 	// Find latest payment ID
 	subQuery := fmt.Sprintf(`
@@ -3387,9 +3482,10 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 
 	// Addons
 	addonQuery := fmt.Sprintf(`
-        SELECT fa.addon_name, fa.addon_desc, foa.addon_price
+        SELECT fa.uuid as addon_id, fa.addon_name, fa.addon_desc, foa.addon_price, foa.order_item_id
         FROM fleet_order_addons foa 
         JOIN fleet_addon fa ON foa.addon_id = fa.uuid 
+		INNER JOIN fleet_order_items fai ON fai.order_item_id = foa.order_item_id
         WHERE foa.order_id = %s
     `, r.getPlaceholder(1))
 	aRows, err := r.db.Query(addonQuery, orderID)
@@ -3397,7 +3493,7 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 		defer aRows.Close()
 		for aRows.Next() {
 			var a model.OrderDetailAddon
-			if err := aRows.Scan(&a.AddonName, &a.AddonDesc, &a.AddonPrice); err == nil {
+			if err := aRows.Scan(&a.AddonID, &a.AddonName, &a.AddonDesc, &a.AddonPrice, &a.OrderItemID); err == nil {
 				res.Addon = append(res.Addon, a)
 			}
 		}
@@ -3987,6 +4083,141 @@ func (r *FleetRepository) GetScheduleByOrderID(orderID string) (*model.ModuleSch
 		schedule.ArrivalTime = ArrivalTime.Time
 	}
 	return &schedule, nil
+}
+
+type OrderAvailabilityRepoResult struct {
+	Available    bool
+	ServiceTypes []int
+	MinimalDay   int
+	Prices       []model.OrderAvailabilityPriceItem
+}
+
+func (r *FleetRepository) GetOrderAvailability(orgID, fleetID string, cityID int, startDate time.Time, endDate *time.Time, daysCount int, serviceType *int) (*OrderAvailabilityRepoResult, error) {
+	result := &OrderAvailabilityRepoResult{
+		Available: true,
+	}
+
+	// 1. Get service types (use provided service_type if available, otherwise get from preference_city_types)
+	if serviceType != nil {
+		result.ServiceTypes = []int{*serviceType}
+	} else {
+		serviceTypesQuery := fmt.Sprintf(`
+			SELECT service_type
+			FROM preference_city_types
+			WHERE city_id = %s AND organization_id = %s
+		`, r.getPlaceholder(1), r.getPlaceholder(2))
+		serviceTypesArgs := []interface{}{cityID, orgID}
+		serviceTypesRows, err := database.Query(r.db, serviceTypesQuery, serviceTypesArgs...)
+		if err != nil {
+			return nil, err
+		}
+		defer serviceTypesRows.Close()
+		for serviceTypesRows.Next() {
+			var t int
+			if err := serviceTypesRows.Scan(&t); err == nil {
+				result.ServiceTypes = append(result.ServiceTypes, t)
+			}
+		}
+	}
+
+	// 2. Get minimal_day from preference_cities
+	minDayQuery := fmt.Sprintf(`
+		SELECT minimal_day
+		FROM preference_cities
+		WHERE city_id = %s AND organization_id = %s
+		LIMIT 1
+	`, r.getPlaceholder(1), r.getPlaceholder(2))
+	minDayArgs := []interface{}{cityID, orgID}
+	var minDay sql.NullInt64
+	_ = database.QueryRow(r.db, minDayQuery, minDayArgs...).Scan(&minDay)
+	if minDay.Valid {
+		result.MinimalDay = int(minDay.Int64)
+	}
+
+	// 3. Check availability and get next schedule if endDate not provided
+	if endDate == nil {
+		// Find next departure date
+		nextScheduleQuery := fmt.Sprintf(`
+			SELECT s.departure_time
+			FROM schedules s
+			INNER JOIN schedule_fleets sf ON s.schedule_id = sf.schedule_id
+			WHERE sf.fleet_id::text = %s
+			  AND s.organization_id::text = %s
+			  AND s.departure_time > %s
+			  AND s.status = 1
+			ORDER BY s.departure_time ASC
+			LIMIT 1
+		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
+		nextScheduleArgs := []interface{}{fleetID, orgID, startDate}
+		var nextDeparture sql.NullTime
+		_ = database.QueryRow(r.db, nextScheduleQuery, nextScheduleArgs...).Scan(&nextDeparture)
+		if nextDeparture.Valid {
+			// Availability is until day before next departure
+			availableDays := int(nextDeparture.Time.Sub(startDate).Hours() / 24)
+			if availableDays < daysCount {
+				result.Available = false
+			}
+		}
+	} else {
+		// Use existing availability check
+		availItems, err := r.GetFleetAvailibility(orgID, startDate, *endDate, fleetID)
+		if err != nil {
+			return nil, err
+		}
+		result.Available = false
+		for _, item := range availItems {
+			if item.TotalAvailable > 0 {
+				result.Available = true
+				break
+			}
+		}
+	}
+
+	// 4. Get prices
+	if len(result.ServiceTypes) > 0 {
+		// Build IN clause for service types
+		placeholders := make([]string, len(result.ServiceTypes))
+		args := []interface{}{fleetID}
+		for i, st := range result.ServiceTypes {
+			placeholders[i] = r.getPlaceholder(i + 2)
+			args = append(args, st)
+		}
+
+		priceQuery := fmt.Sprintf(`
+			SELECT uuid as price_id, duration, price, rent_type
+			FROM fleet_prices
+			WHERE fleet_id::text = %s
+			  AND rent_type IN (%s)
+		`, r.getPlaceholder(1), strings.Join(placeholders, ","))
+
+		rows, err := database.Query(r.db, priceQuery, args...)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var item model.OrderAvailabilityPriceItem
+			if err := rows.Scan(&item.PriceID, &item.Duration, &item.Price, &item.RentType); err == nil {
+				// Apply duration logic: duration >= daysCount, for service_type 3: duration >= daysCount - 1
+				include := false
+				if item.RentType == 3 {
+					if item.Duration >= daysCount-1 {
+						include = true
+					}
+				} else {
+					if item.Duration >= daysCount {
+						include = true
+					}
+				}
+				if include {
+					result.Prices = append(result.Prices, item)
+				}
+			}
+		}
+	}
+
+	return result, nil
 }
 
 func (r *FleetRepository) ProcessFleetOrder(orgID, userID, orderID string, processTypeId int) error {

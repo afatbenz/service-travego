@@ -1327,3 +1327,71 @@ func (h *FleetHandler) FleetRevenue(c *fiber.Ctx) error {
 	}
 	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet revenue", revenue)
 }
+
+func (h *FleetHandler) OrderAvailability(c *fiber.Ctx) error {
+	var req model.OrderAvailabilityRequest
+	if err := c.BodyParser(&req); err != nil {
+		raw := c.Body()
+		var m map[string]interface{}
+		if err2 := json.Unmarshal(raw, &m); err2 == nil {
+			if v, ok := m["fleet_id"].(string); ok {
+				req.FleetID = v
+			}
+			if v, ok := m["city_id"]; ok {
+				req.CityID = helper.ToInt(v)
+			}
+			if v, ok := m["start_date"].(string); ok {
+				req.StartDate = v
+			}
+			if v, ok := m["end_date"].(string); ok {
+				req.EndDate = v
+			}
+			if v, ok := m["service_type"]; ok {
+				st := helper.ToInt(v)
+				req.ServiceType = &st
+			}
+		}
+	}
+	orgID, _ := c.Locals("organization_id").(string)
+	if orgID == "" {
+		return helper.BadRequestResponse(c, "missing organization context")
+	}
+
+	res, err := h.service.GetOrderAvailability(orgID, req.FleetID, req.CityID, req.StartDate, req.EndDate, req.ServiceType)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "OK", res)
+}
+
+func (h *FleetHandler) DeleteFleetOrderAddon(c *fiber.Ctx) error {
+	var req service.FleetOrderDeleteAddonRequest
+	if err := c.BodyParser(&req); err != nil {
+		raw := c.Body()
+		var m map[string]interface{}
+		if err2 := json.Unmarshal(raw, &m); err2 != nil {
+			return helper.BadRequestResponse(c, "invalid payload")
+		}
+		if v, ok := m["order_id"].(string); ok {
+			req.OrderID = v
+		}
+		if v, ok := m["order_item_id"].(string); ok {
+			req.OrderItemID = v
+		}
+		if v, ok := m["addon_id"].(string); ok {
+			req.AddonID = v
+		}
+	}
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.BadRequestResponse(c, "missing organization context")
+	}
+
+	if err := h.service.DeleteFleetOrderAddon(orgID, &req); err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Addon deleted successfully", nil)
+}

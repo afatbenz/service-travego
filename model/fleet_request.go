@@ -262,3 +262,23 @@ type FleetRevenue struct {
 	TotalRevenue float64 `json:"total_revenue"`
 	TotalBooking int64   `json:"total_booking"`
 }
+
+type OrderAvailabilityRequest struct {
+	FleetID     string `json:"fleet_id"`
+	CityID      int    `json:"city_id"`
+	StartDate   string `json:"start_date"`
+	EndDate     string `json:"end_date,omitempty"`
+	ServiceType *int   `json:"service_type,omitempty"`
+}
+
+type OrderAvailabilityPriceItem struct {
+	PriceID  string  `json:"price_id"`
+	Duration int     `json:"duration"`
+	Price    float64 `json:"price"`
+	RentType int     `json:"rent_type"`
+}
+
+type OrderAvailabilityResponse struct {
+	Available bool                         `json:"availability"`
+	Prices    []OrderAvailabilityPriceItem `json:"prices"`
+}

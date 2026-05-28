@@ -3,14 +3,16 @@ package handler
 import (
 	"service-travego/helper"
 	"service-travego/service"
+	"strconv"
 
 	"github.com/gofiber/fiber/v2"
 )
 
 type GeneralHandler struct {
-	generalService   *service.GeneralService
-	fleetTypeService *service.FleetTypeService
-	fleetMetaService *service.FleetMetaService
+	generalService        *service.GeneralService
+	fleetTypeService      *service.FleetTypeService
+	fleetMetaService      *service.FleetMetaService
+	preferenceCityService *service.PreferenceCityService
 }
 
 func NewGeneralHandler(generalService *service.GeneralService) *GeneralHandler {
@@ -25,6 +27,10 @@ func (h *GeneralHandler) SetFleetTypeService(s *service.FleetTypeService) {
 
 func (h *GeneralHandler) SetFleetMetaService(s *service.FleetMetaService) {
 	h.fleetMetaService = s
+}
+
+func (h *GeneralHandler) SetPreferenceCityService(s *service.PreferenceCityService) {
+	h.preferenceCityService = s
 }
 
 func (h *GeneralHandler) GetGeneralConfig(c *fiber.Ctx) error {
@@ -186,4 +192,49 @@ func (h *GeneralHandler) GetCities(c *fiber.Ctx) error {
 	}
 
 	return helper.SuccessResponse(c, fiber.StatusOK, message, cities)
+}
+
+func (h *GeneralHandler) GetPreferenceCities(c *fiber.Ctx) error {
+	if h.preferenceCityService == nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Preference city service not configured")
+	}
+
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusBadRequest, "Missing organization_id")
+	}
+
+	cityIDStr := c.Query("city_id", "")
+
+	var cityID *int
+
+	if cityIDStr != "" {
+		if id, err := strconv.Atoi(cityIDStr); err == nil {
+			cityID = &id
+		}
+	}
+
+	list, err := h.preferenceCityService.GetAll(orgID, cityID)
+	if err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to load preference cities: "+err.Error())
+	}
+
+	type SimplifiedPreferenceCity struct {
+		CityID        int      `json:"city_id"`
+		ProvinceLabel string   `json:"province_label"`
+		CityLabel     string   `json:"city_label"`
+		ServiceTypes  []string `json:"service_types"`
+	}
+
+	var simplifiedList []SimplifiedPreferenceCity
+	for _, item := range list {
+		simplifiedList = append(simplifiedList, SimplifiedPreferenceCity{
+			CityID:        item.CityID,
+			ProvinceLabel: item.ProvinceLabel,
+			CityLabel:     item.CityLabel,
+			ServiceTypes:  item.ServiceTypes,
+		})
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Preference cities loaded successfully", simplifiedList)
 }

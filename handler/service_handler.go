@@ -256,3 +256,41 @@ func (h *ServiceHandler) SubmitReview(c *fiber.Ctx) error {
 
 	return helper.SuccessResponse(c, fiber.StatusOK, "Review submitted", nil)
 }
+
+func (h *ServiceHandler) OrderAvailability(c *fiber.Ctx) error {
+	var req model.OrderAvailabilityRequest
+	if err := c.BodyParser(&req); err != nil {
+		raw := c.Body()
+		var m map[string]interface{}
+		if err2 := json.Unmarshal(raw, &m); err2 == nil {
+			if v, ok := m["fleet_id"].(string); ok {
+				req.FleetID = v
+			}
+			if v, ok := m["city_id"]; ok {
+				req.CityID = helper.ToInt(v)
+			}
+			if v, ok := m["start_date"].(string); ok {
+				req.StartDate = v
+			}
+			if v, ok := m["end_date"].(string); ok {
+				req.EndDate = v
+			}
+			if v, ok := m["service_type"]; ok {
+				st := helper.ToInt(v)
+				req.ServiceType = &st
+			}
+		}
+	}
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.BadRequestResponse(c, "Invalid or missing organization_id")
+	}
+
+	res, err := h.service.GetOrderAvailability(orgID, req.FleetID, req.CityID, req.StartDate, req.EndDate, req.ServiceType)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "OK", res)
+}
