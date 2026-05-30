@@ -53,5 +53,116 @@
             "id": 1004,
             "label": "Payment Gateway"
         }
+    ],
+    "schedule-type": [
+        {
+            "id": "SCH01",
+            "label": "Trip Order"
+        },
+        {
+            "id": "SCH02",
+            "label": "Maintenance"
+        },
+        {
+            "id": "SCH03",
+            "label": "Off Day"
+        }
+    ],
+    "transaction-categories": [
+        {
+            "id": "TRX01",
+            "label": "Transaksi Armada (Fleet)",
+            "type": ["income", "expense"]
+        },
+        {
+            "id": "TRX02",
+            "label": "Transaksi Paket Wisata",
+            "type": ["income", "expense"]
+        },
+        {
+            "id": "TRX03",
+            "label": "Komisi Mitra",
+            "type": ["income"]
+        },
+        {
+            "id": "TRX04",
+            "label": "Operasional Armada",
+            "type": ["expense"]
+        },
+        {
+            "id": "TRX06",
+            "label": "Operasional Tour",
+            "type": ["expense"]
+        },
+        {
+            "id": "TRX07",
+            "label": "Iklan dan Marketing",
+            "type": ["income", "expense"]
+        },
+        {
+            "id": "TRX08",
+            "label": "Operasional Kantor",
+            "type": ["expense"]
+        },
+        {
+            "id": "TRX09",
+            "label": "Persediaan Asset",
+            "type": ["expense"]
+        },
+        {
+            "id": "TRX10",
+            "label": "Kebutuhan Lain",
+            "type": ["income", "expense"]
+        }
+    ],
+    "transaction-items": [
+        {
+            "id": "TRX-I01",
+            "label": "Bahan Bakar"
+        },
+        {
+            "id": "TRX-I02",
+            "label": "Biaya Tol"
+        },
+        {
+            "id": "TRX-I03",
+            "label": "Tips Driver"
+        },
+        {
+            "id": "TRX-I04",
+            "label": "Tips Pemandu Wisata"
+        },
+        {
+            "id": "TRX-I05",
+            "label": "Uang Makan"
+        },
+        {
+            "id": "TRX-I06",
+            "label": "Perawatan Armada"
+        },
+        {
+            "id": "TRX-I07",
+            "label": "Pajak Kendaraan"
+        },
+        {
+            "id": "TRX-I08",
+            "label": "Asuransi"
+        },
+        {
+            "id": "TRX-I09",
+            "label": "Retribusi Parkir"
+        },
+        {
+            "id": "TRX-I10",
+            "label": "Kuota / Pulsa"
+        },
+        {
+            "id": "TRX-I11",
+            "label": "Iklan dan Marketing"
+        },
+        {
+            "id": "TRX-I12",
+            "label": "Kebutuhan Lain"
+        }
     ]
 }

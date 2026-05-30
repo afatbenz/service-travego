@@ -2747,7 +2747,16 @@ func (r *FleetRepository) InsertServiceOrderPayment(req *model.CreateServiceOrde
 
 	status := req.PaymentType
 	if math.Abs(remainingAmount) < 0.0001 {
-		status = 1001
+		status = 1003
+	}
+
+	var bankIDArg interface{}
+	if req.BankID != nil {
+		bankIDArg = *req.BankID
+	}
+	var bankAccountArg interface{}
+	if req.BankAccount != nil {
+		bankAccountArg = *req.BankAccount
 	}
 
 	query := fmt.Sprintf(`
@@ -2767,10 +2776,10 @@ func (r *FleetRepository) InsertServiceOrderPayment(req *model.CreateServiceOrde
 		req.OrderType,
 		req.OrderID,
 		req.OrganizationID,
-		req.PaymentType,
+		status,
 		req.PaymentMethod,
-		req.BankID,
-		req.BankAccount,
+		bankIDArg,
+		bankAccountArg,
 		req.PaymentAmount,
 		totalAmount,
 		remainingAmount,
@@ -2791,11 +2800,15 @@ func (r *FleetRepository) InsertServiceOrderPayment(req *model.CreateServiceOrde
 		transactionOrderType = 2
 	}
 
-	transactionType := int(model.TransactionTypeIncomeOtherIncome)
-	if transactionOrderType == 1 {
-		transactionType = int(model.TransactionTypeIncomeRental)
-	} else if transactionOrderType == 2 {
-		transactionType = int(model.TransactionTypeIncomeTourPackage)
+	transactionType := 1
+
+	transactionCategory := strings.TrimSpace(req.TransactionCategory)
+	if transactionCategory == "" {
+		transactionCategory = "TRX01"
+	}
+	var transactionItemArg interface{}
+	if strings.TrimSpace(req.TransactionItem) != "" {
+		transactionItemArg = req.TransactionItem
 	}
 
 	description := ""
@@ -2805,16 +2818,17 @@ func (r *FleetRepository) InsertServiceOrderPayment(req *model.CreateServiceOrde
 
 	transactionQuery := fmt.Sprintf(`
 		INSERT INTO transactions
-			(transaction_id, order_type, invoice_number, description, transaction_date, status, amount, organization_id, transaction_type, transaction_mark, created_at, created_by)
+			(transaction_id, transaction_type, order_type, invoice_number, description, transaction_date, status, amount, organization_id, transaction_category, transaction_item, payment_method, created_at, created_by)
 		VALUES
-			(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+			(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6),
-		r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12))
+		r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12), r.getPlaceholder(13), r.getPlaceholder(14))
 
 	_, err = database.TxExec(
 		tx,
 		transactionQuery,
 		uuid.New().String(),
+		transactionType,
 		transactionOrderType,
 		invoiceNumber,
 		description,
@@ -2822,8 +2836,9 @@ func (r *FleetRepository) InsertServiceOrderPayment(req *model.CreateServiceOrde
 		status,
 		req.PaymentAmount,
 		req.OrganizationID,
-		transactionType,
-		int(model.TransactionMarkIncome),
+		transactionCategory,
+		transactionItemArg,
+		req.PaymentMethod,
 		now,
 		req.CreatedBy,
 	)
@@ -3044,6 +3059,27 @@ func (r *FleetRepository) GetLatestPaymentOrder(orderID string, orderType int, o
 	return &it, nil
 }
 
+func (r *FleetRepository) GetFleetOrderItemTotals(orderID, organizationID string) (float64, float64, float64, error) {
+	orgExpr := "organization_id = " + r.getPlaceholder(2)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		orgExpr = "organization_id::text = " + r.getPlaceholder(2)
+	}
+	query := fmt.Sprintf(`
+		SELECT
+			COALESCE(SUM(COALESCE(addon_amount, 0)), 0) as total_addon,
+			COALESCE(SUM(COALESCE(discount, 0)), 0) as total_discount,
+			COALESCE(SUM(COALESCE(charge_amount, 0)), 0) as total_charge
+		FROM fleet_order_items
+		WHERE order_id = %s AND %s
+	`, r.getPlaceholder(1), orgExpr)
+
+	var totalAddon, totalDiscount, totalCharge float64
+	if err := database.QueryRow(r.db, query, orderID, organizationID).Scan(&totalAddon, &totalDiscount, &totalCharge); err != nil {
+		return 0, 0, 0, err
+	}
+	return totalAddon, totalDiscount, totalCharge, nil
+}
+
 func (r *FleetRepository) UpdateFleetOrderPaymentStatusOnOrder(orderID, organizationID string, paymentStatus int) error {
 	orgExpr := "organization_id = " + r.getPlaceholder(2)
 	if r.driver == "postgres" || r.driver == "pgx" {
@@ -3130,12 +3166,14 @@ func (r *FleetRepository) GetPartnerOrderList(orgID string, filter *model.Partne
 				  AND COALESCE(po.status, 0) > 0
 				ORDER BY po.created_at DESC
 				LIMIT 1
-			), 0) as latest_payment_type
+			), 0) as latest_payment_type,
+			s.schedule_id
         FROM fleet_orders fo 
         INNER JOIN fleets f ON fo.fleet_id = f.uuid 
         INNER JOIN fleet_prices p ON p.uuid = fo.price_id 
 		LEFT JOIN customer_orders co ON co.order_id = fo.order_id
 		LEFT JOIN customers c ON c.customer_id = co.customer_id AND c.organization_id = f.organization_id
+		LEFT JOIN schedules s ON s.order_id = fo.order_id
         WHERE f.organization_id = %[1]s
     `
 	args := make([]interface{}, 0, 6)
@@ -3164,6 +3202,7 @@ func (r *FleetRepository) GetPartnerOrderList(orgID string, filter *model.Partne
 		}
 	}
 	query := fmt.Sprintf(base, r.getPlaceholder(1)) + cond + " ORDER BY fo.created_at DESC"
+	fmt.Println(query)
 
 	rows, err := r.db.Query(query, args...)
 	if err != nil {
@@ -3177,17 +3216,23 @@ func (r *FleetRepository) GetPartnerOrderList(orgID string, filter *model.Partne
 		var startDate, endDate time.Time
 		var rentType int
 		var latestPaymentType int
+		var scheduleID sql.NullString
 		if err := rows.Scan(
 			&it.OrderID, &it.FleetName, &it.Thumbnail, &it.CustomerName, &it.CustomerPhone,
 			&startDate, &endDate, &it.UnitQty, &it.PaymentStatus, &it.Status,
 			&it.Duration, &it.Uom, &it.TotalAmount, &rentType,
-			&latestPaymentType,
+			&latestPaymentType, &scheduleID,
 		); err != nil {
 			return nil, err
 		}
 		it.StartDate = startDate.Format("2006-01-02")
 		it.EndDate = endDate.Format("2006-01-02")
 		it.LatestPaymentType = latestPaymentType
+		if !scheduleID.Valid || scheduleID.String == "" {
+			it.ScheduleID = ""
+		} else {
+			it.ScheduleID = scheduleID.String
+		}
 
 		switch rentType {
 		case 1:
@@ -3210,11 +3255,11 @@ func (r *FleetRepository) GetPartnerOrderSummary(orgID string, filter *model.Par
 	base := `
         SELECT 
             COUNT(*) AS total_orders,
-            SUM(CASE WHEN fo.payment_status = 1 THEN 1 ELSE 0 END) AS paid,
-            SUM(CASE WHEN fo.payment_status = 2 THEN 1 ELSE 0 END) AS unpaid,
-            SUM(CASE WHEN fo.payment_status IN (3,4) THEN 1 ELSE 0 END) AS pending,
-            SUM(CASE WHEN fo.payment_status = 1 THEN fo.total_amount ELSE 0 END) AS revenue,
-            SUM(CASE WHEN fo.start_date <= CURRENT_DATE AND fo.end_date >= CURRENT_DATE THEN 1 ELSE 0 END) AS ongoing
+            COALESCE(SUM(CASE WHEN fo.payment_status = 1 THEN 1 ELSE 0 END), 0) AS paid,
+            COALESCE(SUM(CASE WHEN fo.payment_status = 2 THEN 1 ELSE 0 END), 0) AS unpaid,
+            COALESCE(SUM(CASE WHEN fo.payment_status IN (3,4) THEN 1 ELSE 0 END), 0) AS pending,
+            COALESCE(SUM(CASE WHEN fo.payment_status = 1 THEN fo.total_amount ELSE 0 END), 0) AS revenue,
+            COALESCE(SUM(CASE WHEN fo.start_date <= CURRENT_DATE AND fo.end_date >= CURRENT_DATE THEN 1 ELSE 0 END), 0) AS ongoing
         FROM fleet_orders fo
         INNER JOIN fleets f ON fo.fleet_id = f.uuid
         WHERE f.organization_id = %[1]s
@@ -3912,33 +3957,38 @@ func (r *FleetRepository) GetFleetAvailibility(orgID string, reqStart time.Time,
 	}
 
 	args := []interface{}{orgID, reqStart, reqEnd}
+	isPostgres := r.driver == "postgres" || r.driver == "pgx"
 	orgExpr := "f.organization_id = " + r.getPlaceholder(1)
 	bookOrgExpr := "sf.organization_id = " + r.getPlaceholder(1)
-	if r.driver == "postgres" || r.driver == "pgx" {
+	if isPostgres {
 		orgExpr = "f.organization_id::text = " + r.getPlaceholder(1)
 		bookOrgExpr = "sf.organization_id::text = " + r.getPlaceholder(1)
 	}
 
 	fleetFilterExpr := ""
 	if fleetID != "" {
-		fleetFilterExpr = " AND f.uuid::text = " + r.getPlaceholder(4)
+		fleetFilterExpr = " AND f.uuid = " + r.getPlaceholder(4)
+		if isPostgres {
+			fleetFilterExpr = " AND f.uuid::text = " + r.getPlaceholder(4)
+		}
 		args = append(args, fleetID)
 	}
 
-	var existingStartExpr string
-	var existingEndExpr string
 	var conflictExpr string
-	existingStartExpr = "(fo.start_date::date + s.departure_time::time)"
-	existingEndExpr = "(fo.end_date::date + s.arrival_time::time)"
-	conflictExpr = fmt.Sprintf("%s < (%s + INTERVAL '6 hours') AND %s > (%s - INTERVAL '6 hours')", r.getPlaceholder(2), existingEndExpr, r.getPlaceholder(3), existingStartExpr)
+	if isPostgres {
+		conflictExpr = fmt.Sprintf("%s::date <= fo.end_date::date AND %s::date >= fo.start_date::date", r.getPlaceholder(2), r.getPlaceholder(3))
+	} else {
+		conflictExpr = fmt.Sprintf("DATE(%s) <= DATE(fo.end_date) AND DATE(%s) >= DATE(fo.start_date)", r.getPlaceholder(2), r.getPlaceholder(3))
+	}
 
-	fleetJoinExpr := "b.fleet_id::text = f.uuid::text"
-	totalUnitExpr := "COALESCE((SELECT COUNT(*) FROM fleet_units fu WHERE fu.fleet_id::text = f.uuid::text AND fu.status = 1), 0)"
+	fleetJoinExpr := "b.fleet_id = f.uuid"
+	totalUnitExpr := "COALESCE((SELECT COUNT(*) FROM fleet_units fu WHERE fu.fleet_id = f.uuid AND fu.status = 1), 0)"
+	if isPostgres {
+		fleetJoinExpr = "b.fleet_id::text = f.uuid::text"
+		totalUnitExpr = "COALESCE((SELECT COUNT(*) FROM fleet_units fu WHERE fu.fleet_id::text = f.uuid::text AND fu.status = 1), 0)"
+	}
 
 	greatestFn := "GREATEST"
-	if r.driver != "postgres" && r.driver != "pgx" {
-		greatestFn = "GREATEST"
-	}
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -3955,6 +4005,7 @@ func (r *FleetRepository) GetFleetAvailibility(orgID string, reqStart time.Time,
 			INNER JOIN schedules s ON s.schedule_id = sf.schedule_id
 			INNER JOIN fleet_orders fo ON fo.order_id = s.order_id
 			WHERE %s
+			  AND sf.status = 1
 			  AND s.order_type = 1
 			  AND s.status = 1
 			  AND %s
@@ -4435,21 +4486,38 @@ func (r *FleetRepository) GetFleetReviews(fleetID, organizationID string) ([]mod
 
 func (r *FleetRepository) GetFleetRevenue(orgID, fleetID, startDate, endDate string) (*model.FleetRevenue, error) {
 	query := fmt.Sprintf(`
-		SELECT SUM(po.payment_amount) AS revenue,
-		COUNT(fo.order_id) as total_booking
+		SELECT
+			COALESCE(SUM(po.payment_amount), 0) AS revenue,
+			COALESCE(COUNT(DISTINCT fo.order_id), 0) AS total_booking
 		FROM fleet_orders fo
 		INNER JOIN payment_orders po ON po.order_id = fo.order_id
-		WHERE fo.fleet_id = %s AND fo.organization_id = %s AND fo.status = 1 AND fo.payment_status NOT IN (0,2) AND po.created_at BETWEEN %s AND %s 
-		GROUP BY fo.fleet_id
+		WHERE fo.fleet_id = %s
+		  AND fo.organization_id = %s
+		  AND fo.status = 1
+		  AND fo.payment_status NOT IN (0,2)
+		  AND po.created_at BETWEEN %s AND %s
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))
 	var revenueAny interface{}
 	var totalBooking int64
 	if err := database.QueryRow(r.db, query, fleetID, orgID, startDate, endDate).Scan(&revenueAny, &totalBooking); err != nil {
+		if err == sql.ErrNoRows {
+			return &model.FleetRevenue{
+				StartDate:    startDate,
+				EndDate:      endDate,
+				TotalRevenue: 0,
+				TotalBooking: 0,
+			}, nil
+		}
 		return nil, err
 	}
 	switch v := revenueAny.(type) {
 	case nil:
-		return nil, nil
+		return &model.FleetRevenue{
+			StartDate:    startDate,
+			EndDate:      endDate,
+			TotalRevenue: 0,
+			TotalBooking: totalBooking,
+		}, nil
 	case float64:
 		return &model.FleetRevenue{
 			StartDate:    startDate,
@@ -4483,5 +4551,10 @@ func (r *FleetRepository) GetFleetRevenue(orgID, fleetID, startDate, endDate str
 			}, nil
 		}
 	}
-	return nil, nil
+	return &model.FleetRevenue{
+		StartDate:    startDate,
+		EndDate:      endDate,
+		TotalRevenue: 0,
+		TotalBooking: totalBooking,
+	}, nil
 }

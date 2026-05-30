@@ -17,6 +17,8 @@ import (
 
 var paymentStatusOnce sync.Once
 var paymentStatusMap map[int]string
+var paymentMethodMap map[int]string
+var transactionCategoryMap map[string]string
 
 type TransactionHandler struct {
 	service *service.TransactionService
@@ -29,18 +31,33 @@ func NewTransactionHandler(service *service.TransactionService) *TransactionHand
 func ensurePaymentStatusLoaded() {
 	paymentStatusOnce.Do(func() {
 		paymentStatusMap = map[int]string{}
+		paymentMethodMap = map[int]string{}
+		transactionCategoryMap = map[string]string{}
 		f, err := os.Open("config/common.json")
 		if err != nil {
 			return
 		}
 		defer f.Close()
 
-		var cfg model.CommonConfig
+		var cfg struct {
+			PaymentStatus         []model.CommonItem `json:"payment-status"`
+			PaymentMethod         []model.CommonItem `json:"payment-method"`
+			TransactionCategories []struct {
+				ID    string `json:"id"`
+				Label string `json:"label"`
+			} `json:"transaction-categories"`
+		}
 		if err := json.NewDecoder(f).Decode(&cfg); err != nil {
 			return
 		}
 		for _, it := range cfg.PaymentStatus {
 			paymentStatusMap[it.ID] = it.Label
+		}
+		for _, it := range cfg.PaymentMethod {
+			paymentMethodMap[it.ID] = it.Label
+		}
+		for _, it := range cfg.TransactionCategories {
+			transactionCategoryMap[it.ID] = it.Label
 		}
 	})
 }
@@ -99,11 +116,29 @@ func (h *TransactionHandler) listTransactions(c *fiber.Ctx, mode string) error {
 			transactionTypeLabel = label
 		}
 
-		transactionMarkLabel := ""
-		if row.TransactionMark == 1 {
-			transactionMarkLabel = "income"
-		} else if row.TransactionMark == 2 {
-			transactionMarkLabel = "expenses"
+		paymentMethodLabel := ""
+		if label, ok := paymentMethodMap[row.PaymentMethod]; ok && label != "" {
+			paymentMethodLabel = label
+		} else if row.PaymentMethod != 0 {
+			paymentMethodLabel = strconv.Itoa(row.PaymentMethod)
+		}
+
+		transactionCategoryKey := strings.ToUpper(strings.TrimSpace(row.TransactionCategory))
+		transactionCategoryLabel := ""
+		if transactionCategoryKey != "" {
+			if label, ok := transactionCategoryMap[transactionCategoryKey]; ok && label != "" {
+				transactionCategoryLabel = label
+			} else {
+				transactionCategoryLabel = transactionCategoryKey
+			}
+		}
+
+		TransactionItemLabel := ""
+		switch row.TransactionType {
+		case 1:
+			TransactionItemLabel = "income"
+		case 2:
+			TransactionItemLabel = "expenses"
 		}
 
 		createdAtStr := ""
@@ -112,20 +147,24 @@ func (h *TransactionHandler) listTransactions(c *fiber.Ctx, mode string) error {
 		}
 
 		transformedRes[i] = model.TransactionListItem{
-			TransactionID:        row.TransactionID,
-			OrderType:            row.OrderType,
-			InvoiceNumber:        row.InvoiceNumber,
-			Description:          row.Description,
-			TransactionType:      row.TransactionType,
-			TransactionTypeLabel: transactionTypeLabel,
-			TransactionMark:      row.TransactionMark,
-			TransactionMarkLabel: transactionMarkLabel,
-			TransactionDate:      transactionDateStr,
-			Status:               int(row.Status),
-			StatusLabel:          statusLabel,
-			CreatedAt:            createdAtStr,
-			CreatedBy:            row.CreatedBy,
-			Amount:               row.Amount,
+			TransactionID:            row.TransactionID,
+			OrderType:                row.OrderType,
+			InvoiceNumber:            row.InvoiceNumber,
+			Description:              row.Description,
+			TransactionDate:          transactionDateStr,
+			TransactionType:          row.TransactionType,
+			TransactionTypeLabel:     transactionTypeLabel,
+			TransactionItem:          row.TransactionItem,
+			TransactionItemLabel:     TransactionItemLabel,
+			PaymentMethod:            row.PaymentMethod,
+			PaymentMethodLabel:       paymentMethodLabel,
+			TransactionCategory:      transactionCategoryKey,
+			TransactionCategoryLabel: transactionCategoryLabel,
+			Status:                   int(row.Status),
+			StatusLabel:              statusLabel,
+			CreatedAt:                createdAtStr,
+			CreatedBy:                row.CreatedBy,
+			Amount:                   row.Amount,
 		}
 	}
 
@@ -233,20 +272,115 @@ func (h *TransactionHandler) ListTransactionLabels(c *fiber.Ctx) error {
 }
 
 // GetOrderTypes returns all order types with their labels
-func (h *TransactionHandler) GetOrderTypes(c *fiber.Ctx) error {
-	// Get all order types from the service map
-	orderTypes := make([]map[string]interface{}, 0, len(service.OrderTypeLabel))
-	for id, label := range service.OrderTypeLabel {
-		orderTypes = append(orderTypes, map[string]interface{}{
-			"id":    id,
-			"label": label,
-		})
+func (h *TransactionHandler) GetTransactionTypes(c *fiber.Ctx) error {
+	filteredBy := strings.ToLower(strings.TrimSpace(c.Query("filteredby")))
+	if filteredBy == "" {
+		return helper.BadRequestResponse(c, "Missing query parameter: filteredby")
+	}
+	if filteredBy != "categories" && filteredBy != "items" {
+		return helper.BadRequestResponse(c, "Invalid query parameter: filteredby must be 'categories' or 'items'")
 	}
 
-	// Sort by order type id
-	sort.Slice(orderTypes, func(i, j int) bool {
-		return orderTypes[i]["id"].(int) < orderTypes[j]["id"].(int)
-	})
+	reqType := strings.ToLower(strings.TrimSpace(c.Query("type")))
+	if reqType == "" {
+		return helper.BadRequestResponse(c, "Missing query parameter: type")
+	}
+	if reqType == "expenses" {
+		reqType = "expense"
+	}
+	if reqType != "income" && reqType != "expense" {
+		return helper.BadRequestResponse(c, "Invalid query parameter: type must be 'income' or 'expense'")
+	}
 
-	return helper.SuccessResponse(c, fiber.StatusOK, "Order types retrieved successfully", orderTypes)
+	f, err := os.Open("config/common.json")
+	if err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to load common config")
+	}
+	defer f.Close()
+
+	var cfg struct {
+		TransactionCategories []struct {
+			ID    string   `json:"id"`
+			Label string   `json:"label"`
+			Type  []string `json:"type"`
+		} `json:"transaction-categories"`
+		TransactionItems []struct {
+			ID    string   `json:"id"`
+			Label string   `json:"label"`
+			Type  []string `json:"type"`
+		} `json:"transaction-items"`
+	}
+	if err := json.NewDecoder(f).Decode(&cfg); err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to parse common config")
+	}
+
+	matchesType := func(types []string, t string) bool {
+		if len(types) == 0 {
+			return true
+		}
+		for _, v := range types {
+			v = strings.ToLower(strings.TrimSpace(v))
+			if v == "expenses" {
+				v = "expense"
+			}
+			if v == t {
+				return true
+			}
+		}
+		return false
+	}
+
+	res := make([]map[string]interface{}, 0)
+
+	if filteredBy == "categories" {
+		cats := make([]struct {
+			ID    string
+			Label string
+		}, 0, len(cfg.TransactionCategories))
+		for _, it := range cfg.TransactionCategories {
+			if !matchesType(it.Type, reqType) {
+				continue
+			}
+			cats = append(cats, struct {
+				ID    string
+				Label string
+			}{ID: it.ID, Label: it.Label})
+		}
+		sort.Slice(cats, func(i, j int) bool {
+			return cats[i].ID < cats[j].ID
+		})
+		res = make([]map[string]interface{}, 0, len(cats))
+		for _, it := range cats {
+			res = append(res, map[string]interface{}{
+				"id":    it.ID,
+				"label": it.Label,
+			})
+		}
+	} else {
+		items := make([]struct {
+			ID    string
+			Label string
+		}, 0, len(cfg.TransactionItems))
+		for _, it := range cfg.TransactionItems {
+			if !matchesType(it.Type, reqType) {
+				continue
+			}
+			items = append(items, struct {
+				ID    string
+				Label string
+			}{ID: it.ID, Label: it.Label})
+		}
+		sort.Slice(items, func(i, j int) bool {
+			return items[i].ID < items[j].ID
+		})
+		res = make([]map[string]interface{}, 0, len(items))
+		for _, it := range items {
+			res = append(res, map[string]interface{}{
+				"id":    it.ID,
+				"label": it.Label,
+			})
+		}
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Order types retrieved successfully", res)
 }

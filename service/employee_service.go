@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"service-travego/configs"
 	"service-travego/model"
 	"strconv"
 	"strings"
@@ -63,6 +64,62 @@ func (s *OrganizationService) EmployeeDetail(organizationID, uuid string) (*mode
 	s.ensureLocationsLoaded()
 	it.AddressCityName = s.citiesName[strconv.Itoa(it.AddressCity)]
 	return it, nil
+}
+
+func (s *OrganizationService) EmployeeOperationsHistory(organizationID, employeeID, period string) (*model.EmployeeOperationsHistoryResponse, error) {
+	var startDate, endDate *time.Time
+	if period != "" {
+		if t, err := time.Parse("2006-01", period); err == nil {
+			sDate := time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, t.Location())
+			eDate := sDate.AddDate(0, 1, -1)
+			startDate = &sDate
+			endDate = &eDate
+		} else {
+			return nil, NewServiceError(ErrInvalidInput, 400, "invalid period format")
+		}
+	}
+
+	total, err := s.orgRepo.EmployeeOperationsHistoryTotal(organizationID, employeeID, startDate, endDate)
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, 500, "failed to get total schedules")
+	}
+
+	rows, err := s.orgRepo.EmployeeOperationsHistory(organizationID, employeeID, startDate, endDate)
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, 500, "failed to get order history")
+	}
+
+	s.ensureLocationsLoaded()
+
+	items := make([]model.EmployeeOperationsHistoryItem, 0, len(rows))
+	for _, r := range rows {
+		var destinations []string
+		if r.CityIDs != "" {
+			parts := strings.Split(r.CityIDs, ",")
+			for _, p := range parts {
+				p = strings.TrimSpace(p)
+				if name, ok := s.citiesName[p]; ok && name != "" {
+					destinations = append(destinations, name)
+				}
+			}
+		}
+
+		items = append(items, model.EmployeeOperationsHistoryItem{
+			OrderID:       r.OrderID,
+			StartDate:     r.StartDate,
+			EndDate:       r.EndDate,
+			Destinations:  strings.Join(destinations, ", "),
+			RentTypeLabel: configs.RentType(r.RentType).String(),
+			FleetName:     r.FleetName,
+			VehicleID:     r.VehicleID,
+			PlateNumber:   r.PlateNumber,
+		})
+	}
+
+	return &model.EmployeeOperationsHistoryResponse{
+		TotalSchedules: total,
+		OrderHistory:   items,
+	}, nil
 }
 
 func (s *OrganizationService) EmployeeCreate(organizationID, userID string, req *model.CreateEmployeeRequest) (string, error) {

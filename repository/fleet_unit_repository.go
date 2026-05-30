@@ -129,27 +129,30 @@ SELECT
 	COALESCE(fu.status, 0) AS status
 FROM fleet_units fu
 LEFT JOIN fleets f ON f.uuid::text = fu.fleet_id::text
+LEFT JOIN schedule_fleets sf ON sf.fleet_id::text = fu.fleet_id::text
+AND sf.order_id::text = $3
 WHERE fu.organization_id::text = $1 AND (fu.fleet_id::text = $2 OR $2 = '')
 ORDER BY fu.created_at DESC
 `
 
-const listFleetUnitsMySQL = `
+const listFleetUnitsPostgresByOrderID = `
 SELECT
 	fu.unit_id,
-	COALESCE(fu.vehicle_id, '') AS vehicle_id,
+	COALESCE(fu.vehicle_id::text, '') AS vehicle_id,
 	fu.plate_number,
-	fu.fleet_id,
+	COALESCE(fu.fleet_id::text, '') AS fleet_id,
 	COALESCE(f.fleet_name, '') AS fleet_name,
 	COALESCE(fu.engine, '') AS engine,
 	COALESCE(fu.transmission, '') AS transmission,
 	fu.capacity,
 	fu.production_year,
-	COALESCE(fu.created_by, '') AS created_by,
+	COALESCE(fu.created_by::text, '') AS created_by,
 	fu.created_at,
 	COALESCE(fu.status, 0) AS status
 FROM fleet_units fu
-LEFT JOIN fleets f ON fu.fleet_id = f.uuid
-WHERE fu.organization_id = ?
+LEFT JOIN fleets f ON f.uuid::text = fu.fleet_id::text
+INNER JOIN schedule_fleets sf ON sf.fleet_id::text = fu.fleet_id::text
+WHERE fu.organization_id::text = $1 AND (fu.fleet_id::text = $2 OR $2 = '') AND sf.order_id::text = $3
 ORDER BY fu.created_at DESC
 `
 
@@ -483,15 +486,20 @@ func (r *FleetUnitRepository) GetFleetPickupCityIDs(orgID, fleetID string) ([]in
 	return items, nil
 }
 
-func (r *FleetUnitRepository) List(orgID, fleetId string) ([]model.FleetUnitListItem, error) {
-	query := listFleetUnitsMySQL
-	if r.driver == "postgres" || r.driver == "pgx" {
-		query = listFleetUnitsPostgres
+func (r *FleetUnitRepository) List(orgID, fleetId, orderID string) ([]model.FleetUnitListItem, error) {
+
+	query := listFleetUnitsPostgres
+	if strings.TrimSpace(orderID) != "" {
+		query = listFleetUnitsPostgresByOrderID
 	}
-	args := make([]interface{}, 0, 2)
+
+	args := make([]interface{}, 0, 3)
 	args = append(args, orgID)
 	args = append(args, fleetId)
+	args = append(args, orderID)
 	rows, err := database.Query(r.db, query, args...)
+	fmt.Println(query)
+	fmt.Println(args)
 	if err != nil {
 		return nil, err
 	}

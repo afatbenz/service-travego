@@ -39,12 +39,12 @@ func (r *TransactionRepository) ListAllExpenses(orgID string, req *model.Transac
 	return r.listTransactions(orgID, 2, req)
 }
 
-func (r *TransactionRepository) listTransactions(orgID string, transactionMark int, req *model.TransactionListRequest) ([]model.TransactionListRow, error) {
+func (r *TransactionRepository) listTransactions(orgID string, TransactionItem int, req *model.TransactionListRequest) ([]model.TransactionListRow, error) {
 	where := make([]string, 0, 8)
 	args := make([]interface{}, 0, 8)
 
-	where = append(where, "t.transaction_mark = "+r.getPlaceholder(len(args)+1))
-	args = append(args, transactionMark)
+	where = append(where, "t.transaction_type = "+r.getPlaceholder(len(args)+1))
+	args = append(args, TransactionItem)
 
 	where = append(where, "t.organization_id::text = "+r.getPlaceholder(len(args)+1))
 	args = append(args, orgID)
@@ -77,7 +77,8 @@ func (r *TransactionRepository) listTransactions(orgID string, transactionMark i
 			t.invoice_number,
 			t.description,
 			t.transaction_type,
-			t.transaction_mark,
+			t.transaction_item,
+			t.transaction_category,
 			t.status,
 			COALESCE(t.amount, 0) as amount,
 			t.transaction_date,
@@ -89,10 +90,13 @@ func (r *TransactionRepository) listTransactions(orgID string, transactionMark i
 		ORDER BY t.created_at DESC
 	`, strings.Join(where, " AND "))
 	rows, err := database.Query(r.db, query, args...)
+	fmt.Println(query, args)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
+
+	var transactionItem sql.NullString
 
 	out := make([]model.TransactionListRow, 0)
 	for rows.Next() {
@@ -103,7 +107,8 @@ func (r *TransactionRepository) listTransactions(orgID string, transactionMark i
 			&it.InvoiceNumber,
 			&it.Description,
 			&it.TransactionType,
-			&it.TransactionMark,
+			&transactionItem,
+			&it.TransactionCategory,
 			&it.Status,
 			&it.Amount,
 			&it.TransactionDate,
@@ -111,6 +116,10 @@ func (r *TransactionRepository) listTransactions(orgID string, transactionMark i
 			&it.CreatedBy,
 		); err != nil {
 			return nil, err
+		}
+
+		if !transactionItem.Valid {
+			it.TransactionItem = transactionItem.String
 		}
 		out = append(out, it)
 	}
@@ -162,7 +171,7 @@ func (r *TransactionRepository) CreateManualTransaction(orgID, userID string, re
 			transaction_date,
 			status,
 			transaction_type,
-			transaction_mark,
+			transaction_item,
 			amount,
 			created_by,
 			organization_id,
@@ -184,9 +193,9 @@ func (r *TransactionRepository) CreateManualTransaction(orgID, userID string, re
 		orderType = 3 // Default to Other if not provided
 	}
 
-	transactionMark := 1 // Default to Income
+	TransactionItem := 1 // Default to Income
 	if req.TransactionType > 100 {
-		transactionMark = 2 // Expense
+		TransactionItem = 2 // Expense
 	}
 
 	args = append(args,
@@ -197,7 +206,7 @@ func (r *TransactionRepository) CreateManualTransaction(orgID, userID string, re
 		req.TransactionDate,
 		req.Status,
 		req.TransactionType,
-		transactionMark,
+		TransactionItem,
 		req.Amount,
 		userID,
 		orgID,
@@ -214,7 +223,8 @@ func (r *TransactionRepository) CreateManualTransaction(orgID, userID string, re
 
 	// Logic for transaction_orders and transaction_fleets
 	if req.OrderID != "" {
-		if req.OrderType == 1 || req.OrderType == 2 {
+		switch req.OrderType {
+		case 1, 2:
 			transactionOrderID, err := uuid.NewV7()
 			if err != nil {
 				return err
@@ -244,7 +254,7 @@ func (r *TransactionRepository) CreateManualTransaction(orgID, userID string, re
 			if err != nil {
 				return err
 			}
-		} else if req.OrderType == 4 {
+		case 4:
 			transactionFleetID, err := uuid.NewV7()
 			if err != nil {
 				return err

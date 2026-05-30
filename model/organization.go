@@ -208,3 +208,8 @@ type EmployeeShiftScheduleResponse struct {
 	EndDate   string                          `json:"end_date"`
 	Employees []EmployeeShiftScheduleEmployee `json:"employees"`
 }
+
+type EmployeeOperationsHistoryRequest struct {
+	Period     string `json:"period"`
+	EmployeeID string `json:"employee_id"`
+}

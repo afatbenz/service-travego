@@ -25,6 +25,7 @@ func SetupScheduleRoutes(api fiber.Router, db *sql.DB, driver string) {
 	schedule.Post("/daily-availibility/fleet-unit", helper.JWTAuthorizationMiddleware(), h.GetDailyAvailabilityFleetUnit)
 	schedule.Get("/fleet-units/availibility", helper.JWTAuthorizationMiddleware(), h.GetScheduleFleetUnitAvailability)
 	schedule.Get("/operations/availibility", helper.JWTAuthorizationMiddleware(), h.GetScheduleOperationAvailability)
-	schedule.Get("/detail", helper.JWTAuthorizationMiddleware(), h.GetScheduleDetailByDate)
+	schedule.Get("/fleet/detail", helper.JWTAuthorizationMiddleware(), h.GetScheduleDetailByDate)
 	schedule.Get("/detail/:order_id", helper.JWTAuthorizationMiddleware(), h.GetScheduleDetail)
+	schedule.Get("/types", helper.JWTAuthorizationMiddleware(), h.GetScheduleTypes)
 }

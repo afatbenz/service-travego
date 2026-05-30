@@ -2,7 +2,9 @@ package handler
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"os"
 	"service-travego/helper"
 	"service-travego/model"
 	"service-travego/service"
@@ -528,4 +530,24 @@ func parseStringSliceField(value interface{}, fieldName string) ([]string, error
 	default:
 		return nil, fmt.Errorf("%s must be string or array", fieldName)
 	}
+}
+
+func (h *ScheduleHandler) GetScheduleTypes(c *fiber.Ctx) error {
+	f, err := os.Open("config/common.json")
+	if err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to load common config")
+	}
+	defer f.Close()
+
+	var cfg struct {
+		ScheduleTypes []struct {
+			ID    string `json:"id"`
+			Label string `json:"label"`
+		} `json:"schedule-types"`
+	}
+	if err := json.NewDecoder(f).Decode(&cfg); err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to parse common config")
+	}
+
+	return c.JSON(cfg.ScheduleTypes)
 }

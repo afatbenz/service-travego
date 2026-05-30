@@ -21,6 +21,7 @@ func SetupEmployeeRoutes(api fiber.Router, db *sql.DB, driver string) {
 
 	employee.Get("/all", helper.JWTAuthorizationMiddleware(), orgHandler.EmployeeAll)
 	employee.Get("/operations", helper.JWTAuthorizationMiddleware(), orgHandler.EmployeeOperations)
+	employee.Post("/operations/history", helper.JWTAuthorizationMiddleware(), orgHandler.EmployeeOperationsHistory)
 	employee.Post("/create", helper.JWTAuthorizationMiddleware(), orgHandler.EmployeeCreate)
 	employee.Post("/update", helper.JWTAuthorizationMiddleware(), orgHandler.EmployeeUpdate)
 	employee.Get("/detail/:uuid", helper.JWTAuthorizationMiddleware(), orgHandler.EmployeeDetail)

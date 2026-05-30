@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"net/http"
 	"service-travego/model"
 	"service-travego/repository"
@@ -50,19 +51,22 @@ func (s *TransactionService) listTransactions(orgID string, req *model.Transacti
 	out := make([]model.TransactionListItem, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, model.TransactionListItem{
-			TransactionID:   r.TransactionID,
-			OrderType:       r.OrderType,
-			InvoiceNumber:   r.InvoiceNumber,
-			Description:     r.Description,
-			TransactionType: r.TransactionType,
-			TransactionMark: r.TransactionMark,
-			TransactionDate: r.TransactionDate.Format("2006-01-02"),
-			Status:          int(r.Status),
-			Amount:          r.Amount,
-			CreatedAt:       r.CreatedAt.Format("2006-01-02 15:04:05"),
-			CreatedBy:       r.CreatedBy,
+			TransactionID:            r.TransactionID,
+			OrderType:                r.OrderType,
+			InvoiceNumber:            r.InvoiceNumber,
+			Description:              r.Description,
+			TransactionType:          r.TransactionType,
+			TransactionItem:          r.TransactionItem,
+			TransactionCategory:      r.TransactionCategory,
+			TransactionCategoryLabel: r.TransactionCategoryLabel,
+			TransactionDate:          r.TransactionDate.Format("2006-01-02"),
+			Status:                   int(r.Status),
+			Amount:                   r.Amount,
+			CreatedAt:                r.CreatedAt.Format("2006-01-02 15:04:05"),
+			CreatedBy:                r.CreatedBy,
 		})
 	}
+	fmt.Println(out)
 	return out, nil
 }
 

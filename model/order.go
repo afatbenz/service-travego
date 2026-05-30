@@ -179,6 +179,7 @@ type PartnerOrderListItem struct {
 	TotalAmount         float64                   `json:"total_amount"`
 	RentType            string                    `json:"rent_type"`
 	LatestPaymentType   int                       `json:"-"`
+	ScheduleID          string                    `json:"schedule_id"`
 }
 
 type PartnerOrderSummary struct {
@@ -289,11 +290,11 @@ const (
 	PaymentMethodQris PaymentMethod = 2
 )
 
-type TransactionMark int
+type TransactionItem int
 
 const (
-	TransactionMarkIncome  TransactionMark = 1
-	TransactionMarkExpense TransactionMark = 2
+	TransactionItemIncome  TransactionItem = 1
+	TransactionItemExpense TransactionItem = 2
 )
 
 type TransactionType int
@@ -375,16 +376,19 @@ type PaymentConfirmationRequest struct {
 }
 
 type CreateServiceOrderPaymentRequest struct {
-	OrderID        string  `json:"order_id" validate:"required"`
-	OrderType      int     `json:"order_type" validate:"required"`
-	PaymentType    int     `json:"payment_type" validate:"required"`
-	PaymentMethod  int     `json:"payment_method" validate:"required"`
-	PaymentAmount  float64 `json:"payment_amount" validate:"required"`
-	EvidenceFile   string  `json:"evidence_file"`
-	BankID         *int    `json:"bank_id"`
-	BankAccount    *int    `json:"bank_account"`
-	OrganizationID string  `json:"-"`
-	CreatedBy      string  `json:"-"`
+	OrderID             string  `json:"order_id" validate:"required"`
+	OrderType           int     `json:"order_type" validate:"required"`
+	PaymentType         int     `json:"payment_type" validate:"required"`
+	PaymentMethod       int     `json:"payment_method" validate:"required"`
+	PaymentAmount       float64 `json:"payment_amount" validate:"required"`
+	Type                string  `json:"type" validate:"required"`
+	TransactionCategory string  `json:"transaction_category"`
+	TransactionItem     string  `json:"transaction_item"`
+	EvidenceFile        string  `json:"evidence_file"`
+	BankID              *int    `json:"bank_id"`
+	BankAccount         *int    `json:"bank_account"`
+	OrganizationID      string  `json:"-"`
+	CreatedBy           string  `json:"-"`
 }
 
 type ServiceOrderPaymentCreateResult struct {
@@ -488,6 +492,9 @@ type PaymentSummary struct {
 	PaymentAmount      float64 `json:"payment_amount"`
 	PaymentRemaining   float64 `json:"payment_remaining"`
 	PaidAmount         float64 `json:"paid_amount"`
+	TotalAddon         float64 `json:"total_addon"`
+	TotalDiscount      float64 `json:"total_discount"`
+	TotalCharge        float64 `json:"total_charge"`
 	PaymentMethod      int     `json:"payment_method"`
 	PaymentMethodLabel string  `json:"payment_method_label"`
 	PaymentStatus      string  `json:"payment_status"`
