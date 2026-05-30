@@ -104,9 +104,10 @@ func (s *paymentService) ProcessPaymentNotification(req *model.MidtransWebhookRe
 	transactionDate := parseMidtransTransactionTime(req.TransactionTime)
 
 	transactionType := int(model.TransactionTypeIncomeOtherIncome)
-	if orderType == 1 {
+	switch orderType {
+	case 1:
 		transactionType = int(model.TransactionTypeIncomeRental)
-	} else if orderType == 2 {
+	case 2:
 		transactionType = int(model.TransactionTypeIncomeTourPackage)
 	}
 
@@ -125,7 +126,7 @@ func (s *paymentService) ProcessPaymentNotification(req *model.MidtransWebhookRe
 		grossAmount,
 		orgID,
 		transactionType,
-		int(model.TransactionMarkIncome),
+		int(model.TransactionItemIncome),
 		time.Now(),
 		createdBy,
 	); err != nil {

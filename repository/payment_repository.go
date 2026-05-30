@@ -24,7 +24,7 @@ type PaymentRepository interface {
 	GetLatestPaymentOrderRemainingAmount(orderID string, organizationID string, orderType int64) (remainingAmount sql.NullFloat64, err error)
 	GetFleetOrderEmailData(orderID string, organizationID string) (customerName string, customerEmail string, fleetName string, pickupLocation string, startDate time.Time, endDate time.Time, destination string, err error)
 	TransactionExistsByInvoice(organizationID string, invoiceNumber string) (bool, error)
-	InsertTransactionMidtrans(transactionID string, orderType int64, invoiceNumber string, description string, transactionDate time.Time, status int, amount float64, organizationID string, transactionType int, transactionMark int, createdAt time.Time, createdBy string) error
+	InsertTransactionMidtrans(transactionID string, orderType int64, invoiceNumber string, description string, transactionDate time.Time, status int, amount float64, organizationID string, transactionType int, TransactionItem int, createdAt time.Time, createdBy string) error
 	GetNextInvoiceNumber(organizationID string, orderType int) (string, error)
 }
 
@@ -64,14 +64,80 @@ func (r *paymentRepository) GetOrderDetails(orderID string) (string, int64, int6
 
 // UpdatePaymentOrderNotification updates payment_orders on Midtrans notification
 func (r *paymentRepository) UpdatePaymentOrderNotification(orderID string, organizationID string, totalAmount int64, paymentAmount float64, transactionID string, paymentType string) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	orgExpr := "organization_id = " + r.getPlaceholder(2)
+	d := strings.ToLower(r.driver)
+	if d == "postgres" || d == "pgx" || d == "pq" {
+		orgExpr = "organization_id::text = " + r.getPlaceholder(2)
+	}
+
+	orgExprUpdate := "organization_id = " + r.getPlaceholder(7)
+	if d == "postgres" || d == "pgx" || d == "pq" {
+		orgExprUpdate = "organization_id::text = " + r.getPlaceholder(7)
+	}
+
+	sumPaidQuery := fmt.Sprintf(`
+		SELECT COALESCE(SUM(COALESCE(payment_amount, 0)), 0)
+		FROM payment_orders
+		WHERE order_id = %s AND %s AND COALESCE(status, 0) > 0
+	`, r.getPlaceholder(1), orgExpr)
+
+	var sumPaid float64
+	if qerr := database.TxQueryRow(tx, sumPaidQuery, orderID, organizationID).Scan(&sumPaid); qerr != nil && qerr != sql.ErrNoRows {
+		err = qerr
+		return err
+	}
+
+	txExistsQuery := fmt.Sprintf(`
+		SELECT 1
+		FROM payment_orders
+		WHERE order_id = %s AND %s AND transaction_id = %s AND COALESCE(status, 0) > 0
+		LIMIT 1
+	`, r.getPlaceholder(1), orgExpr, r.getPlaceholder(3))
+
+	var one int
+	txExistsErr := database.TxQueryRow(tx, txExistsQuery, orderID, organizationID, transactionID).Scan(&one)
+	transactionAlreadyCounted := txExistsErr == nil
+	if txExistsErr != nil && txExistsErr != sql.ErrNoRows {
+		err = txExistsErr
+		return err
+	}
+
+	totalPaid := sumPaid
+	if !transactionAlreadyCounted {
+		totalPaid += paymentAmount
+	}
+
+	remainingAmount := float64(totalAmount) - totalPaid
+	if remainingAmount < 0 {
+		remainingAmount = 0
+	}
+
 	query := fmt.Sprintf(`
 		UPDATE payment_orders
-		SET total_amount = %s, payment_amount = %s, transaction_id = %s, status = 1, notes = 'Midtrans - ' || %s
-		WHERE order_id = %s AND organization_id = %s`,
-		r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6))
+		SET total_amount = %s, payment_amount = %s, transaction_id = %s, status = 1, remaining_amount = %s, notes = 'Midtrans - ' || %s
+		WHERE order_id = %s AND %s`,
+		r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), orgExprUpdate)
 
-	_, err := database.Exec(r.db, query, totalAmount, paymentAmount, transactionID, paymentType, orderID, organizationID)
-	return err
+	_, err = database.TxExec(tx, query, totalAmount, paymentAmount, transactionID, remainingAmount, paymentType, orderID, organizationID)
+	if err != nil {
+		return err
+	}
+
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // InsertPaymentMidtrans inserts Midtrans notification payload into payment_midtrans
@@ -223,10 +289,10 @@ func (r *paymentRepository) TransactionExistsByInvoice(organizationID string, in
 	return false, err
 }
 
-func (r *paymentRepository) InsertTransactionMidtrans(transactionID string, orderType int64, invoiceNumber string, description string, transactionDate time.Time, status int, amount float64, organizationID string, transactionType int, transactionMark int, createdAt time.Time, createdBy string) error {
+func (r *paymentRepository) InsertTransactionMidtrans(transactionID string, orderType int64, invoiceNumber string, description string, transactionDate time.Time, status int, amount float64, organizationID string, transactionType int, TransactionItem int, createdAt time.Time, createdBy string) error {
 	query := fmt.Sprintf(`
 		INSERT INTO transactions
-			(transaction_id, order_type, invoice_number, description, transaction_date, status, amount, organization_id, transaction_type, transaction_mark, created_at, created_by)
+			(transaction_id, order_type, invoice_number, description, transaction_date, status, amount, organization_id, transaction_type, transaction_item, created_at, created_by)
 		VALUES
 			(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6),
@@ -247,7 +313,7 @@ func (r *paymentRepository) InsertTransactionMidtrans(transactionID string, orde
 		amount,
 		orgID,
 		transactionType,
-		transactionMark,
+		TransactionItem,
 		createdAt,
 		cb,
 	)

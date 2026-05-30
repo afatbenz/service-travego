@@ -769,3 +769,144 @@ func (r *OrganizationRepository) DeleteEmployeeShiftSchedule(organizationID, emp
 	}
 	return nil
 }
+
+func (r *OrganizationRepository) EmployeeOperationsHistoryTotal(organizationID, employeeID string, startDate, endDate *time.Time) (int, error) {
+	orgExpr := "organization_id = " + r.getPlaceholder(2)
+	empExpr := "employee_id = " + r.getPlaceholder(1)
+
+	whereParts := []string{empExpr, orgExpr}
+	args := []interface{}{employeeID, organizationID}
+	pos := 3
+
+	if startDate != nil && endDate != nil {
+		whereParts = append(whereParts, "start_date BETWEEN "+r.getPlaceholder(pos)+" AND "+r.getPlaceholder(pos+1))
+		args = append(args, startDate, endDate)
+		pos += 2
+	}
+
+	query := fmt.Sprintf(`
+		SELECT COUNT(order_id) as total_schedules 
+		FROM schedule_teams 
+		WHERE %s AND status = 1
+		GROUP BY employee_id
+	`, strings.Join(whereParts, " AND "))
+
+	var total int
+	err := database.QueryRow(r.db, query, args...).Scan(&total)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return 0, nil
+		}
+		return 0, err
+	}
+	return total, nil
+}
+
+func (r *OrganizationRepository) EmployeeOperationsHistory(organizationID, employeeID string, startDate, endDate *time.Time) ([]model.EmployeeOperationsHistoryRow, error) {
+	orgExpr := "st.organization_id = " + r.getPlaceholder(2)
+	empExpr := "st.employee_id = " + r.getPlaceholder(1)
+
+	whereParts := []string{
+		empExpr,
+		orgExpr,
+		"fo.status = 1",
+		"fo.payment_status = 1",
+	}
+	args := []interface{}{employeeID, organizationID}
+	pos := 3
+
+	if startDate != nil && endDate != nil {
+		whereParts = append(whereParts, "st.start_date BETWEEN "+r.getPlaceholder(pos)+" AND "+r.getPlaceholder(pos+1))
+		args = append(args, startDate, endDate)
+		pos += 2
+	}
+
+	cityAggExpr := "STRING_AGG(DISTINCT foi.city_id::text, ', ')"
+
+	empJoinExpr := "e.uuid = st.employee_id"
+	foJoinExpr := "fo.order_id = st.order_id"
+	foiJoinExpr := "foi.order_id = st.order_id"
+	fpJoinExpr := "fp.uuid = fo.price_id"
+
+	query := fmt.Sprintf(`
+		SELECT 
+			e.fullname, 
+			st.order_id, 
+			st.start_date, 
+			st.end_date, 
+			%s AS city_ids, 
+			fp.rent_type,
+			COALESCE(f.fleet_name, 'Armada Lain') AS fleet_name, 
+			COALESCE(fu.vehicle_id, '-') AS vehicle_id,
+			COALESCE(fu.plate_number, '-') AS plate_number
+		FROM schedule_teams st 
+		INNER JOIN employee e ON %s
+		INNER JOIN fleet_order_itinerary foi ON %s
+		INNER JOIN fleet_orders fo ON %s
+		INNER JOIN fleet_prices fp ON %s
+		LEFT JOIN schedule_fleets su ON su.order_id = st.order_id
+		LEFT JOIN fleets f ON f.uuid = su.fleet_id
+		LEFT JOIN fleet_units fu ON fu.unit_id = su.unit_id
+		WHERE %s
+		GROUP BY e.fullname, st.order_id, st.start_date, st.end_date, fp.rent_type,f.fleet_name, fu.vehicle_id, fu.plate_number
+		ORDER BY st.start_date DESC
+	`, cityAggExpr, empJoinExpr, foiJoinExpr, foJoinExpr, fpJoinExpr, strings.Join(whereParts, " AND "))
+
+	rows, err := database.Query(r.db, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []model.EmployeeOperationsHistoryRow
+	for rows.Next() {
+		var it model.EmployeeOperationsHistoryRow
+		var sDate sql.NullTime
+		var eDate sql.NullTime
+		var fullname sql.NullString
+		var orderID sql.NullString
+		var cityIDs sql.NullString
+		var rentType sql.NullInt64
+		var fleetName sql.NullString
+		var vehicleID sql.NullString
+		var plateNumber sql.NullString
+
+		if err := rows.Scan(&fullname, &orderID, &sDate, &eDate, &cityIDs, &rentType, &fleetName, &vehicleID, &plateNumber); err != nil {
+			return nil, err
+		}
+
+		if fullname.Valid {
+			it.Fullname = fullname.String
+		}
+		if orderID.Valid {
+			it.OrderID = orderID.String
+		}
+		if sDate.Valid {
+			it.StartDate = sDate.Time.Format("2006-01-02")
+		}
+		if eDate.Valid {
+			it.EndDate = eDate.Time.Format("2006-01-02")
+		}
+		if cityIDs.Valid {
+			it.CityIDs = cityIDs.String
+		}
+		if rentType.Valid {
+			it.RentType = int(rentType.Int64)
+		}
+		if fleetName.Valid {
+			it.FleetName = fleetName.String
+		}
+		if vehicleID.Valid {
+			it.VehicleID = vehicleID.String
+		}
+		if plateNumber.Valid {
+			it.PlateNumber = plateNumber.String
+		}
+		out = append(out, it)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}

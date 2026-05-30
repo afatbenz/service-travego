@@ -84,8 +84,8 @@ func (r *DashboardRepository) GetFinance(orgID string, groupBy string, startDate
 		query = fmt.Sprintf(`
 			SELECT
 				DATE(created_at) AS period,
-				SUM(CASE WHEN transaction_mark=1 THEN amount ELSE 0 END) AS revenue,
-				SUM(CASE WHEN transaction_mark=2 THEN amount ELSE 0 END) AS expenses
+				SUM(CASE WHEN transaction_type=1 THEN amount ELSE 0 END) AS revenue,
+				SUM(CASE WHEN transaction_type=2 THEN amount ELSE 0 END) AS expenses
 			FROM transactions
 			WHERE organization_id=%s AND created_at BETWEEN %s AND %s
 			GROUP BY DATE(created_at)
@@ -96,8 +96,8 @@ func (r *DashboardRepository) GetFinance(orgID string, groupBy string, startDate
 			SELECT
 				DATE_TRUNC('day', created_at) -
 					(EXTRACT(DOY FROM created_at)::int %% 2) * INTERVAL '1 day' AS period,
-				SUM(CASE WHEN transaction_mark=1 THEN amount ELSE 0 END) AS revenue,
-				SUM(CASE WHEN transaction_mark=2 THEN amount ELSE 0 END) AS expenses
+				SUM(CASE WHEN transaction_type=1 THEN amount ELSE 0 END) AS revenue,
+				SUM(CASE WHEN transaction_type=2 THEN amount ELSE 0 END) AS expenses
 			FROM transactions
 			WHERE organization_id=%s AND created_at BETWEEN %s AND %s
 			GROUP BY period
@@ -107,8 +107,8 @@ func (r *DashboardRepository) GetFinance(orgID string, groupBy string, startDate
 		query = fmt.Sprintf(`
 			SELECT
 				DATE_TRUNC('week', created_at) AS period,
-				SUM(CASE WHEN transaction_mark=1 THEN amount ELSE 0 END) AS revenue,
-				SUM(CASE WHEN transaction_mark=2 THEN amount ELSE 0 END) AS expenses
+				SUM(CASE WHEN transaction_type=1 THEN amount ELSE 0 END) AS revenue,
+				SUM(CASE WHEN transaction_type=2 THEN amount ELSE 0 END) AS expenses
 			FROM transactions
 			WHERE organization_id=%s AND created_at BETWEEN %s AND %s
 			GROUP BY DATE_TRUNC('week', created_at)
@@ -118,8 +118,8 @@ func (r *DashboardRepository) GetFinance(orgID string, groupBy string, startDate
 		query = fmt.Sprintf(`
 			SELECT
 				DATE_TRUNC('month', created_at) AS period,
-				SUM(CASE WHEN transaction_mark=1 THEN amount ELSE 0 END) AS revenue,
-				SUM(CASE WHEN transaction_mark=2 THEN amount ELSE 0 END) AS expenses
+				SUM(CASE WHEN transaction_type=1 THEN amount ELSE 0 END) AS revenue,
+				SUM(CASE WHEN transaction_type=2 THEN amount ELSE 0 END) AS expenses
 			FROM transactions
 			WHERE organization_id=%s AND created_at BETWEEN %s AND %s
 			GROUP BY DATE_TRUNC('month', created_at)
@@ -290,29 +290,29 @@ func (r *DashboardRepository) getMessages(orgID string) (*model.DashboardMessage
 	}, nil
 }
 
-func (r *DashboardRepository) getRevenueExpenses(orgID string, transactionMark int) (*model.DashboardRevenue, error) {
+func (r *DashboardRepository) getRevenueExpenses(orgID string, TransactionItem int) (*model.DashboardRevenue, error) {
 	now := time.Now()
 	startCur, endCur, startPrev, endPrev := r.getThisMonthBounds(now)
 
 	query := fmt.Sprintf(`
 		SELECT COUNT(transaction_id) AS total, SUM(amount) AS amount
 		FROM transactions
-		WHERE organization_id = %s AND transaction_mark = %s AND created_at BETWEEN %s AND %s
+		WHERE organization_id = %s AND transaction_item = %s AND created_at BETWEEN %s AND %s
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))
 
 	var currentTotal int
 	var currentAmount sql.NullFloat64
-	if err := database.QueryRow(r.db, query, orgID, transactionMark, startCur, endCur).Scan(&currentTotal, &currentAmount); err != nil {
+	if err := database.QueryRow(r.db, query, orgID, TransactionItem, startCur, endCur).Scan(&currentTotal, &currentAmount); err != nil {
 		return nil, err
 	}
 
 	var previousTotal int
 	var previousAmount sql.NullFloat64
-	if err := database.QueryRow(r.db, query, orgID, transactionMark, startPrev, endPrev).Scan(&previousTotal, &previousAmount); err != nil {
+	if err := database.QueryRow(r.db, query, orgID, TransactionItem, startPrev, endPrev).Scan(&previousTotal, &previousAmount); err != nil {
 		return nil, err
 	}
 
-	metrics, err := r.getTransactionMetricsByType(orgID, transactionMark, startCur, endCur)
+	metrics, err := r.getTransactionMetricsByType(orgID, TransactionItem, startCur, endCur)
 	if err != nil {
 		return nil, err
 	}
@@ -326,16 +326,16 @@ func (r *DashboardRepository) getRevenueExpenses(orgID string, transactionMark i
 	}, nil
 }
 
-func (r *DashboardRepository) getTransactionMetricsByType(orgID string, transactionMark int, from time.Time, to time.Time) ([]model.DashboardTransactionMetricItem, error) {
+func (r *DashboardRepository) getTransactionMetricsByType(orgID string, TransactionItem int, from time.Time, to time.Time) ([]model.DashboardTransactionMetricItem, error) {
 	query := fmt.Sprintf(`
 		SELECT transaction_type, SUM(amount) AS value
 		FROM transactions
-		WHERE organization_id = %s AND transaction_mark = %s AND created_at BETWEEN %s AND %s
+		WHERE organization_id = %s AND transaction_item = %s AND created_at BETWEEN %s AND %s
 		GROUP BY transaction_type
 		ORDER BY value DESC
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))
 
-	rows, err := database.Query(r.db, query, orgID, transactionMark, from, to)
+	rows, err := database.Query(r.db, query, orgID, TransactionItem, from, to)
 	if err != nil {
 		return nil, err
 	}

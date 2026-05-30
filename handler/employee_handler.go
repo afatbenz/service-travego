@@ -8,6 +8,7 @@ import (
 	"service-travego/service"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -36,6 +37,34 @@ func (h *OrganizationHandler) EmployeeOperations(c *fiber.Ctx) error {
 		return helper.SendErrorResponse(c, code, err.Error())
 	}
 	return helper.SuccessResponse(c, fiber.StatusOK, "Employees loaded", items)
+}
+
+func (h *OrganizationHandler) EmployeeOperationsHistory(c *fiber.Ctx) error {
+	var req model.EmployeeOperationsHistoryRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusBadRequest, "Invalid request body")
+	}
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusBadRequest, "Missing organization context")
+	}
+
+	employeeID := strings.TrimSpace(req.EmployeeID)
+	if employeeID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusBadRequest, "employee_id is required")
+	}
+
+	period := strings.TrimSpace(req.Period)
+	if period == "" {
+		period = time.Now().Format("2006-01")
+	}
+
+	data, err := h.orgService.EmployeeOperationsHistory(orgID, employeeID, period)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "History loaded", data)
 }
 
 func (h *OrganizationHandler) EmployeeCreate(c *fiber.Ctx) error {

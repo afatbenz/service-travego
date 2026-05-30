@@ -28,8 +28,9 @@ func (h *FleetUnitHandler) List(c *fiber.Ctx) error {
 	}
 
 	fleetId := strings.TrimSpace(c.Query("fleet_id"))
+	orderID := strings.TrimSpace(c.Query("order_id"))
 
-	items, err := h.service.List(orgID, fleetId)
+	items, err := h.service.List(orgID, fleetId, orderID)
 	if err != nil {
 		code := service.GetStatusCode(err)
 		return helper.SendErrorResponse(c, code, err.Error())

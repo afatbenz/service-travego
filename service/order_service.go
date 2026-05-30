@@ -747,6 +747,7 @@ func (s *OrderService) CreateServiceOrderPayment(req *model.CreateServiceOrderPa
 
 	paymentID, invoiceNumber, err := s.fleetRepo.InsertServiceOrderPayment(req, totalAmount, remaining)
 	if err != nil {
+		fmt.Println("Error creating payment order:", err)
 		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "gagal menyimpan payment order")
 	}
 	if req.OrderType == 1 {

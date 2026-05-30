@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"service-travego/database"
 	"service-travego/model"
+	"service-travego/utils"
 	"strconv"
 	"strings"
 	"time"
@@ -55,15 +56,9 @@ func (r *ScheduleRepository) OrderPaymentStatus(input model.ScheduleOrderValidat
 }
 
 func (r *ScheduleRepository) OrderItemExists(input model.ScheduleOrderItemValidationInput) (bool, error) {
-	orderExpr := "order_id = " + r.placeholder(2)
-	orgExpr := "organization_id = " + r.placeholder(1)
-	fleetExpr := "fleet_id = " + r.placeholder(3)
-
-	if r.driver == "postgres" || r.driver == "pgx" {
-		orderExpr = "order_id::text = " + r.placeholder(2)
-		orgExpr = "organization_id::text = " + r.placeholder(1)
-		fleetExpr = "fleet_id::text = " + r.placeholder(3)
-	}
+	orderExpr := "order_id::text = " + r.placeholder(2)
+	orgExpr := "organization_id::text = " + r.placeholder(1)
+	fleetExpr := "fleet_id::text = " + r.placeholder(3)
 
 	query := "SELECT COUNT(1) FROM fleet_order_items WHERE " + orgExpr + " AND " + orderExpr + " AND " + fleetExpr
 	var count int
@@ -95,21 +90,12 @@ func (r *ScheduleRepository) CreateSchedule(input model.ScheduleCreateRepository
 	}
 
 	selectLatestSchedule := `
-		SELECT schedule_id
+		SELECT schedule_id::text
 		FROM schedules
-		WHERE order_id = ` + r.placeholder(1) + ` AND organization_id = ` + r.placeholder(2) + `
+		WHERE order_id::text = ` + r.placeholder(1) + ` AND organization_id::text = ` + r.placeholder(2) + `
 		ORDER BY created_at DESC
 		LIMIT 1
 	`
-	if r.driver == "postgres" || r.driver == "pgx" {
-		selectLatestSchedule = `
-			SELECT schedule_id::text
-			FROM schedules
-			WHERE order_id::text = ` + r.placeholder(1) + ` AND organization_id::text = ` + r.placeholder(2) + `
-			ORDER BY created_at DESC
-			LIMIT 1
-		`
-	}
 
 	if err = database.TxQueryRow(tx, selectLatestSchedule, input.OrderID, input.OrganizationID).Scan(&scheduleID); err != nil {
 		return "", err
@@ -119,10 +105,10 @@ func (r *ScheduleRepository) CreateSchedule(input model.ScheduleCreateRepository
 	for _, fleet := range input.Fleets {
 		scheduleFleetID := uuid.New().String()
 		insertScheduleFleet := `
-			INSERT INTO schedule_fleets (uuid, schedule_id, order_id, fleet_id, unit_id, departure_time, created_at, created_by, status, organization_id)
-			VALUES (` + r.placeholder(1) + `, ` + r.placeholder(2) + `, ` + r.placeholder(3) + `, ` + r.placeholder(4) + `, ` + r.placeholder(5) + `, ` + r.placeholder(6) + `, ` + r.placeholder(7) + `, ` + r.placeholder(8) + `, 1, ` + r.placeholder(9) + `)
+			INSERT INTO schedule_fleets (uuid, schedule_id, order_id, fleet_id, unit_id, departure_time, created_at, created_by, status, organization_id, schedule_number)
+			VALUES (` + r.placeholder(1) + `, ` + r.placeholder(2) + `, ` + r.placeholder(3) + `, ` + r.placeholder(4) + `, ` + r.placeholder(5) + `, ` + r.placeholder(6) + `, ` + r.placeholder(7) + `, ` + r.placeholder(8) + `, 1, ` + r.placeholder(9) + `, ` + r.placeholder(10) + `)
 		`
-		if _, err = database.TxExec(tx, insertScheduleFleet, scheduleFleetID, scheduleID, input.OrderID, fleet.FleetID, fleet.UnitID, input.DepartureTime, input.CreatedAt, input.UserID, input.OrganizationID); err != nil {
+		if _, err = database.TxExec(tx, insertScheduleFleet, scheduleFleetID, scheduleID, input.OrderID, fleet.FleetID, fleet.UnitID, input.DepartureTime, input.CreatedAt, input.UserID, input.OrganizationID, utils.GenerateTripID(input.OrderID)); err != nil {
 			return "", err
 		}
 		unitID := strings.TrimSpace(fleet.UnitID)
@@ -152,12 +138,9 @@ func (r *ScheduleRepository) CreateSchedule(input model.ScheduleCreateRepository
 		}
 	}
 
-	orderExpr := "order_id = " + r.placeholder(1)
-	orgExpr := "organization_id = " + r.placeholder(2)
-	if r.driver == "postgres" || r.driver == "pgx" {
-		orderExpr = "order_id::text = " + r.placeholder(1)
-		orgExpr = "organization_id::text = " + r.placeholder(2)
-	}
+	orderExpr := "order_id::text = " + r.placeholder(1)
+	orgExpr := "organization_id::text = " + r.placeholder(2)
+
 	selectEndDate := `
 		SELECT end_date
 		FROM fleet_orders
@@ -717,16 +700,10 @@ func (r *ScheduleRepository) GetFleetAvailability(filter model.ScheduleFleetAvai
 }
 
 func (r *ScheduleRepository) ListScheduleDetailsByDate(selectedDate time.Time, organizationID string) ([]model.ScheduleDetailByDateRow, error) {
-	orgExpr := "s.organization_id = " + r.placeholder(1)
-	scheduleIDExpr := "COALESCE(CAST(s.schedule_id AS CHAR), '')"
-	orderIDExpr := "COALESCE(CAST(s.order_id AS CHAR), '')"
-	cityAggExpr := "COALESCE(GROUP_CONCAT(DISTINCT foi.city_id), '')"
-	if r.driver == "postgres" || r.driver == "pgx" {
-		orgExpr = "s.organization_id::text = " + r.placeholder(1)
-		scheduleIDExpr = "COALESCE(s.schedule_id::text, '')"
-		orderIDExpr = "COALESCE(s.order_id::text, '')"
-		cityAggExpr = "COALESCE(ARRAY_AGG(DISTINCT foi.city_id)::text, '{}')"
-	}
+	orgExpr := "s.organization_id::text = " + r.placeholder(1)
+	scheduleIDExpr := "COALESCE(s.schedule_id::text, '')"
+	orderIDExpr := "COALESCE(s.order_id::text, '')"
+	cityAggExpr := "COALESCE(ARRAY_AGG(DISTINCT foi.city_id)::text, '{}')"
 
 	query := `
 		SELECT

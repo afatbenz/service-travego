@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"service-travego/database"
+	"strings"
 	"time"
 )
 
@@ -46,11 +47,12 @@ func GenerateInvoiceNumberTx(tx *sql.Tx, driver, organizationID string, orderTyp
 // GenerateOrderID generates order ID based on order type
 func GenerateOrderID(orderType int, orgCode string, count int) string {
 	var prefix string
-	if orderType == 1 {
+	switch orderType {
+	case 1:
 		prefix = "FO"
-	} else if orderType == 2 {
+	case 2:
 		prefix = "TO"
-	} else {
+	default:
 		prefix = "CO"
 	}
 
@@ -61,6 +63,10 @@ func GenerateOrderID(orderType int, orgCode string, count int) string {
 
 	timePart := time.Now().Format("06020115")
 	return fmt.Sprintf("%s-%s%d-%s", prefix, timePart, count+1, truncatedCode)
+}
+
+func GenerateTripID(orderID string) string {
+	return strings.ReplaceAll(orderID, "FO", "SJL")
 }
 
 func placeholder(driver string, pos int) string {

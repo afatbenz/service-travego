@@ -379,12 +379,20 @@ func (s *FleetService) GetPartnerOrderDetail(orderID, orgID string) (*model.Orde
 }
 
 func (s *FleetService) GetPartnerOrderPaymentSummary(orderID, orgID string, totalAmount float64) (*model.PaymentSummary, error) {
+	totalAddon, totalDiscount, totalCharge, err := s.repo.GetFleetOrderItemTotals(orderID, orgID)
+	if err != nil {
+		return nil, err
+	}
+
 	row, err := s.repo.GetLatestPaymentOrder(orderID, 1, orgID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return &model.PaymentSummary{
 				PaidAmount:       0,
 				PaymentRemaining: totalAmount,
+				TotalAddon:       totalAddon,
+				TotalDiscount:    totalDiscount,
+				TotalCharge:      totalCharge,
 				PaymentStatus:    "unpaid",
 			}, nil
 		}
@@ -404,6 +412,9 @@ func (s *FleetService) GetPartnerOrderPaymentSummary(orderID, orgID string, tota
 		PaymentAmount:      row.PaymentAmount,
 		PaymentRemaining:   row.RemainingAmount,
 		PaidAmount:         baseTotal - row.RemainingAmount,
+		TotalAddon:         totalAddon,
+		TotalDiscount:      totalDiscount,
+		TotalCharge:        totalCharge,
 		PaymentMethod:      row.PaymentMethod,
 		PaymentMethodLabel: s.paymentMethodLabels[row.PaymentMethod],
 		PaymentStatus:      status,
@@ -1245,8 +1256,7 @@ func (s *FleetService) DeleteFleetOrderAddon(orgID string, req *FleetOrderDelete
 	}
 	err := s.repo.DeleteFleetOrderAddon(req.OrderID, req.OrderItemID, req.AddonID, orgID)
 	if err != nil {
-		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to delete addon: " + err.Error())
+		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to delete addon: "+err.Error())
 	}
 	return nil
 }
-

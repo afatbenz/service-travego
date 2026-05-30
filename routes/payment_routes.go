@@ -19,12 +19,9 @@ func SetupPaymentRoutes(api fiber.Router, db *sql.DB, driver string, midtransCfg
 
 	orgRepo := repository.NewOrganizationRepository(db, driver)
 
-	// Route: /api/services/order/payment
-	// Sesuai permintaan user menggunakan 'services' (plural)
 	serviceGroup := api.Group("/services")
 	paymentGroup := serviceGroup.Group("/payment/order")
 
-	// Apply DualAuthMiddleware to ensure organization_id and user_id are present
 	paymentGroup.Use(helper.DualAuthMiddleware(orgRepo))
 
 	paymentGroup.Post("/submit", h.CreatePayment)
