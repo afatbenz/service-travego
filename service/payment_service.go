@@ -45,9 +45,14 @@ func (s *paymentService) ProcessPaymentNotification(req *model.MidtransWebhookRe
 		return nil
 	}
 
-	orgID, totalAmount, orderTypeFromOrder, err := s.repo.GetOrderDetails(req.OrderID)
+	orgID, _, orderTypeFromOrder, orderID, err := s.repo.GetOrderDetails(req.OrderID)
 	if err != nil {
 		return fmt.Errorf("failed to get order details: %w", err)
+	}
+
+	totalAmount, err := s.repo.GetOrderTotalAmount(orderID, orderTypeFromOrder)
+	if err != nil {
+		return fmt.Errorf("failed to get order total amount: %w", err)
 	}
 
 	grossAmount, err := strconv.ParseFloat(req.GrossAmount, 64)
@@ -58,19 +63,20 @@ func (s *paymentService) ProcessPaymentNotification(req *model.MidtransWebhookRe
 	if err := s.repo.UpdatePaymentOrderNotification(req.OrderID, orgID, totalAmount, grossAmount, req.TransactionID, req.PaymentType); err != nil {
 		return fmt.Errorf("failed to update payment order: %w", err)
 	}
-	fmt.Println("--- Remaining")
-	remaining, err := s.repo.GetLatestPaymentOrderRemainingAmount(req.OrderID, orgID, orderTypeFromOrder)
+
+	totalPaid, err := s.repo.GetOrderTotalPaidAmount(orderID, orderTypeFromOrder, orgID)
 	if err != nil {
-		return fmt.Errorf("failed to get remaining amount: %w", err)
+		return fmt.Errorf("failed to get total paid amount: %w", err)
 	}
 
+	remainingAmount := float64(totalAmount) - totalPaid
 	paymentStatus := 4
-	if !remaining.Valid || remaining.Float64 <= 0 {
+	if remainingAmount <= 0 {
 		paymentStatus = 1
 	}
-	fmt.Println("--- UpdatePaymentStatus")
-	if err := s.UpdatePaymentStatus(req.OrderID, orderTypeFromOrder, 1, paymentStatus); err != nil {
-		return fmt.Errorf("failed to update order status: %w", err)
+
+	if err := s.repo.UpdateOrderPaymentStatus(orderID, orderTypeFromOrder, paymentStatus); err != nil {
+		return fmt.Errorf("failed to update order payment status: %w", err)
 	}
 
 	createdAt := time.Now().Format("2006-01-02 15:04:05")
@@ -78,18 +84,12 @@ func (s *paymentService) ProcessPaymentNotification(req *model.MidtransWebhookRe
 		return fmt.Errorf("failed to insert payment midtrans: %w", err)
 	}
 
-	invoiceNumber, orderTypeFromPaymentOrder, createdBy, err := s.repo.GetPaymentOrderMeta(req.OrderID, orgID)
+	invoiceNumber, orderTypeFromPaymentOrder, createdBy, err := s.repo.GetPaymentOrderMeta(orderID, orgID)
 	if err != nil {
 		return fmt.Errorf("failed to get payment order meta: %w", err)
 	}
 
-	orderType := orderTypeFromOrderID(req.OrderID)
-	if orderType == 0 {
-		orderType = orderTypeFromPaymentOrder
-	}
-	if orderType == 0 {
-		orderType = orderTypeFromOrder
-	}
+	orderType := orderTypeFromPaymentOrder
 
 	if invoiceNumber != "" {
 		exists, err := s.repo.TransactionExistsByInvoice(orgID, invoiceNumber)
@@ -266,7 +266,7 @@ func (s *paymentService) CreatePayment(req *model.PaymentRequest) (*model.Paymen
 	// 7. Panggil Midtrans Snap API untuk generate snap_token
 	snapReq := &midtrans.SnapReq{
 		TransactionDetails: midtrans.TransactionDetails{
-			OrderID:  req.OrderID,
+			OrderID:  invoiceNumber,
 			GrossAmt: paymentAmount,
 		},
 	}
@@ -279,7 +279,7 @@ func (s *paymentService) CreatePayment(req *model.PaymentRequest) (*model.Paymen
 
 	return &model.PaymentResponse{
 		SnapToken: snapResp.Token,
-		OrderID:   req.OrderID,
+		OrderID:   invoiceNumber,
 	}, nil
 }
 

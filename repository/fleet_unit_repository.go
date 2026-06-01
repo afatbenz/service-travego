@@ -826,7 +826,7 @@ func (r *FleetUnitRepository) UnitOrderHistory(orgID, unitID, startDate, endDate
 			&endDate,
 			&it.Status,
 			&it.PickupCityID,
-			&it.Destinations,
+			&it.DestinationIDs,
 		); err != nil {
 			return nil, err
 		}

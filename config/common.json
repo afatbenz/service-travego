@@ -117,52 +117,66 @@
     ],
     "transaction-items": [
         {
+            "id": "TRX-I00",
+            "label": "Biaya Operasional Perjalanan",
+            "type": ["fleet", "tour"]
+        },
+        {
             "id": "TRX-I01",
-            "label": "Bahan Bakar"
+            "label": "Biaya Bahan Bakar",
+            "type": ["fleet"]
         },
         {
             "id": "TRX-I02",
-            "label": "Biaya Tol"
+            "label": "Biaya Retribusi Tol",
+            "type": ["fleet"]
         },
         {
             "id": "TRX-I03",
-            "label": "Tips Driver"
+            "label": "Biaya Retribusi Parkir",
+            "type": ["fleet", "tour"]
         },
         {
             "id": "TRX-I04",
-            "label": "Tips Pemandu Wisata"
+            "label": "Biaya Jasa Pemandu Wisata",
+            "type": ["fleet", "tour"]
         },
         {
             "id": "TRX-I05",
-            "label": "Uang Makan"
+            "label": "Biaya Konsumsi Perjalanan",
+            "type": ["fleet"]
         },
         {
             "id": "TRX-I06",
-            "label": "Perawatan Armada"
+            "label": "Biaya Operasional Driver",
+            "type": ["fleet", "tour"]
         },
         {
             "id": "TRX-I07",
-            "label": "Pajak Kendaraan"
+            "label": "Biaya Perawatan Armada",
+            "type": ["fleet"]
         },
         {
             "id": "TRX-I08",
-            "label": "Asuransi"
+            "label": "Biaya Pajak Kendaraan"
         },
         {
             "id": "TRX-I09",
-            "label": "Retribusi Parkir"
+            "label": "Biaya Asuransi dan Proteksi"
         },
         {
             "id": "TRX-I10",
-            "label": "Kuota / Pulsa"
+            "label": "Operasional Internet dan Komunikasi",
+            "type": ["fleet", "tour"]
         },
         {
             "id": "TRX-I11",
-            "label": "Iklan dan Marketing"
+            "label": "Biaya Iklan, Pemasaran dan Promosi"
         },
         {
             "id": "TRX-I12",
-            "label": "Kebutuhan Lain"
+            "label": "Biaya Kebutuhan Operasional Lain",
+            "type": ["fleet"]
         }
     ]
 }

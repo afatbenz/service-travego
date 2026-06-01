@@ -40,6 +40,10 @@ func NewOrderService(fleetRepo *repository.FleetRepository, contentRepo *reposit
 	}
 }
 
+func (s *OrderService) GetFleetOrderItemTotals(orderID, orgID string) (float64, float64, float64, float64, error) {
+	return s.fleetRepo.GetFleetOrderItemTotals(orderID, orgID)
+}
+
 func (s *OrderService) CreateOrder(req *model.CreateOrderRequest) (*model.CreateOrderResponse, error) {
 	// 1. Calculate Total Amount
 	// Get Fleet Price

@@ -9,10 +9,37 @@ import (
 	"service-travego/model"
 	"service-travego/service"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 )
+
+var scheduleCitiesOnce sync.Once
+var scheduleCitiesMap map[string]string
+
+func getScheduleCitiesMap() map[string]string {
+	scheduleCitiesOnce.Do(func() {
+		scheduleCitiesMap = map[string]string{}
+		f, err := os.Open("config/location.json")
+		if err != nil {
+			return
+		}
+		defer f.Close()
+		var loc model.Location
+		if err := json.NewDecoder(f).Decode(&loc); err != nil {
+			return
+		}
+		for _, c := range loc.Cities {
+			id := strings.TrimSpace(c.ID)
+			if id == "" {
+				continue
+			}
+			scheduleCitiesMap[id] = c.Name
+		}
+	})
+	return scheduleCitiesMap
+}
 
 type ScheduleHandler struct {
 	service *service.ScheduleService
@@ -135,7 +162,220 @@ func (h *ScheduleHandler) GetFleetSchedule(c *fiber.Ctx) error {
 		return helper.SendErrorResponse(c, service.GetStatusCode(err), err.Error())
 	}
 
+	citiesMap := getScheduleCitiesMap()
+	if result != nil && len(result.Schedules) > 0 && len(citiesMap) > 0 {
+		for i := range result.Schedules {
+			if strings.TrimSpace(result.Schedules[i].Destinations) != "" {
+				continue
+			}
+			raw := strings.TrimSpace(result.Schedules[i].DestinationIDs)
+			if raw == "" {
+				continue
+			}
+			parts := strings.Split(raw, ",")
+			names := make([]string, 0, len(parts))
+			seen := map[string]struct{}{}
+			for _, p := range parts {
+				id := strings.TrimSpace(p)
+				if id == "" {
+					continue
+				}
+				if _, ok := seen[id]; ok {
+					continue
+				}
+				seen[id] = struct{}{}
+				if name := strings.TrimSpace(citiesMap[id]); name != "" {
+					names = append(names, name)
+				}
+			}
+			result.Schedules[i].Destinations = strings.Join(names, ", ")
+		}
+	}
+
 	return helper.SuccessResponse(c, fiber.StatusOK, "Schedule fleets loaded", result)
+}
+
+func (h *ScheduleHandler) GetFleetTripDetail(c *fiber.Ctx) error {
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.BadRequestResponse(c, "missing organization context")
+	}
+
+	scheduleNumber := strings.TrimSpace(c.Params("schedule_number"))
+	if scheduleNumber == "" {
+		return helper.BadRequestResponse(c, "schedule_number is required")
+	}
+
+	res, err := h.service.GetFleetTripDetail(model.ScheduleFleetTripDetailServiceInput{
+		OrganizationID: orgID,
+		ScheduleNumber: scheduleNumber,
+	})
+	if err != nil {
+		return helper.SendErrorResponse(c, service.GetStatusCode(err), err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "OK", res)
+}
+
+func (h *ScheduleHandler) UpdateFleetTrip(c *fiber.Ctx) error {
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.BadRequestResponse(c, "missing organization context")
+	}
+	userID, ok := c.Locals("user_id").(string)
+	if !ok || userID == "" {
+		return helper.BadRequestResponse(c, "missing user context")
+	}
+
+	var req model.ScheduleFleetTripUpdateRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.BadRequestResponse(c, "invalid payload")
+	}
+	if validationErrors := helper.ValidateStruct(&req); len(validationErrors) > 0 {
+		return helper.SendValidationErrorResponse(c, validationErrors)
+	}
+
+	scheduleFleetID := strings.TrimSpace(req.ScheduleFleetID)
+	driverID := strings.TrimSpace(req.DriverID)
+	crewID := strings.TrimSpace(req.CrewID)
+
+	placeholder := func(position int) string {
+		if h.driver == "postgres" || h.driver == "pgx" {
+			return fmt.Sprintf("$%d", position)
+		}
+		return "?"
+	}
+
+	sfExpr := "sf.uuid = " + placeholder(1)
+	orgExpr := "sf.organization_id = " + placeholder(2)
+	if h.driver == "postgres" || h.driver == "pgx" {
+		sfExpr = "sf.uuid::text = " + placeholder(1)
+		orgExpr = "sf.organization_id::text = " + placeholder(2)
+	}
+
+	periodQuery := `
+		SELECT fo.start_date, fo.end_date
+		FROM schedule_fleets sf
+		INNER JOIN schedules s ON s.schedule_id = sf.schedule_id AND s.organization_id = sf.organization_id
+		INNER JOIN fleet_orders fo ON fo.order_id = s.order_id AND fo.organization_id = s.organization_id
+		WHERE ` + sfExpr + ` AND ` + orgExpr + `
+		LIMIT 1
+	`
+	if h.driver == "postgres" || h.driver == "pgx" {
+		periodQuery = `
+			SELECT fo.start_date, fo.end_date
+			FROM schedule_fleets sf
+			INNER JOIN schedules s ON s.schedule_id::text = sf.schedule_id::text AND s.organization_id::text = sf.organization_id::text
+			INNER JOIN fleet_orders fo ON fo.order_id::text = s.order_id::text AND fo.organization_id::text = s.organization_id::text
+			WHERE ` + sfExpr + ` AND ` + orgExpr + `
+			LIMIT 1
+		`
+	}
+
+	var startDate sql.NullTime
+	var endDate sql.NullTime
+	if err := h.db.QueryRow(periodQuery, scheduleFleetID, orgID).Scan(&startDate, &endDate); err != nil {
+		if err == sql.ErrNoRows {
+			return helper.SendErrorResponse(c, fiber.StatusNotFound, "SCHEDULE_FLEET_NOT_FOUND")
+		}
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "failed to validate schedule")
+	}
+	if !startDate.Valid || !endDate.Valid {
+		return helper.BadRequestResponse(c, "invalid schedule period")
+	}
+
+	sftOrgExpr := "sft.organization_id = " + placeholder(1)
+	employeeExpr := "(sft.driver_id = " + placeholder(2) + " OR sft.crew_id = " + placeholder(2) + ")"
+	excludeExpr := "sft.schedule_fleet_id <> " + placeholder(5)
+	if h.driver == "postgres" || h.driver == "pgx" {
+		sftOrgExpr = "sft.organization_id::text = " + placeholder(1)
+		employeeExpr = "(sft.driver_id::text = " + placeholder(2) + " OR sft.crew_id::text = " + placeholder(2) + ")"
+		excludeExpr = "sft.schedule_fleet_id::text <> " + placeholder(5)
+	}
+
+	conflictQuery := `
+		SELECT 1
+		FROM schedule_fleet_teams sft
+		INNER JOIN schedules s ON s.schedule_id = sft.schedule_id AND s.organization_id = sft.organization_id
+		INNER JOIN fleet_orders fo ON fo.order_id = s.order_id AND fo.organization_id = s.organization_id
+		WHERE ` + sftOrgExpr + `
+		  AND ` + employeeExpr + `
+		  AND COALESCE(sft.status, 0) = 1
+		  AND fo.start_date <= ` + placeholder(4) + `
+		  AND fo.end_date >= ` + placeholder(3) + `
+		  AND ` + excludeExpr + `
+		LIMIT 1
+	`
+	if h.driver == "postgres" || h.driver == "pgx" {
+		conflictQuery = `
+			SELECT 1
+			FROM schedule_fleet_teams sft
+			INNER JOIN schedules s ON s.schedule_id::text = sft.schedule_id::text AND s.organization_id::text = sft.organization_id::text
+			INNER JOIN fleet_orders fo ON fo.order_id::text = s.order_id::text AND fo.organization_id::text = s.organization_id::text
+			WHERE ` + sftOrgExpr + `
+			  AND ` + employeeExpr + `
+			  AND COALESCE(sft.status, 0) = 1
+			  AND fo.start_date <= ` + placeholder(4) + `
+			  AND fo.end_date >= ` + placeholder(3) + `
+			  AND ` + excludeExpr + `
+			LIMIT 1
+		`
+	}
+
+	checkConflict := func(employeeID string) (bool, error) {
+		if strings.TrimSpace(employeeID) == "" {
+			return false, nil
+		}
+		var one int
+		err := h.db.QueryRow(conflictQuery, orgID, employeeID, startDate.Time, endDate.Time, scheduleFleetID).Scan(&one)
+		if err == nil {
+			return true, nil
+		}
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+		return false, err
+	}
+
+	if ok, err := checkConflict(driverID); err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "failed to validate driver")
+	} else if ok {
+		return helper.BadRequestResponse(c, "DRIVER_NOT_AVAILABLE")
+	}
+	if ok, err := checkConflict(crewID); err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "failed to validate crew")
+	} else if ok {
+		return helper.BadRequestResponse(c, "CREW_NOT_AVAILABLE")
+	}
+
+	updateSftExpr := "schedule_fleet_id = " + placeholder(5)
+	updateOrgExpr := "organization_id = " + placeholder(6)
+	if h.driver == "postgres" || h.driver == "pgx" {
+		updateSftExpr = "schedule_fleet_id::text = " + placeholder(5)
+		updateOrgExpr = "organization_id::text = " + placeholder(6)
+	}
+
+	updateQuery := `
+		UPDATE schedule_fleet_teams
+		SET driver_id = ` + placeholder(1) + `,
+			crew_id = ` + placeholder(2) + `,
+			updated_at = ` + placeholder(3) + `,
+			updated_by = ` + placeholder(4) + `
+		WHERE ` + updateSftExpr + ` AND ` + updateOrgExpr + ` AND COALESCE(status, 0) = 1
+	`
+
+	res, err := h.db.Exec(updateQuery, driverID, crewID, time.Now(), userID, scheduleFleetID, orgID)
+	if err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "failed to update")
+	}
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		return helper.SendErrorResponse(c, fiber.StatusNotFound, "SCHEDULE_FLEET_TEAM_NOT_FOUND")
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "OK", fiber.Map{
+		"schedule_fleet_id": scheduleFleetID,
+	})
 }
 
 func (h *ScheduleHandler) GetFleetAvailability(c *fiber.Ctx) error {

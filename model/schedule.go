@@ -37,6 +37,46 @@ type ScheduleUpdateServiceInput struct {
 	Request        *ScheduleUpdateRequest
 }
 
+type ScheduleFleetTripDetailRequest struct {
+	ScheduleFleetID string `json:"schedule_fleet_id" validate:"required"`
+	DriverID        string `json:"driver_id" validate:"required"`
+	CrewID          string `json:"crew_id" validate:"required"`
+}
+
+type ScheduleFleetTripUpdateRequest struct {
+	ScheduleFleetID string `json:"schedule_fleet_id" validate:"required"`
+	DriverID        string `json:"driver_id" validate:"required"`
+	CrewID          string `json:"crew_id" validate:"required"`
+}
+
+type ScheduleFleetTripDetailServiceInput struct {
+	OrganizationID  string
+	ScheduleNumber  string
+	ScheduleFleetID string
+	DriverID        string
+	CrewID          string
+}
+
+type ScheduleFleetTripDetailResponse struct {
+	ScheduleFleetID string `json:"schedule_fleet_id"`
+	ScheduleID      string `json:"schedule_id"`
+	OrderID         string `json:"order_id"`
+	DepartureTime   string `json:"departure_time"`
+	ArrivalTime     string `json:"arrival_time"`
+	FleetName       string `json:"fleet_name"`
+	FleetPhoto      string `json:"fleet_photo"`
+	UnitID          string `json:"unit_id"`
+	VehicleID       string `json:"vehicle_id"`
+	PlateNumber     string `json:"plate_number"`
+	StartDate       string `json:"start_date"`
+	EndDate         string `json:"end_date"`
+	PaymentStatus   int    `json:"payment_status"`
+	DriverName      string `json:"driver_name"`
+	DriverAvatar    string `json:"driver_avatar"`
+	CrewName        string `json:"crew_name"`
+	CrewAvatar      string `json:"crew_avatar"`
+}
+
 type ScheduleOrderValidationInput struct {
 	OrganizationID string
 	OrderID        string
@@ -243,10 +283,15 @@ type ScheduleFleetListItem struct {
 	PlateNumber     string `json:"plate_number"`
 	Engine          string `json:"engine"`
 	Capacity        int    `json:"capacity"`
+	DriverName      string `json:"driver_name"`
+	CrewName        string `json:"crew_name"`
 	ScheduleID      string `json:"schedule_id"`
+	ScheduleNumber  string `json:"schedule_number"`
 	OrderID         string `json:"order_id"`
+	DestinationIDs  string `json:"destination_ids"`
 	StartDate       string `json:"start_date"`
 	EndDate         string `json:"end_date"`
+	Destinations    string `json:"destinations"`
 	PickupCityLabel string `json:"pickup_city_label"`
 }
 
@@ -261,6 +306,7 @@ type ScheduleFleetOrderRow struct {
 	PaymentStatus     int
 	UnitQty           int
 	PickupCityID      string
+	DestinationIDs    string
 	AdditionalRequest string
 	CreatedAt         time.Time
 	CreatedBy         string
