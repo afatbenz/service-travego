@@ -379,17 +379,22 @@ func (s *FleetService) GetPartnerOrderDetail(orderID, orgID string) (*model.Orde
 }
 
 func (s *FleetService) GetPartnerOrderPaymentSummary(orderID, orgID string, totalAmount float64) (*model.PaymentSummary, error) {
-	totalAddon, totalDiscount, totalCharge, err := s.repo.GetFleetOrderItemTotals(orderID, orgID)
+	totalAddon, totalDiscount, totalCharge, totalPayment, err := s.repo.GetFleetOrderItemTotals(orderID, orgID)
 	if err != nil {
+		fmt.Println("GetFleetOrderItemTotals error:", err)
 		return nil, err
 	}
+	fmt.Println("totalAddon:", totalAddon)
+	fmt.Println("totalDiscount:", totalDiscount)
+	fmt.Println("totalCharge:", totalCharge)
+	fmt.Println("totalPayment:", totalPayment)
 
 	row, err := s.repo.GetLatestPaymentOrder(orderID, 1, orgID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return &model.PaymentSummary{
 				PaidAmount:       0,
-				PaymentRemaining: totalAmount,
+				PaymentRemaining: totalPayment,
 				TotalAddon:       totalAddon,
 				TotalDiscount:    totalDiscount,
 				TotalCharge:      totalCharge,

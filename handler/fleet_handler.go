@@ -751,12 +751,14 @@ func (h *FleetHandler) GetPartnerOrderDetail(c *fiber.Ctx) error {
 
 func (h *FleetHandler) UpdatePartnerOrder(c *fiber.Ctx) error {
 	var req service.FleetOrderUpdateRequest
-	if err := c.BodyParser(&req); err != nil {
-		raw := c.Body()
-		var m map[string]interface{}
-		if err2 := json.Unmarshal(raw, &m); err2 != nil {
+	bodyParseErr := c.BodyParser(&req)
+	raw := c.Body()
+	var m map[string]interface{}
+	if err := json.Unmarshal(raw, &m); err != nil {
+		if bodyParseErr != nil {
 			return helper.BadRequestResponse(c, "invalid payload")
 		}
+	} else {
 		if v, ok := m["order_id"].(string); ok {
 			req.OrderID = v
 		}

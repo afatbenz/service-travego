@@ -215,6 +215,7 @@ func (s *ScheduleService) GetScheduleFleetList(input model.ScheduleFleetListServ
 		}
 
 		pickupLabel := s.citiesMap[row.PickupCityID]
+		destinations := scheduleDestinationsLabel(row.DestinationIDs, s.citiesMap)
 
 		for _, fleet := range fleets {
 			response.Schedules = append(response.Schedules, model.ScheduleFleetListItem{
@@ -224,11 +225,16 @@ func (s *ScheduleService) GetScheduleFleetList(input model.ScheduleFleetListServ
 				PlateNumber:     fleet.PlateNumber,
 				Engine:          fleet.Engine,
 				Capacity:        fleet.Capacity,
+				DriverName:      fleet.DriverName,
+				CrewName:        fleet.CrewName,
 				ScheduleID:      row.ScheduleID,
+				ScheduleNumber:  fleet.ScheduleNumber,
 				OrderID:         row.OrderID,
+				DestinationIDs:  row.DestinationIDs,
 				StartDate:       row.StartDate.Format("2006-01-02"),
 				EndDate:         row.EndDate.Format("2006-01-02"),
 				PickupCityLabel: pickupLabel,
+				Destinations:    destinations,
 			})
 		}
 	}
@@ -236,6 +242,30 @@ func (s *ScheduleService) GetScheduleFleetList(input model.ScheduleFleetListServ
 	response.Period = monthStart.Format("January 2006")
 
 	return response, nil
+}
+
+func scheduleDestinationsLabel(destinationIDs string, citiesMap map[string]string) string {
+	raw := strings.TrimSpace(destinationIDs)
+	if raw == "" {
+		return ""
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	seen := map[string]struct{}{}
+	for _, p := range parts {
+		id := strings.TrimSpace(p)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		if name := strings.TrimSpace(citiesMap[id]); name != "" {
+			out = append(out, name)
+		}
+	}
+	return strings.Join(out, ", ")
 }
 
 func (s *ScheduleService) GetFleetAvailability(input model.ScheduleFleetAvailabilityServiceInput) ([]model.ScheduleFleetAvailabilityItem, error) {
@@ -356,6 +386,22 @@ func (s *ScheduleService) GetScheduleDetail(input model.ScheduleDetailServiceInp
 	}
 
 	return response, nil
+}
+
+func (s *ScheduleService) GetFleetTripDetail(input model.ScheduleFleetTripDetailServiceInput) (*model.ScheduleFleetTripDetailResponse, error) {
+	if strings.TrimSpace(input.ScheduleNumber) == "" {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "schedule_number is required")
+	}
+
+	res, exists, err := s.repo.GetFleetTripDetail(input)
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, s.internalMessage("failed to get fleet trip detail", err))
+	}
+	if !exists || res == nil {
+		fmt.Println(res)
+		return nil, NewServiceError(ErrNotFound, http.StatusNotFound, "DATA_NOT_FOUND")
+	}
+	return res, nil
 }
 
 func (s *ScheduleService) GetDailyAvailabilityFleet(input model.DailyAvailabilityFleetServiceInput) ([]model.DailyAvailabilityFleetScheduleItem, error) {

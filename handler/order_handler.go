@@ -16,7 +16,8 @@ import (
 )
 
 type OrderHandler struct {
-	service *service.OrderService
+	service      *service.OrderService
+	fleetService *service.FleetService
 }
 
 func NewOrderHandler(service *service.OrderService) *OrderHandler {
@@ -235,11 +236,21 @@ func (h *OrderHandler) GetOrderDetail(c *fiber.Ctx) error {
 		return helper.SendErrorResponse(c, code, err.Error())
 	}
 
+	payment := &model.PaymentSummary{}
+	if totalAddon, totalDiscount, totalCharge, totalPayment, err := h.service.GetFleetOrderItemTotals(res.OrderID, orgID); err == nil {
+		payment.TotalAddon = totalAddon
+		payment.TotalDiscount = totalDiscount
+		payment.TotalCharge = totalCharge
+		payment.PaymentAmount = totalPayment
+		payment.PaymentRemaining = res.TotalAmount - totalPayment
+	}
+
 	raw, _ := json.Marshal(res)
 	var m map[string]interface{}
 	_ = json.Unmarshal(raw, &m)
 	m["reviews"] = reviews
 	m["rating"] = rating
+	m["payment_summary"] = payment
 
 	return helper.SuccessResponse(c, fiber.StatusOK, "Order detail retrieved", m)
 }

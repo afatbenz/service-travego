@@ -495,6 +495,7 @@ type PaymentSummary struct {
 	TotalAddon         float64 `json:"total_addon"`
 	TotalDiscount      float64 `json:"total_discount"`
 	TotalCharge        float64 `json:"total_charge"`
+	TotalPayment       float64 `json:"total_payment"`
 	PaymentMethod      int     `json:"payment_method"`
 	PaymentMethodLabel string  `json:"payment_method_label"`
 	PaymentStatus      string  `json:"payment_status"`

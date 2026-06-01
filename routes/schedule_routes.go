@@ -20,6 +20,8 @@ func SetupScheduleRoutes(api fiber.Router, db *sql.DB, driver string) {
 	schedule.Post("/create", helper.JWTAuthorizationMiddleware(), h.Create)
 	schedule.Post("/update", helper.JWTAuthorizationMiddleware(), h.Update)
 	schedule.Get("/fleet", helper.JWTAuthorizationMiddleware(), h.GetFleetSchedule)
+	schedule.Get("/fleet-trip/detail/:schedule_number", helper.JWTAuthorizationMiddleware(), h.GetFleetTripDetail)
+	schedule.Post("/fleet-trip/update", helper.JWTAuthorizationMiddleware(), h.UpdateFleetTrip)
 	schedule.Post("/fleet/availibility", helper.JWTAuthorizationMiddleware(), h.GetFleetAvailability)
 	schedule.Post("/daily-availibility/fleet", helper.JWTAuthorizationMiddleware(), h.GetDailyAvailabilityFleet)
 	schedule.Post("/daily-availibility/fleet-unit", helper.JWTAuthorizationMiddleware(), h.GetDailyAvailabilityFleetUnit)

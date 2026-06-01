@@ -31,13 +31,11 @@ func getCitiesMap() map[string]string {
 		citiesMap = map[string]string{}
 		f, err := os.Open("config/location.json")
 		if err != nil {
-			fmt.Printf("Error opening location.json: %v\n", err)
 			return
 		}
 		defer f.Close()
 		var loc model.Location
 		if err := json.NewDecoder(f).Decode(&loc); err != nil {
-			fmt.Printf("Error decoding location.json: %v\n", err)
 			return
 		}
 		for _, c := range loc.Cities {
@@ -820,12 +818,12 @@ func (r *FleetRepository) CreateOrder(req *model.CreateOrderRequest) error {
 	// 5. Insert fleet_orders_addon (existing logic, keeping it but it might be redundant now)
 	if len(req.Addons) > 0 {
 		addonQuery := fmt.Sprintf(`
-			INSERT INTO fleet_order_addons (order_addon_id, order_id, addon_id, addon_price, created_at)
-			SELECT %s, %s, uuid, addon_price, %s FROM fleet_addon WHERE uuid = %s
-		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))
+			INSERT INTO fleet_order_addons (order_addon_id, order_id, order_item_id, organization_id, addon_id, addon_price, created_at)
+			SELECT %s, %s, %s, %s, uuid, addon_price, %s FROM fleet_addon WHERE uuid = %s
+		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6))
 		for _, addonID := range req.Addons {
 			id := uuid2()
-			res, err := database.TxExec(tx, addonQuery, id, orderID, now, addonID)
+			res, err := database.TxExec(tx, addonQuery, id, orderID, orderItemID, req.OrganizationID, now, addonID)
 			if err != nil {
 				fmt.Println("error create addon orders", err)
 				return err
@@ -1323,6 +1321,78 @@ func (r *FleetRepository) replaceFleetOrderItemAddons(tx *sql.Tx, orderID, orgID
 	return nil
 }
 
+func (r *FleetRepository) updateFleetOrderAddonPrice(tx *sql.Tx, orderID, orgID, updatedBy, addonID string, now time.Time) error {
+	addonID = strings.TrimSpace(addonID)
+	if addonID == "" {
+		return nil
+	}
+
+	orgExpr := "organization_id = " + r.getPlaceholder(4)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		orgExpr = "organization_id::text = " + r.getPlaceholder(4)
+	}
+
+	candidates := []struct {
+		query string
+		args  []interface{}
+	}{
+		{
+			query: fmt.Sprintf(`
+				UPDATE fleet_order_addons
+				SET addon_price = (SELECT addon_price FROM fleet_addon WHERE uuid = %s),
+				    updated_at = %s, updated_by = %s
+				WHERE order_id = %s AND addon_id = %s AND %s
+				  AND EXISTS (SELECT 1 FROM fleet_addon WHERE uuid = %s)
+			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), orgExpr, r.getPlaceholder(6)),
+			args: []interface{}{addonID, now, updatedBy, orderID, addonID, orgID, addonID},
+		},
+		{
+			query: fmt.Sprintf(`
+				UPDATE fleet_order_addons
+				SET addon_price = (SELECT addon_price FROM fleet_addon WHERE uuid = %s)
+				WHERE order_id = %s AND addon_id = %s AND %s
+				  AND EXISTS (SELECT 1 FROM fleet_addon WHERE uuid = %s)
+			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), orgExpr, r.getPlaceholder(4)),
+			args: []interface{}{addonID, orderID, addonID, orgID, addonID},
+		},
+		{
+			query: fmt.Sprintf(`
+				UPDATE fleet_order_addons
+				SET addon_price = (SELECT addon_price FROM fleet_addon WHERE uuid = %s),
+				    updated_at = %s, updated_by = %s
+				WHERE order_id = %s AND addon_id = %s
+				  AND EXISTS (SELECT 1 FROM fleet_addon WHERE uuid = %s)
+			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6)),
+			args: []interface{}{addonID, now, updatedBy, orderID, addonID, addonID},
+		},
+		{
+			query: fmt.Sprintf(`
+				UPDATE fleet_order_addons
+				SET addon_price = (SELECT addon_price FROM fleet_addon WHERE uuid = %s)
+				WHERE order_id = %s AND addon_id = %s
+				  AND EXISTS (SELECT 1 FROM fleet_addon WHERE uuid = %s)
+			`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4)),
+			args: []interface{}{addonID, orderID, addonID, addonID},
+		},
+	}
+
+	for _, c := range candidates {
+		_, _ = database.TxExec(tx, "SAVEPOINT sp_upd_addon_price")
+		_, e := database.TxExec(tx, c.query, c.args...)
+		if e == nil {
+			_, _ = database.TxExec(tx, "RELEASE SAVEPOINT sp_upd_addon_price")
+			return nil
+		}
+		_, _ = database.TxExec(tx, "ROLLBACK TO SAVEPOINT sp_upd_addon_price")
+		msg := strings.ToLower(e.Error())
+		if strings.Contains(msg, "unknown column") || strings.Contains(msg, "does not exist") || strings.Contains(msg, "column") {
+			continue
+		}
+		return e
+	}
+	return nil
+}
+
 func (r *FleetRepository) getFleetOrderAddonIDsByItem(tx *sql.Tx, orderID, orgID, orderItemID string) (map[string]struct{}, error) {
 	out := map[string]struct{}{}
 	orderItemID = strings.TrimSpace(orderItemID)
@@ -1810,13 +1880,30 @@ func (r *FleetRepository) UpdatePartnerOrder(in UpdatePartnerOrderInput) (err er
 			continue
 		}
 
-		existingAddonSet, err := r.getFleetOrderAddonIDsByItem(tx, in.OrderID, in.OrganizationID, strings.TrimSpace(f.OrderItemID))
-		if err != nil {
-			return err
-		}
-		if !addonIDsEqual(existingAddonSet, addonIDsForItem) {
-			if err := r.replaceFleetOrderItemAddons(tx, in.OrderID, in.OrganizationID, in.UpdatedBy, strings.TrimSpace(f.OrderItemID), addonIDsForItem, now, true); err != nil {
+		if len(addonIDsForItem) > 0 {
+			existingAddonSet, err := r.getFleetOrderAddonIDsByItem(tx, in.OrderID, in.OrganizationID, strings.TrimSpace(f.OrderItemID))
+			if err != nil {
 				return err
+			}
+			for _, a := range addonIDsForItem {
+				if _, ok := existingAddonSet[a]; !ok {
+					continue
+				}
+				if err := r.updateFleetOrderAddonPrice(tx, in.OrderID, in.OrganizationID, in.UpdatedBy, a, now); err != nil {
+					return err
+				}
+			}
+			missing := make([]string, 0, len(addonIDsForItem))
+			for _, a := range addonIDsForItem {
+				if _, ok := existingAddonSet[a]; ok {
+					continue
+				}
+				missing = append(missing, a)
+			}
+			if len(missing) > 0 {
+				if err := r.replaceFleetOrderItemAddons(tx, in.OrderID, in.OrganizationID, in.UpdatedBy, strings.TrimSpace(f.OrderItemID), missing, now, false); err != nil {
+					return err
+				}
 			}
 		}
 
@@ -2763,10 +2850,10 @@ func (r *FleetRepository) InsertServiceOrderPayment(req *model.CreateServiceOrde
 		INSERT INTO payment_orders
 			(payment_id, invoice_number, order_type, order_id, organization_id, payment_type, payment_method, bank_id, bank_account, payment_amount, total_amount, remaining_amount, evidence_file, status, created_at, created_by)
 		VALUES
-			(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+			(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, %s)
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
 		r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10),
-		r.getPlaceholder(11), r.getPlaceholder(12), r.getPlaceholder(13), r.getPlaceholder(14), r.getPlaceholder(15), r.getPlaceholder(16))
+		r.getPlaceholder(11), r.getPlaceholder(12), r.getPlaceholder(14), r.getPlaceholder(15), r.getPlaceholder(16))
 
 	_, err = database.TxExec(
 		tx,
@@ -2784,7 +2871,6 @@ func (r *FleetRepository) InsertServiceOrderPayment(req *model.CreateServiceOrde
 		totalAmount,
 		remainingAmount,
 		req.EvidenceFile,
-		status,
 		now,
 		req.CreatedBy,
 	)
@@ -3059,25 +3145,25 @@ func (r *FleetRepository) GetLatestPaymentOrder(orderID string, orderType int, o
 	return &it, nil
 }
 
-func (r *FleetRepository) GetFleetOrderItemTotals(orderID, organizationID string) (float64, float64, float64, error) {
-	orgExpr := "organization_id = " + r.getPlaceholder(2)
-	if r.driver == "postgres" || r.driver == "pgx" {
-		orgExpr = "organization_id::text = " + r.getPlaceholder(2)
-	}
+func (r *FleetRepository) GetFleetOrderItemTotals(orderID, organizationID string) (float64, float64, float64, float64, error) {
+	orgExpr := "foi.organization_id::text = " + r.getPlaceholder(2)
+
 	query := fmt.Sprintf(`
 		SELECT
 			COALESCE(SUM(COALESCE(addon_amount, 0)), 0) as total_addon,
 			COALESCE(SUM(COALESCE(discount, 0)), 0) as total_discount,
-			COALESCE(SUM(COALESCE(charge_amount, 0)), 0) as total_charge
-		FROM fleet_order_items
-		WHERE order_id = %s AND %s
+			COALESCE(SUM(COALESCE(charge_amount, 0)), 0) as total_charge,
+			COALESCE(SUM(COALESCE(payment_amount, 0)), 0) as total_payment
+		FROM fleet_order_items foi
+		LEFT JOIN payment_orders po ON foi.order_id = po.order_id AND po.order_type = 1 AND po.status = 1
+		WHERE foi.order_id = %s AND %s AND po.status > 0
 	`, r.getPlaceholder(1), orgExpr)
 
-	var totalAddon, totalDiscount, totalCharge float64
-	if err := database.QueryRow(r.db, query, orderID, organizationID).Scan(&totalAddon, &totalDiscount, &totalCharge); err != nil {
-		return 0, 0, 0, err
+	var totalAddon, totalDiscount, totalCharge, totalPayment float64
+	if err := database.QueryRow(r.db, query, orderID, organizationID).Scan(&totalAddon, &totalDiscount, &totalCharge, &totalPayment); err != nil {
+		return 0, 0, 0, 0, err
 	}
-	return totalAddon, totalDiscount, totalCharge, nil
+	return totalAddon, totalDiscount, totalCharge, totalPayment, nil
 }
 
 func (r *FleetRepository) UpdateFleetOrderPaymentStatusOnOrder(orderID, organizationID string, paymentStatus int) error {
@@ -3202,7 +3288,6 @@ func (r *FleetRepository) GetPartnerOrderList(orgID string, filter *model.Partne
 		}
 	}
 	query := fmt.Sprintf(base, r.getPlaceholder(1)) + cond + " ORDER BY fo.created_at DESC"
-	fmt.Println(query)
 
 	rows, err := r.db.Query(query, args...)
 	if err != nil {
@@ -3313,8 +3398,6 @@ func (r *FleetRepository) GetPartnerOrderFleetItems(organizationId, orderId stri
 		INNER JOIN fleet_types tp ON tp.id = f.fleet_type
 		WHERE oi.organization_id = %[1]s AND oi.order_id = %[2]s
 	`, r.getPlaceholder(1), r.getPlaceholder(2), priceJoinExpr, fleetJoinExpr)
-	fmt.Println("GetPartnerOrderFleetItems query:", query)
-	fmt.Println("GetPartnerOrderFleetItems args:", organizationId, orderId)
 
 	rows, err := database.Query(r.db, query, organizationId, orderId)
 	if err != nil {
@@ -3366,7 +3449,6 @@ func (r *FleetRepository) GetPartnerOrderFleetItems(organizationId, orderId stri
 
 	aRows, err := database.Query(r.db, addonsQuery, organizationId, orderId)
 	if err != nil {
-		fmt.Println("GetPartnerOrderFleetItems err:", err)
 		return nil, err
 	}
 	defer aRows.Close()
@@ -3377,14 +3459,12 @@ func (r *FleetRepository) GetPartnerOrderFleetItems(organizationId, orderId stri
 		var orderItemID string
 		var a model.OrderDetailAddon
 		if err := aRows.Scan(&orderItemID, &a.AddonName, &a.AddonDesc, &a.AddonPrice); err != nil {
-			fmt.Println("GetPartnerOrderFleetItems err1:", err)
 			return nil, err
 		}
 		addonsByItem[orderItemID] = append(addonsByItem[orderItemID], a)
 		addonAmountByItem[orderItemID] += a.AddonPrice
 	}
 	if err := aRows.Err(); err != nil {
-		fmt.Println("GetPartnerOrderFleetItems err:", err)
 		return nil, err
 	}
 
@@ -3448,14 +3528,9 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 		&res.AdditionalRequest,
 	)
 	if err != nil {
-		fmt.Println("Error querying order detail:", err)
-		fmt.Print(query)
-		fmt.Print("--- orderID ", orderID)
-		fmt.Print("--- orgID ", orgID)
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("order not found or access denied")
 		}
-		fmt.Println("Error querying order detail:", err)
 		return nil, err
 	}
 	res.OrderDate = createdAt.Format("2006-01-02 15:04:05")

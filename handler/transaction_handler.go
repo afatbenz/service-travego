@@ -292,6 +292,17 @@ func (h *TransactionHandler) GetTransactionTypes(c *fiber.Ctx) error {
 		return helper.BadRequestResponse(c, "Invalid query parameter: type must be 'income' or 'expense'")
 	}
 
+	orderType := ""
+	if filteredBy == "items" {
+		orderType = strings.ToLower(strings.TrimSpace(c.Query("order_type")))
+		if orderType == "fleets" {
+			orderType = "fleet"
+		}
+		if orderType != "" && orderType != "fleet" && orderType != "tour" {
+			return helper.BadRequestResponse(c, "Invalid query parameter: order_type must be 'fleet' or 'tour'")
+		}
+	}
+
 	f, err := os.Open("config/common.json")
 	if err != nil {
 		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to load common config")
@@ -322,6 +333,22 @@ func (h *TransactionHandler) GetTransactionTypes(c *fiber.Ctx) error {
 			v = strings.ToLower(strings.TrimSpace(v))
 			if v == "expenses" {
 				v = "expense"
+			}
+			if v == t {
+				return true
+			}
+		}
+		return false
+	}
+
+	matchesOrderType := func(types []string, t string) bool {
+		if t == "" {
+			return true
+		}
+		for _, v := range types {
+			v = strings.ToLower(strings.TrimSpace(v))
+			if v == "fleets" {
+				v = "fleet"
 			}
 			if v == t {
 				return true
@@ -362,7 +389,7 @@ func (h *TransactionHandler) GetTransactionTypes(c *fiber.Ctx) error {
 			Label string
 		}, 0, len(cfg.TransactionItems))
 		for _, it := range cfg.TransactionItems {
-			if !matchesType(it.Type, reqType) {
+			if !matchesOrderType(it.Type, orderType) {
 				continue
 			}
 			items = append(items, struct {

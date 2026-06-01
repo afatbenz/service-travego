@@ -187,13 +187,11 @@ func (r *ScheduleRepository) CreateSchedule(input model.ScheduleCreateRepository
 func (r *ScheduleRepository) UpdateSchedule(input model.ScheduleUpdateRepositoryInput) error {
 	tx, err := r.db.Begin()
 	if err != nil {
-		fmt.Println("Begin transaction error:", err)
 		return err
 	}
 
 	defer func() {
 		if err != nil {
-			fmt.Println("Rollback transaction error:", err)
 			_ = tx.Rollback()
 		}
 	}()
@@ -214,12 +212,10 @@ func (r *ScheduleRepository) UpdateSchedule(input model.ScheduleUpdateRepository
 	`
 	res, execErr := database.TxExec(tx, updateSchedule, input.ScheduleID, input.OrganizationID, input.OrderID, input.DepartureTime, input.UpdatedAt, input.UserID)
 	if execErr != nil {
-		fmt.Println("UpdateSchedule error:", execErr)
 		return execErr
 	}
 	affected, _ := res.RowsAffected()
 	if affected == 0 {
-		fmt.Println("UpdateSchedule error:", sql.ErrNoRows)
 		return sql.ErrNoRows
 	}
 
@@ -249,7 +245,6 @@ func (r *ScheduleRepository) UpdateSchedule(input model.ScheduleUpdateRepository
 
 	rows, qErr := database.TxQuery(tx, selectExisting, input.ScheduleID, input.OrganizationID)
 	if qErr != nil {
-		fmt.Println("UpdateSchedule error:", qErr)
 		return qErr
 	}
 	defer rows.Close()
@@ -282,22 +277,24 @@ func (r *ScheduleRepository) UpdateSchedule(input model.ScheduleUpdateRepository
 		if scheduleFleetID == "" {
 			scheduleFleetID = uuid.New().String()
 			insertScheduleFleet := `
-				INSERT INTO schedule_fleets (uuid, schedule_id, order_id, fleet_id, unit_id, departure_time, created_at, created_by, status, organization_id)
-				VALUES (` + r.placeholder(1) + `, ` + r.placeholder(2) + `, ` + r.placeholder(3) + `, ` + r.placeholder(4) + `, ` + r.placeholder(5) + `, ` + r.placeholder(6) + `, ` + r.placeholder(7) + `, ` + r.placeholder(8) + `, 1, ` + r.placeholder(9) + `)
+				INSERT INTO schedule_fleets (uuid, schedule_id, order_id, fleet_id, unit_id, departure_time, created_at, created_by, status, organization_id, schedule_number)
+				VALUES (` + r.placeholder(1) + `, ` + r.placeholder(2) + `, ` + r.placeholder(3) + `, ` + r.placeholder(4) + `, ` + r.placeholder(5) + `, ` + r.placeholder(6) + `, ` + r.placeholder(7) + `, ` + r.placeholder(8) + `, 1, ` + r.placeholder(9) + `, ` + r.placeholder(10) + `)
 			`
-			if _, err = database.TxExec(tx, insertScheduleFleet, scheduleFleetID, input.ScheduleID, input.OrderID, fleet.FleetID, unitID, input.DepartureTime, input.UpdatedAt, input.UserID, input.OrganizationID); err != nil {
+			if _, err = database.TxExec(tx, insertScheduleFleet, scheduleFleetID, input.ScheduleID, input.OrderID, fleet.FleetID, unitID, input.DepartureTime, input.UpdatedAt, input.UserID, input.OrganizationID, utils.GenerateTripID(input.OrderID)); err != nil {
 				return err
 			}
 		} else {
 			updateScheduleFleet := `
 				UPDATE schedule_fleets
-				SET fleet_id = ` + r.placeholder(3) + `, departure_time = ` + r.placeholder(4) + `
+				SET fleet_id = ` + r.placeholder(3) + `,
+					departure_time = ` + r.placeholder(4) + `
 				WHERE uuid = ` + r.placeholder(1) + ` AND organization_id = ` + r.placeholder(2) + `
 			`
 			if r.driver == "postgres" || r.driver == "pgx" {
 				updateScheduleFleet = `
 					UPDATE schedule_fleets
-					SET fleet_id = ` + r.placeholder(3) + `, departure_time = ` + r.placeholder(4) + `
+					SET fleet_id = ` + r.placeholder(3) + `,
+						departure_time = ` + r.placeholder(4) + `
 					WHERE uuid::text = ` + r.placeholder(1) + ` AND organization_id::text = ` + r.placeholder(2) + `
 				`
 			}
@@ -410,20 +407,12 @@ func (r *ScheduleRepository) UpdateSchedule(input model.ScheduleUpdateRepository
 }
 
 func (r *ScheduleRepository) ListScheduleFleetOrders(input model.ScheduleFleetListQuery, organizationID string, monthStart, monthEnd time.Time) ([]model.ScheduleFleetOrderRow, error) {
-	orgExpr := "s.organization_id = " + r.placeholder(1)
-	departureExpr := "COALESCE(CAST(s.departure_time AS CHAR), '')"
-	arrivalExpr := "COALESCE(CAST(s.arrival_time AS CHAR), '')"
-	orderIDExpr := "COALESCE(CAST(fo.order_id AS CHAR), '')"
-	pickupCityExpr := "COALESCE(CAST(fo.pickup_city_id AS CHAR), '')"
-	createdByExpr := "COALESCE(CAST(s.created_by AS CHAR), '')"
-	if r.driver == "postgres" || r.driver == "pgx" {
-		orgExpr = "s.organization_id::text = " + r.placeholder(1)
-		departureExpr = "COALESCE(s.departure_time::text, '')"
-		arrivalExpr = "COALESCE(s.arrival_time::text, '')"
-		orderIDExpr = "COALESCE(fo.order_id::text, '')"
-		pickupCityExpr = "COALESCE(fo.pickup_city_id::text, '')"
-		createdByExpr = "COALESCE(s.created_by::text, '')"
-	}
+	orgExpr := "s.organization_id::text = " + r.placeholder(1)
+	departureExpr := "COALESCE(s.departure_time::text, '')"
+	arrivalExpr := "COALESCE(s.arrival_time::text, '')"
+	orderIDExpr := "COALESCE(fo.order_id::text, '')"
+	pickupCityExpr := "COALESCE(fo.pickup_city_id::text, '')"
+	createdByExpr := "COALESCE(s.created_by::text, '')"
 
 	query := `
 		SELECT
@@ -439,9 +428,11 @@ func (r *ScheduleRepository) ListScheduleFleetOrders(input model.ScheduleFleetLi
 			COALESCE(fo.additional_request, '') AS additional_request,
 			COALESCE(fo.payment_status, 0) AS payment_status,
 			COALESCE(s.created_at, CURRENT_TIMESTAMP) AS created_at,
+			STRING_AGG(DISTINCT foi.city_id::text, ', ') AS destination_ids,
 			` + createdByExpr + ` AS created_by
 		FROM schedules s
 		INNER JOIN fleet_orders fo ON s.order_id = fo.order_id
+		INNER JOIN fleet_order_itinerary foi ON s.order_id = foi.order_id
 		WHERE ` + orgExpr + ` AND s.order_type = 1
 	`
 
@@ -450,27 +441,21 @@ func (r *ScheduleRepository) ListScheduleFleetOrders(input model.ScheduleFleetLi
 
 	query += `
 		AND (
-			(fo.start_date >= ` + r.placeholder(position) + ` AND fo.start_date <= ` + r.placeholder(position+1) + `)
+			(fo.start_date::date >= ` + r.placeholder(position) + ` AND fo.start_date::date <= ` + r.placeholder(position+1) + `)
 			OR
-			(fo.end_date >= ` + r.placeholder(position) + ` AND fo.end_date <= ` + r.placeholder(position+1) + `)
+			(fo.end_date::date >= ` + r.placeholder(position) + ` AND fo.end_date::date <= ` + r.placeholder(position+1) + `)
 		)
 	`
 	args = append(args, monthStart.Format("2006-01-02"), monthEnd.Format("2006-01-02"))
 	position += 2
 
 	fleetFilters := make([]string, 0, 6)
-	capacityExpr := "CAST(u.capacity AS CHAR)"
-	productionYearExpr := "CAST(u.production_year AS CHAR)"
-	scheduleFleetOrderIDExpr := "CAST(sf.order_id AS CHAR)"
-	scheduleFleetIDExpr := "CAST(sf.fleet_id AS CHAR)"
-	scheduleFleetUnitIDExpr := "CAST(sf.unit_id AS CHAR)"
-	if r.driver == "postgres" || r.driver == "pgx" {
-		capacityExpr = "u.capacity::text"
-		productionYearExpr = "u.production_year::text"
-		scheduleFleetOrderIDExpr = "sf.order_id::text"
-		scheduleFleetIDExpr = "sf.fleet_id::text"
-		scheduleFleetUnitIDExpr = "sf.unit_id::text"
-	}
+	capacityExpr := "u.capacity::text"
+	productionYearExpr := "u.production_year::text"
+	scheduleFleetOrderIDExpr := "sf.order_id::text"
+	scheduleFleetIDExpr := "sf.fleet_id::text"
+	scheduleFleetUnitIDExpr := "sf.unit_id::text"
+
 	if clause, values := r.buildExactFilterClause(scheduleFleetOrderIDExpr, input.OrderID, position); clause != "" {
 		fleetFilters = append(fleetFilters, clause)
 		args = append(args, values...)
@@ -530,7 +515,23 @@ func (r *ScheduleRepository) ListScheduleFleetOrders(input model.ScheduleFleetLi
 			)
 		`
 	}
-	query += " ORDER BY fo.start_date ASC, s.created_at DESC"
+	query += `
+		GROUP BY
+			s.schedule_id,
+			fo.order_id,
+			fo.start_date,
+			fo.end_date,
+			s.departure_time,
+			s.arrival_time,
+			s.status,
+			fo.unit_qty,
+			fo.pickup_city_id,
+			fo.additional_request,
+			fo.payment_status,
+			s.created_at,
+			s.created_by
+		ORDER BY fo.start_date ASC, s.created_at DESC
+	`
 
 	rows, err := database.Query(r.db, query, args...)
 	if err != nil {
@@ -543,6 +544,7 @@ func (r *ScheduleRepository) ListScheduleFleetOrders(input model.ScheduleFleetLi
 		var item model.ScheduleFleetOrderRow
 		var createdBy sql.NullString
 		var pickupCityID sql.NullString
+		var destinationIDs sql.NullString
 		var additionalRequest sql.NullString
 		var departureTime sql.NullString
 		var arrivalTime sql.NullString
@@ -560,6 +562,7 @@ func (r *ScheduleRepository) ListScheduleFleetOrders(input model.ScheduleFleetLi
 			&additionalRequest,
 			&item.PaymentStatus,
 			&item.CreatedAt,
+			&destinationIDs,
 			&createdBy,
 		); err != nil {
 			return nil, err
@@ -567,6 +570,7 @@ func (r *ScheduleRepository) ListScheduleFleetOrders(input model.ScheduleFleetLi
 
 		item.DepartureTime = departureTime.String
 		item.ArrivalTime = arrivalTime.String
+		item.DestinationIDs = destinationIDs.String
 		item.PickupCityID = pickupCityID.String
 		item.AdditionalRequest = additionalRequest.String
 		item.CreatedBy = createdBy.String
@@ -725,8 +729,8 @@ func (r *ScheduleRepository) ListScheduleDetailsByDate(selectedDate time.Time, o
 		INNER JOIN fleet_order_itinerary foi ON fo.order_id = foi.order_id
 		INNER JOIN employee e1 ON e1.uuid = sft.driver_id
 		WHERE ` + orgExpr + `
-		  AND fo.start_date <= ` + r.placeholder(2) + `
-		  AND fo.end_date >= ` + r.placeholder(3) + `
+		  AND fo.start_date::date <= ` + r.placeholder(2) + `
+		  AND fo.end_date::date >= ` + r.placeholder(3) + `
 		GROUP BY s.schedule_id, s.order_id, f.fleet_name, fu.vehicle_id, fu.plate_number, fo.start_date, fo.end_date, e1.fullname
 		ORDER BY fo.start_date ASC, s.schedule_id ASC
 	`
@@ -1263,14 +1267,10 @@ func (r *ScheduleRepository) buildInClause(input inClauseInput) (string, []inter
 }
 
 func (r *ScheduleRepository) ListScheduleFleets(scheduleID, organizationID string) ([]model.ScheduleFleetListItem, error) {
-	scheduleExpr := "sf.schedule_id = " + r.placeholder(1)
-	orgExpr := "sf.organization_id = " + r.placeholder(2)
-	fleetIDExpr := "COALESCE(CAST(f.uuid AS CHAR), '')"
-	if r.driver == "postgres" || r.driver == "pgx" {
-		scheduleExpr = "sf.schedule_id::text = " + r.placeholder(1)
-		orgExpr = "sf.organization_id::text = " + r.placeholder(2)
-		fleetIDExpr = "COALESCE(f.uuid::text, '')"
-	}
+
+	scheduleExpr := "sf.schedule_id::text = " + r.placeholder(1)
+	orgExpr := "sf.organization_id::text = " + r.placeholder(2)
+	fleetIDExpr := "COALESCE(f.uuid::text, '')"
 
 	query := `
 		SELECT
@@ -1279,11 +1279,21 @@ func (r *ScheduleRepository) ListScheduleFleets(scheduleID, organizationID strin
 			COALESCE(u.vehicle_id, '') AS vehicle_id,
 			COALESCE(u.plate_number, '') AS plate_number,
 			COALESCE(u.engine, '') AS engine,
-			COALESCE(u.capacity, 0) AS capacity
+			COALESCE(u.capacity, 0) AS capacity,
+			COALESCE(e.fullname, '') AS driver_name,
+			COALESCE(e2.fullname, '') AS crew_name,
+			COALESCE(sf.schedule_number, '') AS schedule_number,
+			STRING_AGG(DISTINCT foi.city_id::text, ', ') AS destination_ids
 		FROM schedule_fleets sf
+		INNER JOIN schedules s ON s.schedule_id = sf.schedule_id
 		INNER JOIN fleet_units u ON sf.unit_id = u.unit_id
 		INNER JOIN fleets f ON u.fleet_id = f.uuid
-		WHERE ` + scheduleExpr + ` AND ` + orgExpr + `
+		INNER JOIN schedule_fleet_teams sft ON sft.schedule_fleet_id = sf.uuid
+		INNER JOIN employee e ON sft.driver_id = e.uuid
+		INNER JOIN fleet_order_itinerary foi ON foi.order_id = sf.order_id
+		LEFT JOIN employee e2 ON sft.crew_id = e2.uuid
+		WHERE ` + scheduleExpr + ` AND ` + orgExpr + ` AND s.status = 1
+		GROUP BY f.uuid, f.fleet_name, u.vehicle_id, u.plate_number, u.engine, u.capacity, e.fullname, e2.fullname, sf.schedule_number
 		ORDER BY f.fleet_name ASC
 	`
 
@@ -1303,6 +1313,10 @@ func (r *ScheduleRepository) ListScheduleFleets(scheduleID, organizationID strin
 			&item.PlateNumber,
 			&item.Engine,
 			&item.Capacity,
+			&item.DriverName,
+			&item.CrewName,
+			&item.ScheduleNumber,
+			&item.DestinationIDs,
 		); err != nil {
 			return nil, err
 		}
@@ -1316,14 +1330,9 @@ func (r *ScheduleRepository) ListScheduleFleets(scheduleID, organizationID strin
 }
 
 func (r *ScheduleRepository) LatestScheduleIDByOrderID(organizationID, orderID string) (string, bool, error) {
-	orderExpr := "order_id = " + r.placeholder(1)
-	orgExpr := "organization_id = " + r.placeholder(2)
-	scheduleIDExpr := "schedule_id"
-	if r.driver == "postgres" || r.driver == "pgx" {
-		orderExpr = "order_id::text = " + r.placeholder(1)
-		orgExpr = "organization_id::text = " + r.placeholder(2)
-		scheduleIDExpr = "schedule_id::text"
-	}
+	orderExpr := "order_id::text = " + r.placeholder(1)
+	orgExpr := "organization_id::text = " + r.placeholder(2)
+	scheduleIDExpr := "schedule_id::text"
 
 	query := `
 		SELECT ` + scheduleIDExpr + `
@@ -1437,4 +1446,76 @@ func (r *ScheduleRepository) GetScheduleDetailRows(scheduleID, organizationID, o
 	}
 
 	return result, nil
+}
+
+func (r *ScheduleRepository) GetFleetTripDetail(input model.ScheduleFleetTripDetailServiceInput) (*model.ScheduleFleetTripDetailResponse, bool, error) {
+	scheduleNumber := strings.TrimSpace(input.ScheduleNumber)
+	orgID := strings.TrimSpace(input.OrganizationID)
+
+	scheduleNumberExpr := "sf.schedule_number = " + r.placeholder(1)
+	orgExpr := "sf.organization_id::text = " + r.placeholder(2)
+
+	query := `
+			SELECT
+				COALESCE(sf.uuid::text, '') AS schedule_fleet_id,
+				COALESCE(s.schedule_id::text, '') AS schedule_id,
+				COALESCE(s.order_id::text, '') AS order_id,
+				COALESCE(s.departure_time::text, '') AS departure_time,
+				COALESCE(s.arrival_time::text, '') AS arrival_time,
+				COALESCE(f.fleet_name, '') AS fleet_name,
+				COALESCE(f.thumbnail, '') AS fleet_photo,
+				COALESCE(sf.unit_id::text, '') AS unit_id,
+				COALESCE(fu.vehicle_id, '') AS vehicle_id,
+				COALESCE(fu.plate_number, '') AS plate_number,
+				COALESCE(fo.start_date::text, '') AS start_date,
+				COALESCE(fo.end_date::text, '') AS end_date,
+				COALESCE(fo.payment_status, 0) AS payment_status,
+				COALESCE(e.fullname, '') AS driver_name,
+				COALESCE(e.avatar, '') AS driver_avatar,
+				COALESCE(e2.fullname, '') AS crew_name,
+				COALESCE(e2.avatar, '') AS crew_avatar
+			FROM schedule_fleets sf
+			INNER JOIN schedules s ON s.schedule_id::text = sf.schedule_id::text AND s.organization_id::text = sf.organization_id::text
+			INNER JOIN fleets f ON f.uuid::text = sf.fleet_id::text
+			INNER JOIN fleet_units fu ON fu.unit_id::text = sf.unit_id::text
+			INNER JOIN fleet_orders fo ON fo.order_id::text = s.order_id::text AND fo.organization_id::text = s.organization_id::text
+			INNER JOIN schedule_fleet_teams sft ON sft.schedule_fleet_id::text = sf.uuid::text AND sft.organization_id::text = sf.organization_id::text
+			INNER JOIN employee e ON sft.driver_id::text = e.uuid::text
+			INNER JOIN employee e2 ON sft.crew_id::text = e2.uuid::text
+			WHERE ` + scheduleNumberExpr + ` AND ` + orgExpr + `
+		`
+	fmt.Println(query)
+
+	var res model.ScheduleFleetTripDetailResponse
+	if err := database.QueryRow(
+		r.db,
+		query,
+		scheduleNumber,
+		orgID,
+	).Scan(
+		&res.ScheduleFleetID,
+		&res.ScheduleID,
+		&res.OrderID,
+		&res.DepartureTime,
+		&res.ArrivalTime,
+		&res.FleetName,
+		&res.FleetPhoto,
+		&res.UnitID,
+		&res.VehicleID,
+		&res.PlateNumber,
+		&res.StartDate,
+		&res.EndDate,
+		&res.PaymentStatus,
+		&res.DriverName,
+		&res.DriverAvatar,
+		&res.CrewName,
+		&res.CrewAvatar,
+	); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+
+	return &res, true, nil
 }
