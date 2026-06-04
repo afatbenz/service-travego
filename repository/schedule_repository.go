@@ -2,7 +2,6 @@ package repository
 
 import (
 	"database/sql"
-	"fmt"
 	"service-travego/database"
 	"service-travego/model"
 	"service-travego/utils"
@@ -1484,8 +1483,6 @@ func (r *ScheduleRepository) GetFleetTripDetail(input model.ScheduleFleetTripDet
 			INNER JOIN employee e2 ON sft.crew_id::text = e2.uuid::text
 			WHERE ` + scheduleNumberExpr + ` AND ` + orgExpr + `
 		`
-	fmt.Println(query)
-
 	var res model.ScheduleFleetTripDetailResponse
 	if err := database.QueryRow(
 		r.db,

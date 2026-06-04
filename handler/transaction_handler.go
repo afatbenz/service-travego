@@ -19,6 +19,7 @@ var paymentStatusOnce sync.Once
 var paymentStatusMap map[int]string
 var paymentMethodMap map[int]string
 var transactionCategoryMap map[string]string
+var transactionItemMap map[string]string
 
 type TransactionHandler struct {
 	service *service.TransactionService
@@ -33,6 +34,7 @@ func ensurePaymentStatusLoaded() {
 		paymentStatusMap = map[int]string{}
 		paymentMethodMap = map[int]string{}
 		transactionCategoryMap = map[string]string{}
+		transactionItemMap = map[string]string{}
 		f, err := os.Open("config/common.json")
 		if err != nil {
 			return
@@ -46,6 +48,10 @@ func ensurePaymentStatusLoaded() {
 				ID    string `json:"id"`
 				Label string `json:"label"`
 			} `json:"transaction-categories"`
+			TransactionItems []struct {
+				ID    string `json:"id"`
+				Label string `json:"label"`
+			} `json:"transaction-items"`
 		}
 		if err := json.NewDecoder(f).Decode(&cfg); err != nil {
 			return
@@ -58,6 +64,9 @@ func ensurePaymentStatusLoaded() {
 		}
 		for _, it := range cfg.TransactionCategories {
 			transactionCategoryMap[it.ID] = it.Label
+		}
+		for _, it := range cfg.TransactionItems {
+			transactionItemMap[it.ID] = it.Label
 		}
 	})
 }
@@ -410,4 +419,65 @@ func (h *TransactionHandler) GetTransactionTypes(c *fiber.Ctx) error {
 	}
 
 	return helper.SuccessResponse(c, fiber.StatusOK, "Order types retrieved successfully", res)
+}
+
+func (h *TransactionHandler) SubmitFleetTripExpenseForm(c *fiber.Ctx) error {
+	var req struct {
+		TransactionItem string  `json:"transaction_item"`
+		ScheduleNumber  string  `json:"schedule_number"`
+		PaymentMethod   int     `json:"payment_method"`
+		Amount          float64 `json:"amount"`
+		Description     string  `json:"description"`
+	}
+
+	if err := c.BodyParser(&req); err != nil {
+		return helper.BadRequestResponse(c, "Invalid request body")
+	}
+
+	req.TransactionItem = strings.ToUpper(strings.TrimSpace(req.TransactionItem))
+	req.ScheduleNumber = strings.TrimSpace(req.ScheduleNumber)
+	req.Description = strings.TrimSpace(req.Description)
+
+	if req.TransactionItem == "" || req.ScheduleNumber == "" || req.Amount <= 0 {
+		return helper.BadRequestResponse(c, "Missing required fields: transaction_item, schedule_number, amount must be greater than 0")
+	}
+
+	if req.TransactionItem == "TRX-I00" {
+		req.PaymentMethod = 1
+	} else if req.PaymentMethod == 0 {
+		return helper.BadRequestResponse(c, "Missing required fields: payment_method")
+	}
+
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || strings.TrimSpace(orgID) == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Organization not found")
+	}
+	userID, ok := c.Locals("user_id").(string)
+	if !ok || strings.TrimSpace(userID) == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "User not found")
+	}
+
+	err := h.service.SubmitFleetTripExpense(orgID, userID, req.TransactionItem, req.ScheduleNumber, req.PaymentMethod, req.Amount, req.Description)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	totalAmount, err := h.service.GetFleetTripTotalAmount(req.ScheduleNumber)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	totalExpenses, totalReimburse, err := h.service.GetFleetTripAmountSummaryByPaymentMethod(req.ScheduleNumber)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet trip expense submitted successfully", map[string]interface{}{
+		"total_amount":    totalAmount,
+		"total_expenses":  totalExpenses,
+		"total_reimburse": totalReimburse,
+	})
 }
