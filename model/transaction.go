@@ -59,3 +59,28 @@ type CreateManualRevenueRequest struct {
 	OrderType       int     `json:"order_type"`
 	OrderID         string  `json:"order_id,omitempty"`
 }
+
+type FleetTripExpenseRow struct {
+	TransactionTripID   string
+	TransactionCategory string
+	TransactionItem     string
+	Amount              float64
+	PaymentMethod       int
+	Description         string
+	CreatedAt           time.Time
+	CreatedBy           string
+}
+
+type FleetTripExpenseItem struct {
+	TransactionTripID        string  `json:"transaction_trip_id"`
+	TransactionCategory      string  `json:"transaction_category"`
+	TransactionCategoryLabel string  `json:"transaction_category_label"`
+	TransactionItem          string  `json:"transaction_item"`
+	TransactionItemLabel     string  `json:"transaction_item_label"`
+	Amount                   float64 `json:"amount"`
+	PaymentMethod            int     `json:"payment_method"`
+	PaymentMethodLabel       string  `json:"payment_method_label"`
+	Description              string  `json:"description"`
+	CreatedAt                string  `json:"created_at"`
+	CreatedBy                string  `json:"created_by"`
+}
