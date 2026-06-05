@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"service-travego/configs"
 	"service-travego/helper"
@@ -11,8 +12,10 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 )
 
 var paymentStatusOnce sync.Once
@@ -69,6 +72,44 @@ func ensurePaymentStatusLoaded() {
 			transactionItemMap[it.ID] = it.Label
 		}
 	})
+}
+
+func loadTransactionCategoryItemSets() (map[string]struct{}, map[string]struct{}, error) {
+	f, err := os.Open("config/common.json")
+	if err != nil {
+		return nil, nil, err
+	}
+	defer f.Close()
+
+	var cfg struct {
+		TransactionCategories []struct {
+			ID string `json:"id"`
+		} `json:"transaction-categories"`
+		TransactionItems []struct {
+			ID string `json:"id"`
+		} `json:"transaction-items"`
+	}
+	if err := json.NewDecoder(f).Decode(&cfg); err != nil {
+		return nil, nil, err
+	}
+
+	categories := make(map[string]struct{}, len(cfg.TransactionCategories))
+	for _, it := range cfg.TransactionCategories {
+		k := strings.ToUpper(strings.TrimSpace(it.ID))
+		if k == "" {
+			continue
+		}
+		categories[k] = struct{}{}
+	}
+	items := make(map[string]struct{}, len(cfg.TransactionItems))
+	for _, it := range cfg.TransactionItems {
+		k := strings.ToUpper(strings.TrimSpace(it.ID))
+		if k == "" {
+			continue
+		}
+		items[k] = struct{}{}
+	}
+	return categories, items, nil
 }
 
 func (h *TransactionHandler) ListAllRevenue(c *fiber.Ctx) error {
@@ -142,12 +183,15 @@ func (h *TransactionHandler) listTransactions(c *fiber.Ctx, mode string) error {
 			}
 		}
 
-		TransactionItemLabel := ""
-		switch row.TransactionType {
-		case 1:
-			TransactionItemLabel = "income"
-		case 2:
-			TransactionItemLabel = "expenses"
+		transactionItemKey := strings.ToUpper(strings.TrimSpace(row.TransactionItem))
+		fmt.Println("get transaction item key:", row.TransactionItem, transactionItemKey)
+		transactionItemLabel := ""
+		if transactionItemKey != "" {
+			if label, ok := transactionItemMap[transactionItemKey]; ok && label != "" {
+				transactionItemLabel = label
+			} else {
+				transactionItemLabel = transactionItemKey
+			}
 		}
 
 		createdAtStr := ""
@@ -164,7 +208,7 @@ func (h *TransactionHandler) listTransactions(c *fiber.Ctx, mode string) error {
 			TransactionType:          row.TransactionType,
 			TransactionTypeLabel:     transactionTypeLabel,
 			TransactionItem:          row.TransactionItem,
-			TransactionItemLabel:     TransactionItemLabel,
+			TransactionItemLabel:     transactionItemLabel,
 			PaymentMethod:            row.PaymentMethod,
 			PaymentMethodLabel:       paymentMethodLabel,
 			TransactionCategory:      transactionCategoryKey,
@@ -246,6 +290,76 @@ func (h *TransactionHandler) CreateManualRevenue(c *fiber.Ctx) error {
 	return helper.SuccessResponse(c, fiber.StatusCreated, "Manual revenue created successfully", nil)
 }
 
+func (h *TransactionHandler) SubmitExpenseTransaction(c *fiber.Ctx) error {
+	var req model.SubmitExpenseTransactionRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.BadRequestResponse(c, "Invalid request body")
+	}
+
+	req.Description = strings.TrimSpace(req.Description)
+	req.UnitID = strings.TrimSpace(req.UnitID)
+	req.TransactionDate = strings.TrimSpace(req.TransactionDate)
+	req.TransactionCategory = strings.ToUpper(strings.TrimSpace(req.TransactionCategory))
+	req.TransactionItem = strings.ToUpper(strings.TrimSpace(req.TransactionItem))
+
+	if req.Amount <= 0 {
+		return helper.BadRequestResponse(c, "amount must be greater than 0")
+	}
+	if req.Description == "" {
+		return helper.BadRequestResponse(c, "description is required")
+	}
+	if req.PaymentMethod == 0 {
+		return helper.BadRequestResponse(c, "payment_method is required")
+	}
+	if req.PaymentType == 0 {
+		return helper.BadRequestResponse(c, "payment_type is required")
+	}
+	if req.TransactionDate == "" {
+		return helper.BadRequestResponse(c, "transaction_date is required")
+	}
+	if _, err := time.Parse("2006-01-02", req.TransactionDate); err != nil {
+		return helper.BadRequestResponse(c, "transaction_date must be YYYY-MM-DD")
+	}
+	if req.TransactionCategory == "" {
+		return helper.BadRequestResponse(c, "transaction_category is required")
+	}
+	if req.TransactionItem == "" {
+		return helper.BadRequestResponse(c, "transaction_item is required")
+	}
+	if req.UnitID != "" {
+		if _, err := uuid.Parse(req.UnitID); err != nil {
+			return helper.BadRequestResponse(c, "unit_id must be a valid uuid")
+		}
+	}
+
+	catSet, itemSet, err := loadTransactionCategoryItemSets()
+	if err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to load common config")
+	}
+	if _, ok := catSet[req.TransactionCategory]; !ok {
+		return helper.BadRequestResponse(c, "transaction_category not found")
+	}
+	if _, ok := itemSet[req.TransactionItem]; !ok {
+		return helper.BadRequestResponse(c, "transaction_item not found")
+	}
+
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || strings.TrimSpace(orgID) == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Organization not found")
+	}
+	userID, ok := c.Locals("user_id").(string)
+	if !ok || strings.TrimSpace(userID) == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "User not found")
+	}
+
+	if err := h.service.SubmitExpenseTransaction(orgID, userID, &req); err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusCreated, "Expense transaction submitted successfully", nil)
+}
+
 func (h *TransactionHandler) ListTransactionLabels(c *fiber.Ctx) error {
 	orgID, ok := c.Locals("organization_id").(string)
 	if !ok || orgID == "" {
@@ -312,6 +426,18 @@ func (h *TransactionHandler) GetTransactionTypes(c *fiber.Ctx) error {
 		}
 	}
 
+	tagsRaw := strings.TrimSpace(c.Query("tags"))
+	reqTags := make([]string, 0)
+	if tagsRaw != "" {
+		for _, t := range strings.Split(tagsRaw, ",") {
+			t = strings.ToLower(strings.TrimSpace(t))
+			if t == "" {
+				continue
+			}
+			reqTags = append(reqTags, t)
+		}
+	}
+
 	f, err := os.Open("config/common.json")
 	if err != nil {
 		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to load common config")
@@ -323,11 +449,13 @@ func (h *TransactionHandler) GetTransactionTypes(c *fiber.Ctx) error {
 			ID    string   `json:"id"`
 			Label string   `json:"label"`
 			Type  []string `json:"type"`
+			Tags  []string `json:"tags"`
 		} `json:"transaction-categories"`
 		TransactionItems []struct {
 			ID    string   `json:"id"`
 			Label string   `json:"label"`
 			Type  []string `json:"type"`
+			Tags  []string `json:"tags"`
 		} `json:"transaction-items"`
 	}
 	if err := json.NewDecoder(f).Decode(&cfg); err != nil {
@@ -366,6 +494,29 @@ func (h *TransactionHandler) GetTransactionTypes(c *fiber.Ctx) error {
 		return false
 	}
 
+	matchesTags := func(itemTags []string, tags []string) bool {
+		if len(tags) == 0 {
+			return true
+		}
+		if len(itemTags) == 0 {
+			return false
+		}
+		itemSet := make(map[string]struct{}, len(itemTags))
+		for _, t := range itemTags {
+			t = strings.ToLower(strings.TrimSpace(t))
+			if t == "" {
+				continue
+			}
+			itemSet[t] = struct{}{}
+		}
+		for _, t := range tags {
+			if _, ok := itemSet[t]; ok {
+				return true
+			}
+		}
+		return false
+	}
+
 	res := make([]map[string]interface{}, 0)
 
 	if filteredBy == "categories" {
@@ -375,6 +526,9 @@ func (h *TransactionHandler) GetTransactionTypes(c *fiber.Ctx) error {
 		}, 0, len(cfg.TransactionCategories))
 		for _, it := range cfg.TransactionCategories {
 			if !matchesType(it.Type, reqType) {
+				continue
+			}
+			if !matchesTags(it.Tags, reqTags) {
 				continue
 			}
 			cats = append(cats, struct {
@@ -401,6 +555,9 @@ func (h *TransactionHandler) GetTransactionTypes(c *fiber.Ctx) error {
 			if !matchesOrderType(it.Type, orderType) {
 				continue
 			}
+			if !matchesTags(it.Tags, reqTags) {
+				continue
+			}
 			items = append(items, struct {
 				ID    string
 				Label string
@@ -424,6 +581,7 @@ func (h *TransactionHandler) GetTransactionTypes(c *fiber.Ctx) error {
 func (h *TransactionHandler) SubmitFleetTripExpenseForm(c *fiber.Ctx) error {
 	var req struct {
 		TransactionItem string  `json:"transaction_item"`
+		TransactionDate string  `json:"transaction_date,omitempty"`
 		ScheduleNumber  string  `json:"schedule_number"`
 		PaymentMethod   int     `json:"payment_method"`
 		Amount          float64 `json:"amount"`
@@ -435,8 +593,13 @@ func (h *TransactionHandler) SubmitFleetTripExpenseForm(c *fiber.Ctx) error {
 	}
 
 	req.TransactionItem = strings.ToUpper(strings.TrimSpace(req.TransactionItem))
+	req.TransactionDate = strings.TrimSpace(req.TransactionDate)
 	req.ScheduleNumber = strings.TrimSpace(req.ScheduleNumber)
 	req.Description = strings.TrimSpace(req.Description)
+
+	if req.TransactionDate == "" {
+		req.TransactionDate = time.Now().Format("2006-01-02")
+	}
 
 	if req.TransactionItem == "" || req.ScheduleNumber == "" || req.Amount <= 0 {
 		return helper.BadRequestResponse(c, "Missing required fields: transaction_item, schedule_number, amount must be greater than 0")

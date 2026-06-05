@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 )
 
 type FleetUnitHandler struct {
@@ -260,4 +261,39 @@ func (h *FleetUnitHandler) UnitRevenue(c *fiber.Ctx) error {
 	}
 
 	return helper.BadRequestResponse(c, "period is required")
+}
+
+func (h *FleetUnitHandler) UnitExpenses(c *fiber.Ctx) error {
+	var req model.FleetUnitExpensesRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.BadRequestResponse(c, "Invalid payload")
+	}
+
+	req.UnitID = strings.TrimSpace(req.UnitID)
+	req.Period = strings.TrimSpace(req.Period)
+
+	if req.UnitID == "" {
+		return helper.BadRequestResponse(c, "unit_id is required")
+	}
+	if _, err := uuid.Parse(req.UnitID); err != nil {
+		return helper.BadRequestResponse(c, "unit_id is invalid")
+	}
+	if req.Period == "" {
+		return helper.BadRequestResponse(c, "period is required")
+	}
+	if _, err := time.Parse("2006-01", req.Period); err != nil {
+		return helper.BadRequestResponse(c, "Invalid period format. Use YYYY-MM")
+	}
+
+	orgID, _ := c.Locals("organization_id").(string)
+	if orgID == "" {
+		return helper.BadRequestResponse(c, "missing organization context")
+	}
+
+	items, err := h.service.UnitExpenses(orgID, req.UnitID, req.Period)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet unit expenses loaded", items)
 }

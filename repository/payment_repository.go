@@ -313,9 +313,9 @@ func (r *paymentRepository) TransactionExistsByInvoice(organizationID string, in
 func (r *paymentRepository) InsertTransactionMidtrans(transactionID string, orderType int64, invoiceNumber string, description string, transactionDate time.Time, status int, amount float64, organizationID string, transactionType int, TransactionItem int, createdAt time.Time, createdBy string) error {
 	query := fmt.Sprintf(`
 		INSERT INTO transactions
-			(transaction_id, order_type, invoice_number, description, transaction_date, status, amount, organization_id, transaction_type, transaction_item, created_at, created_by)
+			(transaction_id, order_type, invoice_number, description, transaction_date, payment_type, amount, organization_id, transaction_type, transaction_item, created_at, created_by, status)
 		VALUES
-			(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+			(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6),
 		r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12))
 

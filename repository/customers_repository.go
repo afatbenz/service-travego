@@ -295,11 +295,12 @@ func (r *CustomersRepository) GetCustomerOrders(orgID, customerID string, req *m
 			return nil, err
 		}
 		var orderTypeStr string
-		if orderType == 1 {
+		switch orderType {
+		case 1:
 			orderTypeStr = "Rental Armada"
-		} else if orderType == 2 {
+		case 2:
 			orderTypeStr = "Paket Wisata"
-		} else {
+		default:
 			orderTypeStr = ""
 
 		}

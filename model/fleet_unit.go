@@ -108,8 +108,8 @@ type FleetUnitOwnershipInformation struct {
 }
 
 type FleetUnitRevenueRequest struct {
-	UnitID  string `json:"unit_id"`
-	Period  string `json:"period"`
+	UnitID string `json:"unit_id"`
+	Period string `json:"period"`
 }
 
 type FleetUnitRevenue struct {
@@ -142,4 +142,22 @@ type FleetUnitOrderHistoryItem struct {
 type FleetUnitScheduleRange struct {
 	StartDate string `json:"start_date"`
 	EndDate   string `json:"end_date"`
+}
+
+type FleetUnitExpensesRequest struct {
+	UnitID string `json:"unit_id"`
+	Period string `json:"period"`
+}
+
+type FleetUnitExpenseItem struct {
+	TransactionFleetID       string  `json:"transaction_fleet_id"`
+	TransactionCategory      string  `json:"transaction_category"`
+	TransactionCategoryLabel string  `json:"transaction_category_label"`
+	TransactionItem          string  `json:"transaction_item"`
+	TransactionItemLabel     string  `json:"transaction_item_label"`
+	Description              string  `json:"description"`
+	TransactionDate          string  `json:"transaction_date"`
+	PaymentType              int     `json:"payment_type"`
+	PaymentTypeLabel         string  `json:"payment_type_label"`
+	Amount                   float64 `json:"amount"`
 }
