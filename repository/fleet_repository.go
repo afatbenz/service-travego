@@ -860,13 +860,14 @@ func (r *FleetRepository) CreateOrder(req *model.CreateOrderRequest) error {
 			dayNum := i + 1
 			for {
 				_, _ = database.TxExec(tx, "SAVEPOINT sp_dest")
-				if mode == 0 {
+				switch mode {
+				case 0:
 					_, err = database.TxExec(tx, itineraryWithOrg, id, orderID, dayNum, dest.CityID, dest.Location, req.OrganizationID, now)
-				} else if mode == 1 {
+				case 1:
 					_, err = database.TxExec(tx, itineraryWithoutOrg, id, orderID, dayNum, dest.CityID, dest.Location, now)
-				} else if mode == 2 {
+				case 2:
 					_, err = database.TxExec(tx, destQuery, orderID, dest.CityID, dest.Location, now)
-				} else {
+				default:
 					_, err = database.TxExec(tx, destQueryWithID, id, orderID, dest.CityID, dest.Location, now)
 				}
 
@@ -1443,18 +1444,6 @@ func (r *FleetRepository) getFleetOrderAddonIDsByItem(tx *sql.Tx, orderID, orgID
 	}
 
 	return out, nil
-}
-
-func addonIDsEqual(existing map[string]struct{}, requested []string) bool {
-	if len(existing) != len(requested) {
-		return false
-	}
-	for _, id := range requested {
-		if _, ok := existing[id]; !ok {
-			return false
-		}
-	}
-	return true
 }
 
 func (r *FleetRepository) RecalculateFleetOrderTotal(tx *sql.Tx, orderID, organizationID string) (float64, error) {
@@ -2904,9 +2893,9 @@ func (r *FleetRepository) InsertServiceOrderPayment(req *model.CreateServiceOrde
 
 	transactionQuery := fmt.Sprintf(`
 		INSERT INTO transactions
-			(transaction_id, transaction_type, order_type, invoice_number, description, transaction_date, status, amount, organization_id, transaction_category, transaction_item, payment_method, created_at, created_by)
+			(transaction_id, transaction_type, order_type, invoice_number, description, transaction_date, payment_type, amount, organization_id, transaction_category, transaction_item, payment_method, created_at, created_by, status)
 		VALUES
-			(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+			(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6),
 		r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12), r.getPlaceholder(13), r.getPlaceholder(14))
 
@@ -3670,8 +3659,7 @@ func (r *FleetRepository) GetServiceFleets(page, perPage int) ([]model.ServiceFl
 	}
 	offset := (page - 1) * perPage
 
-	var groupConcat string
-	groupConcat = "STRING_AGG(CAST(city_id AS VARCHAR), ',')"
+	groupConcat := "STRING_AGG(CAST(city_id AS VARCHAR), ',')"
 
 	query := fmt.Sprintf(`
         SELECT f.uuid, f.fleet_name, f.fleet_type, ft.label as fleet_type_label, f.capacity, COALESCE(f.production_year, 0) as production_year, f.engine, f.body, f.description, COALESCE(f.thumbnail, '') as thumbnail, f.created_at,

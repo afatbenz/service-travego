@@ -19,8 +19,9 @@ type TransactionListRow struct {
 	TransactionItem          string
 	TransactionCategory      string
 	TransactionCategoryLabel string
+	PaymentType              int
+	PaymentTypeLabel         string
 	TransactionDate          time.Time
-	Status                   int
 	Amount                   float64
 	CreatedAt                time.Time
 	CreatedBy                string
@@ -45,6 +46,8 @@ type TransactionListItem struct {
 	CreatedAt                string  `json:"created_at"`
 	CreatedBy                string  `json:"created_by"`
 	Amount                   float64 `json:"amount"`
+	PaymentType              int     `json:"payment_type"`
+	PaymentTypeLabel         string  `json:"payment_type_label"`
 }
 
 type CreateManualRevenueRequest struct {
@@ -83,4 +86,15 @@ type FleetTripExpenseItem struct {
 	Description              string  `json:"description"`
 	CreatedAt                string  `json:"created_at"`
 	CreatedBy                string  `json:"created_by"`
+}
+
+type SubmitExpenseTransactionRequest struct {
+	Amount              float64 `json:"amount"`
+	Description         string  `json:"description"`
+	UnitID              string  `json:"unit_id,omitempty"`
+	PaymentMethod       int     `json:"payment_method"`
+	PaymentType         int     `json:"payment_type"`
+	TransactionDate     string  `json:"transaction_date"`
+	TransactionCategory string  `json:"transaction_category"`
+	TransactionItem     string  `json:"transaction_item"`
 }

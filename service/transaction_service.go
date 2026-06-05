@@ -6,6 +6,7 @@ import (
 	"service-travego/model"
 	"service-travego/repository"
 	"strings"
+	"time"
 )
 
 type TransactionService struct {
@@ -60,7 +61,7 @@ func (s *TransactionService) listTransactions(orgID string, req *model.Transacti
 			TransactionCategory:      r.TransactionCategory,
 			TransactionCategoryLabel: r.TransactionCategoryLabel,
 			TransactionDate:          r.TransactionDate.Format("2006-01-02"),
-			Status:                   int(r.Status),
+			PaymentType:              r.PaymentType,
 			Amount:                   r.Amount,
 			CreatedAt:                r.CreatedAt.Format("2006-01-02 15:04:05"),
 			CreatedBy:                r.CreatedBy,
@@ -237,4 +238,61 @@ func (s *TransactionService) ListFleetTripExpenses(scheduleNumber, orgID string)
 		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "schedule_number is required")
 	}
 	return s.repo.ListFleetTripExpensesByScheduleNumber(scheduleNumber, orgID)
+}
+
+func (s *TransactionService) SubmitExpenseTransaction(orgID, userID string, req *model.SubmitExpenseTransactionRequest) error {
+	orgID = strings.TrimSpace(orgID)
+	userID = strings.TrimSpace(userID)
+	if orgID == "" {
+		return NewServiceError(ErrUnauthorized, http.StatusUnauthorized, "Organization not found")
+	}
+	if userID == "" {
+		return NewServiceError(ErrUnauthorized, http.StatusUnauthorized, "User not found")
+	}
+	if req == nil {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "Invalid request body")
+	}
+
+	description := strings.TrimSpace(req.Description)
+	unitID := strings.TrimSpace(req.UnitID)
+	transactionCategory := strings.ToUpper(strings.TrimSpace(req.TransactionCategory))
+	transactionItem := strings.ToUpper(strings.TrimSpace(req.TransactionItem))
+	transactionDateStr := strings.TrimSpace(req.TransactionDate)
+
+	if req.Amount <= 0 {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "amount must be greater than 0")
+	}
+	if description == "" {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "description is required")
+	}
+	if req.PaymentMethod == 0 {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "payment_method is required")
+	}
+	if req.PaymentType == 0 {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "payment_type is required")
+	}
+	if transactionDateStr == "" {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "transaction_date is required")
+	}
+	transactionDate, err := time.Parse("2006-01-02", transactionDateStr)
+	if err != nil {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "transaction_date must be YYYY-MM-DD")
+	}
+	if transactionCategory == "" {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "transaction_category is required")
+	}
+	if transactionItem == "" {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "transaction_item is required")
+	}
+
+	return s.repo.CreateExpenseTransaction(orgID, userID, &repository.CreateExpenseTransactionRequest{
+		Amount:              req.Amount,
+		Description:         description,
+		UnitID:              unitID,
+		PaymentMethod:       req.PaymentMethod,
+		PaymentType:         req.PaymentType,
+		TransactionDate:     transactionDate,
+		TransactionCategory: transactionCategory,
+		TransactionItem:     transactionItem,
+	})
 }

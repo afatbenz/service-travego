@@ -354,23 +354,6 @@ LEFT JOIN users uu ON fu.updated_by = uu.user_id
 WHERE fu.unit_id = ? AND fu.organization_id = ?
 `
 
-const unitOrderHistoryMySQL = `
-SELECT
-	fuo.unit_order_id,
-	fuo.order_id,
-	fuo.unit_id,
-	COALESCE(fuo.driver_id, '') AS driver_id,
-	COALESCE(d.fullname, '') AS driver_name,
-	fo.start_date,
-	fo.end_date,
-	COALESCE(CAST(fo.pickup_city_id AS CHAR), '') AS pickup_city_id
-FROM fleet_unit_orders fuo
-INNER JOIN fleet_orders fo ON fuo.order_id = fo.order_id
-LEFT JOIN users d ON d.user_id = fuo.driver_id
-WHERE fo.organization_id = ? AND fuo.unit_id = ? AND fo.start_date >= ? AND fo.end_date <= ?
-ORDER BY fo.start_date DESC
-`
-
 const unitRatingPostgres = `
 SELECT
 	COALESCE(ROUND(AVG(r.star), 1), 0)::float8 AS rating
@@ -409,36 +392,6 @@ INNER JOIN customers c ON c.customer_id = r.customer_id
 WHERE sf.unit_id = ? AND sf.organization_id = ?
 ORDER BY r.created_at DESC
 LIMIT 10
-`
-
-const unitTotalSchedulesPostgres = `
-SELECT COUNT(*) AS total_schedules
-FROM schedule_fleets
-WHERE unit_id::text = $1 AND organization_id::text = $2
-`
-
-const unitTotalSchedulesMySQL = `
-SELECT COUNT(*) AS total_schedules
-FROM schedule_fleets
-WHERE unit_id = ? AND organization_id = ?
-`
-
-const unitLatestSchedulePostgres = `
-SELECT fo.start_date, fo.end_date
-FROM schedule_fleets sf
-INNER JOIN fleet_orders fo ON sf.order_id = fo.order_id
-WHERE sf.unit_id::text = $1 AND sf.organization_id::text = $2 AND fo.end_date <= $3
-ORDER BY fo.end_date DESC
-LIMIT 1
-`
-
-const unitLatestScheduleMySQL = `
-SELECT fo.start_date, fo.end_date
-FROM schedule_fleets sf
-INNER JOIN fleet_orders fo ON sf.order_id = fo.order_id
-WHERE sf.unit_id = ? AND sf.organization_id = ? AND fo.end_date <= ?
-ORDER BY fo.end_date DESC
-LIMIT 1
 `
 
 const unitUpcomingSchedulePostgres = `
@@ -1001,35 +954,260 @@ func (r *FleetUnitRepository) GetOrderDestinationCityIDs(orderIDs []string) (map
 }
 
 func (r *FleetUnitRepository) GetUnitRevenue(orgID, unitID, startDate, endDate string) (*model.FleetUnitRevenue, error) {
+	parseFloat64 := func(v interface{}) (float64, bool) {
+		switch vv := v.(type) {
+		case nil:
+			return 0, true
+		case float64:
+			return vv, true
+		case float32:
+			return float64(vv), true
+		case int64:
+			return float64(vv), true
+		case int32:
+			return float64(vv), true
+		case int:
+			return float64(vv), true
+		case []byte:
+			f, err := strconv.ParseFloat(string(vv), 64)
+			return f, err == nil
+		case string:
+			f, err := strconv.ParseFloat(vv, 64)
+			return f, err == nil
+		default:
+			return 0, false
+		}
+	}
+
+	parseInt64 := func(v interface{}) (int64, bool) {
+		switch vv := v.(type) {
+		case nil:
+			return 0, true
+		case int64:
+			return vv, true
+		case int32:
+			return int64(vv), true
+		case int:
+			return int64(vv), true
+		case float64:
+			return int64(vv), true
+		case float32:
+			return int64(vv), true
+		case []byte:
+			i, err := strconv.ParseInt(string(vv), 10, 64)
+			return i, err == nil
+		case string:
+			i, err := strconv.ParseInt(vv, 10, 64)
+			return i, err == nil
+		default:
+			return 0, false
+		}
+	}
+
 	query := fmt.Sprintf(`
-		SELECT SUM(po.payment_amount) AS revenue,
-		COUNT(fo.order_id) as total_booking
-		FROM fleet_orders fo
-		INNER JOIN payment_orders po ON po.order_id = fo.order_id
-		INNER JOIN schedule_fleets sf ON sf.order_id = po.order_id
-		WHERE sf.unit_id = %s AND fo.organization_id = %s AND fo.status = 1 AND fo.payment_status NOT IN (0,2) AND po.created_at BETWEEN %s AND %s 
-		GROUP BY sf.unit_id
-	`, r.placeholder(1), r.placeholder(2), r.placeholder(3), r.placeholder(4))
+		SELECT
+			(
+				SELECT COALESCE(SUM(po.payment_amount), 0) AS revenue
+				FROM payment_orders po
+				INNER JOIN fleet_orders fo ON fo.order_id = po.order_id
+				WHERE fo.organization_id = %s
+					AND fo.status = 1
+					AND fo.payment_status NOT IN (0,2)
+					AND po.created_at BETWEEN %s AND %s
+					AND EXISTS (
+						SELECT 1
+						FROM schedule_fleets sf
+						WHERE sf.order_id = fo.order_id
+							AND sf.unit_id = %s
+							AND sf.organization_id = %s
+					)
+			) AS revenue,
+			(
+				SELECT COALESCE(COUNT(DISTINCT sf.schedule_number), 0) AS total_booking
+				FROM schedule_fleets sf
+				INNER JOIN fleet_orders fo2 ON fo2.order_id = sf.order_id
+				WHERE sf.unit_id = %s
+					AND sf.organization_id = %s
+					AND fo2.organization_id = %s
+					AND fo2.status = 1
+					AND fo2.start_date >= %s
+					AND fo2.end_date <= %s
+			) AS total_booking
+	`,
+		r.placeholder(1),
+		r.placeholder(2),
+		r.placeholder(3),
+		r.placeholder(4),
+		r.placeholder(5),
+		r.placeholder(6),
+		r.placeholder(7),
+		r.placeholder(8),
+		r.placeholder(9),
+		r.placeholder(10),
+	)
+
 	var revenueAny interface{}
-	var totalBooking int64
-	if err := database.QueryRow(r.db, query, unitID, orgID, startDate, endDate).Scan(&revenueAny, &totalBooking); err != nil {
+	var totalBookingAny interface{}
+	if err := database.QueryRow(
+		r.db,
+		query,
+		orgID,
+		startDate,
+		endDate,
+		unitID,
+		orgID,
+		unitID,
+		orgID,
+		orgID,
+		startDate,
+		endDate,
+	).Scan(&revenueAny, &totalBookingAny); err != nil {
 		return nil, err
 	}
-	switch v := revenueAny.(type) {
-	case nil:
-		return &model.FleetUnitRevenue{TotalRevenue: 0, TotalBooking: 0}, nil
-	case float64:
-		return &model.FleetUnitRevenue{TotalRevenue: v, TotalBooking: totalBooking}, nil
-	case int64:
-		return &model.FleetUnitRevenue{TotalRevenue: float64(v), TotalBooking: totalBooking}, nil
-	case []byte:
-		if f, err := strconv.ParseFloat(string(v), 64); err == nil {
-			return &model.FleetUnitRevenue{TotalRevenue: f, TotalBooking: totalBooking}, nil
-		}
-	case string:
-		if f, err := strconv.ParseFloat(v, 64); err == nil {
-			return &model.FleetUnitRevenue{TotalRevenue: f, TotalBooking: totalBooking}, nil
+
+	revenue, ok := parseFloat64(revenueAny)
+	if !ok {
+		revenue = 0
+	}
+	totalBooking, ok := parseInt64(totalBookingAny)
+	if !ok {
+		totalBooking = 0
+	}
+
+	return &model.FleetUnitRevenue{TotalRevenue: revenue, TotalBooking: totalBooking}, nil
+}
+
+func (r *FleetUnitRepository) ListUnitExpenses(orgID, unitID string, startDate, endDate time.Time) ([]model.FleetUnitExpenseItem, error) {
+	parseFloat64 := func(v interface{}) (float64, bool) {
+		switch vv := v.(type) {
+		case nil:
+			return 0, true
+		case float64:
+			return vv, true
+		case float32:
+			return float64(vv), true
+		case int64:
+			return float64(vv), true
+		case int32:
+			return float64(vv), true
+		case int:
+			return float64(vv), true
+		case []byte:
+			f, err := strconv.ParseFloat(string(vv), 64)
+			return f, err == nil
+		case string:
+			f, err := strconv.ParseFloat(vv, 64)
+			return f, err == nil
+		default:
+			return 0, false
 		}
 	}
-	return &model.FleetUnitRevenue{TotalRevenue: 0, TotalBooking: 0}, nil
+
+	parseInt := func(v interface{}) (int, bool) {
+		switch vv := v.(type) {
+		case nil:
+			return 0, true
+		case int:
+			return vv, true
+		case int32:
+			return int(vv), true
+		case int64:
+			return int(vv), true
+		case float64:
+			return int(vv), true
+		case float32:
+			return int(vv), true
+		case []byte:
+			i, err := strconv.ParseInt(string(vv), 10, 64)
+			return int(i), err == nil
+		case string:
+			i, err := strconv.ParseInt(vv, 10, 64)
+			return int(i), err == nil
+		default:
+			return 0, false
+		}
+	}
+
+	joinExpr := "tf.transaction_id = t.transaction_id"
+	unitExpr := "tf.fleet_unit_id = " + r.placeholder(1)
+	orgExpr := "t.organization_id = " + r.placeholder(2)
+
+	selectExpr := `
+		COALESCE(tf.transaction_fleet_id, '') AS transaction_fleet_id,
+		COALESCE(t.transaction_category, '') AS transaction_category,
+		COALESCE(t.transaction_item, '') AS transaction_item,
+		COALESCE(t.description, '') AS description,
+		t.transaction_date,
+		COALESCE(t.payment_type, 0) AS payment_type,
+		COALESCE(t.amount, 0) AS amount
+	`
+	if r.driver == "postgres" || r.driver == "pgx" {
+		joinExpr = "tf.transaction_id::text = t.transaction_id::text"
+		unitExpr = "tf.fleet_unit_id::text = " + r.placeholder(1)
+		orgExpr = "t.organization_id::text = " + r.placeholder(2)
+		selectExpr = `
+			COALESCE(tf.transaction_fleet_id::text, '') AS transaction_fleet_id,
+			COALESCE(t.transaction_category, '') AS transaction_category,
+			COALESCE(t.transaction_item, '') AS transaction_item,
+			COALESCE(t.description, '') AS description,
+			t.transaction_date,
+			COALESCE(t.payment_type, 0) AS payment_type,
+			COALESCE(t.amount, 0) AS amount
+		`
+	}
+
+	query := fmt.Sprintf(`
+		SELECT %s
+		FROM transaction_fleets tf
+		INNER JOIN transactions t ON %s
+		WHERE %s
+			AND %s
+			AND COALESCE(t.status, 0) = 1
+			AND COALESCE(t.transaction_type, 0) = 2
+			AND t.transaction_date >= %s
+			AND t.transaction_date < %s
+		ORDER BY t.transaction_date DESC
+	`, selectExpr, joinExpr, unitExpr, orgExpr, r.placeholder(3), r.placeholder(4))
+
+	rows, err := database.Query(r.db, query, unitID, orgID, startDate, endDate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]model.FleetUnitExpenseItem, 0)
+	for rows.Next() {
+		var it model.FleetUnitExpenseItem
+		var transactionDate sql.NullTime
+		var paymentTypeAny interface{}
+		var amountAny interface{}
+
+		if err := rows.Scan(
+			&it.TransactionFleetID,
+			&it.TransactionCategory,
+			&it.TransactionItem,
+			&it.Description,
+			&transactionDate,
+			&paymentTypeAny,
+			&amountAny,
+		); err != nil {
+			return nil, err
+		}
+
+		if transactionDate.Valid {
+			it.TransactionDate = transactionDate.Time.Format("2006-01-02")
+		}
+		if v, ok := parseInt(paymentTypeAny); ok {
+			it.PaymentType = v
+		}
+		if v, ok := parseFloat64(amountAny); ok {
+			it.Amount = v
+		}
+
+		out = append(out, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }

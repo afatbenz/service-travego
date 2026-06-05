@@ -10,15 +10,20 @@ import (
 	"service-travego/repository"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 type FleetUnitService struct {
-	repo              *repository.FleetUnitRepository
-	partnerRepo       *repository.PartnerRepository
-	orgRepo           *repository.OrganizationRepository
-	citiesName        map[string]string
-	transmissionLabel map[string]string
+	repo                      *repository.FleetUnitRepository
+	partnerRepo               *repository.PartnerRepository
+	orgRepo                   *repository.OrganizationRepository
+	citiesName                map[string]string
+	transmissionLabel         map[string]string
+	commonOnce                sync.Once
+	paymentMethodLabels       map[int]string
+	transactionCategoryLabels map[string]string
+	transactionItemLabels     map[string]string
 }
 
 func NewFleetUnitService(repo *repository.FleetUnitRepository, partnerRepo *repository.PartnerRepository, orgRepo *repository.OrganizationRepository) *FleetUnitService {
@@ -69,6 +74,52 @@ func (s *FleetUnitService) ensureTransmissionLoaded() {
 		}
 	}
 	s.transmissionLabel = m
+}
+
+func (s *FleetUnitService) ensureCommonLoaded() {
+	s.commonOnce.Do(func() {
+		s.paymentMethodLabels = map[int]string{}
+		s.transactionCategoryLabels = map[string]string{}
+		s.transactionItemLabels = map[string]string{}
+
+		f, err := os.Open("config/common.json")
+		if err != nil {
+			return
+		}
+		defer f.Close()
+
+		var cfg struct {
+			PaymentMethod         []model.CommonItem `json:"payment-method"`
+			TransactionCategories []struct {
+				ID    string `json:"id"`
+				Label string `json:"label"`
+			} `json:"transaction-categories"`
+			TransactionItems []struct {
+				ID    string `json:"id"`
+				Label string `json:"label"`
+			} `json:"transaction-items"`
+		}
+		if err := json.NewDecoder(f).Decode(&cfg); err != nil {
+			return
+		}
+		for _, it := range cfg.PaymentMethod {
+			s.paymentMethodLabels[it.ID] = it.Label
+		}
+		for _, it := range cfg.TransactionCategories {
+			k := strings.ToUpper(strings.TrimSpace(it.ID))
+			if k == "" {
+				continue
+			}
+			s.transactionCategoryLabels[k] = it.Label
+		}
+		for _, it := range cfg.TransactionItems {
+			k := strings.ToUpper(strings.TrimSpace(it.ID))
+			if k == "" {
+				continue
+			}
+			s.transactionItemLabels[k] = it.Label
+		}
+	})
 }
 
 func (s *FleetUnitService) List(orgID, fleetId, orderID string) ([]model.FleetUnitListItem, error) {
@@ -379,6 +430,57 @@ func (s *FleetUnitService) GetUnitRevenue(orgID, unitID, startDate, endDate stri
 		return &model.FleetUnitRevenue{TotalRevenue: 0, TotalBooking: 0}, nil
 	}
 	return revenue, nil
+}
+
+func (s *FleetUnitService) UnitExpenses(orgID, unitID, period string) ([]model.FleetUnitExpenseItem, error) {
+	t, err := time.Parse("2006-01", strings.TrimSpace(period))
+	if err != nil {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "Invalid period format. Use YYYY-MM")
+	}
+
+	startDate := time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.UTC)
+	endDate := startDate.AddDate(0, 1, 0)
+
+	rows, err := s.repo.ListUnitExpenses(orgID, strings.TrimSpace(unitID), startDate, endDate)
+	if err != nil {
+		msg := "failed to get fleet unit expenses"
+		if env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV"))); env != "production" && env != "prod" {
+			msg = fmt.Sprintf("%s: %v", msg, err)
+		}
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, msg)
+	}
+
+	s.ensureCommonLoaded()
+
+	for i := range rows {
+		if label, ok := s.paymentMethodLabels[rows[i].PaymentType]; ok && label != "" {
+			rows[i].PaymentTypeLabel = label
+		} else if rows[i].PaymentType != 0 {
+			rows[i].PaymentTypeLabel = strconv.Itoa(rows[i].PaymentType)
+		}
+
+		catKey := strings.ToUpper(strings.TrimSpace(rows[i].TransactionCategory))
+		rows[i].TransactionCategory = catKey
+		if catKey != "" {
+			if label, ok := s.transactionCategoryLabels[catKey]; ok && label != "" {
+				rows[i].TransactionCategoryLabel = label
+			} else {
+				rows[i].TransactionCategoryLabel = catKey
+			}
+		}
+
+		itemKey := strings.ToUpper(strings.TrimSpace(rows[i].TransactionItem))
+		rows[i].TransactionItem = itemKey
+		if itemKey != "" {
+			if label, ok := s.transactionItemLabels[itemKey]; ok && label != "" {
+				rows[i].TransactionItemLabel = label
+			} else {
+				rows[i].TransactionItemLabel = itemKey
+			}
+		}
+	}
+
+	return rows, nil
 }
 
 func (s *FleetUnitService) UnitRating(orgID, unitID string) (float64, error) {
