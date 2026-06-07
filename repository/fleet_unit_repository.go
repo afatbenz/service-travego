@@ -126,7 +126,8 @@ SELECT
 	fu.production_year,
 	COALESCE(fu.created_by::text, '') AS created_by,
 	fu.created_at,
-	COALESCE(fu.status, 0) AS status
+	COALESCE(fu.status, 0) AS status,
+	COALESCE(fu.ownership_type, 0) AS ownership_type
 FROM fleet_units fu
 LEFT JOIN fleets f ON f.uuid::text = fu.fleet_id::text
 LEFT JOIN schedule_fleets sf ON sf.fleet_id::text = fu.fleet_id::text
@@ -148,7 +149,8 @@ SELECT
 	fu.production_year,
 	COALESCE(fu.created_by::text, '') AS created_by,
 	fu.created_at,
-	COALESCE(fu.status, 0) AS status
+	COALESCE(fu.status, 0) AS status,
+	COALESCE(fu.ownership_type, 0) AS ownership_type
 FROM fleet_units fu
 LEFT JOIN fleets f ON f.uuid::text = fu.fleet_id::text
 INNER JOIN schedule_fleets sf ON sf.fleet_id::text = fu.fleet_id::text
@@ -475,6 +477,7 @@ func (r *FleetUnitRepository) List(orgID, fleetId, orderID string) ([]model.Flee
 			&it.CreatedBy,
 			&createdAt,
 			&it.Status,
+			&it.OwnershipType,
 		); err != nil {
 			return nil, err
 		}
@@ -738,6 +741,16 @@ func (r *FleetUnitRepository) SetUnitOwnership(unitID, partnerID, orgID, userID 
 }
 
 func (r *FleetUnitRepository) UnitOrderHistory(orgID, unitID, startDate, endDate string) ([]model.FleetUnitOrderHistoryItem, error) {
+	startAt, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(startDate), time.Local)
+	if err != nil {
+		return nil, err
+	}
+	endAt, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(endDate), time.Local)
+	if err != nil {
+		return nil, err
+	}
+	endExclusive := endAt.AddDate(0, 0, 1)
+
 	query := `SELECT
 		COALESCE(fuo.order_id::text, '') AS order_id,
 		COALESCE(fuo.unit_id::text, '') AS unit_id,
@@ -753,12 +766,13 @@ func (r *FleetUnitRepository) UnitOrderHistory(orgID, unitID, startDate, endDate
 	INNER JOIN schedule_fleet_teams sft ON sft.schedule_fleet_id = fuo.uuid
 	INNER JOIN fleet_order_itinerary fi ON fi.order_id = fo.order_id
 	LEFT JOIN employee d ON d.uuid::text = sft.driver_id::text
-	WHERE fo.organization_id::text = $1 AND fuo.unit_id::text = $2 AND fo.start_date >= $3 AND fo.end_date <= $4
+	WHERE fo.organization_id::text = $1 AND fuo.unit_id::text = $2 AND fo.start_date >= $3 AND fo.end_date < $4
 	GROUP BY fuo.order_id, fuo.unit_id, sft.driver_id, d.fullname, fo.start_date, fo.end_date, fo.status, fo.pickup_city_id, fi.city_id
 	ORDER BY fo.start_date DESC
 	`
+	fmt.Println(query, orgID, unitID, startAt, endExclusive)
 
-	rows, err := database.Query(r.db, query, orgID, unitID, startDate, endDate)
+	rows, err := database.Query(r.db, query, orgID, unitID, startAt, endExclusive)
 	if err != nil {
 		return nil, err
 	}
@@ -853,7 +867,7 @@ func (r *FleetUnitRepository) UnitTotalSchedules(orgID, unitID string) (int64, e
 	return total, nil
 }
 
-func (r *FleetUnitRepository) UnitLatestSchedule(orgID, unitID, today string) (*model.FleetUnitScheduleRange, error) {
+func (r *FleetUnitRepository) UnitLatestSchedule(orgID, unitID string, now time.Time) (*model.FleetUnitScheduleRange, error) {
 	query := `SELECT fo.start_date, fo.end_date
 			FROM schedule_fleets sf
 			INNER JOIN fleet_orders fo ON sf.order_id = fo.order_id
@@ -863,7 +877,7 @@ func (r *FleetUnitRepository) UnitLatestSchedule(orgID, unitID, today string) (*
 			`
 	var startDate sql.NullTime
 	var endDate sql.NullTime
-	if err := database.QueryRow(r.db, query, unitID, orgID, today).Scan(&startDate, &endDate); err != nil {
+	if err := database.QueryRow(r.db, query, unitID, orgID, now).Scan(&startDate, &endDate); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -879,14 +893,14 @@ func (r *FleetUnitRepository) UnitLatestSchedule(orgID, unitID, today string) (*
 	return out, nil
 }
 
-func (r *FleetUnitRepository) UnitUpcomingSchedule(orgID, unitID, today string) (*model.FleetUnitScheduleRange, error) {
+func (r *FleetUnitRepository) UnitUpcomingSchedule(orgID, unitID string, now time.Time) (*model.FleetUnitScheduleRange, error) {
 	query := unitUpcomingScheduleMySQL
 	if r.driver == "postgres" || r.driver == "pgx" {
 		query = unitUpcomingSchedulePostgres
 	}
 	var startDate sql.NullTime
 	var endDate sql.NullTime
-	if err := database.QueryRow(r.db, query, unitID, orgID, today).Scan(&startDate, &endDate); err != nil {
+	if err := database.QueryRow(r.db, query, unitID, orgID, now).Scan(&startDate, &endDate); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -954,6 +968,16 @@ func (r *FleetUnitRepository) GetOrderDestinationCityIDs(orderIDs []string) (map
 }
 
 func (r *FleetUnitRepository) GetUnitRevenue(orgID, unitID, startDate, endDate string) (*model.FleetUnitRevenue, error) {
+	startAt, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(startDate), time.Local)
+	if err != nil {
+		return nil, err
+	}
+	endAt, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(endDate), time.Local)
+	if err != nil {
+		return nil, err
+	}
+	endExclusive := endAt.AddDate(0, 0, 1)
+
 	parseFloat64 := func(v interface{}) (float64, bool) {
 		switch vv := v.(type) {
 		case nil:
@@ -1004,46 +1028,63 @@ func (r *FleetUnitRepository) GetUnitRevenue(orgID, unitID, startDate, endDate s
 		}
 	}
 
+	sfOrderExpr := "order_id::text"
+	trxRefExpr := "reference_id::text"
+	foiOrderExpr := "order_id::text"
+	unitExpr := "unit_id::text = " + r.placeholder(1)
+	orgExpr := "organization_id::text = " + r.placeholder(2)
+	totalBookingUnitExpr := "sf.unit_id::text = " + r.placeholder(5)
+	totalBookingOrgExpr := "sf.organization_id::text = " + r.placeholder(6)
+	totalBookingFoOrgExpr := "fo2.organization_id::text = " + r.placeholder(7)
+
 	query := fmt.Sprintf(`
 		SELECT
 			(
-				SELECT COALESCE(SUM(po.payment_amount), 0) AS revenue
-				FROM payment_orders po
-				INNER JOIN fleet_orders fo ON fo.order_id = po.order_id
-				WHERE fo.organization_id = %s
-					AND fo.status = 1
-					AND fo.payment_status NOT IN (0,2)
-					AND po.created_at BETWEEN %s AND %s
-					AND EXISTS (
-						SELECT 1
-						FROM schedule_fleets sf
-						WHERE sf.order_id = fo.order_id
-							AND sf.unit_id = %s
-							AND sf.organization_id = %s
-					)
+				SELECT COALESCE(SUM(COALESCE(t.total_amount / NULLIF(q.total_qty, 0), 0)), 0) AS revenue
+				FROM (
+					SELECT DISTINCT %s AS order_id
+					FROM schedule_fleets
+					WHERE %s AND %s
+				) sf
+				INNER JOIN (
+					SELECT %s AS order_id, SUM(amount) AS total_amount
+					FROM transactions
+					WHERE transaction_date IS NOT NULL
+						AND transaction_date >= %s AND transaction_date < %s
+					GROUP BY %s
+				) t ON t.order_id = sf.order_id
+				INNER JOIN (
+					SELECT %s AS order_id, SUM(quantity) AS total_qty
+					FROM fleet_order_items
+					GROUP BY %s
+				) q ON q.order_id = sf.order_id
 			) AS revenue,
 			(
 				SELECT COALESCE(COUNT(DISTINCT sf.schedule_number), 0) AS total_booking
 				FROM schedule_fleets sf
 				INNER JOIN fleet_orders fo2 ON fo2.order_id = sf.order_id
-				WHERE sf.unit_id = %s
-					AND sf.organization_id = %s
-					AND fo2.organization_id = %s
+				WHERE %s
+					AND %s
+					AND %s
 					AND fo2.status = 1
 					AND fo2.start_date >= %s
-					AND fo2.end_date <= %s
+					AND fo2.end_date < %s
 			) AS total_booking
 	`,
-		r.placeholder(1),
-		r.placeholder(2),
+		sfOrderExpr,
+		unitExpr,
+		orgExpr,
+		trxRefExpr,
 		r.placeholder(3),
 		r.placeholder(4),
-		r.placeholder(5),
-		r.placeholder(6),
-		r.placeholder(7),
+		trxRefExpr,
+		foiOrderExpr,
+		foiOrderExpr,
+		totalBookingUnitExpr,
+		totalBookingOrgExpr,
+		totalBookingFoOrgExpr,
 		r.placeholder(8),
 		r.placeholder(9),
-		r.placeholder(10),
 	)
 
 	var revenueAny interface{}
@@ -1051,16 +1092,15 @@ func (r *FleetUnitRepository) GetUnitRevenue(orgID, unitID, startDate, endDate s
 	if err := database.QueryRow(
 		r.db,
 		query,
-		orgID,
-		startDate,
-		endDate,
 		unitID,
 		orgID,
+		startAt,
+		endExclusive,
 		unitID,
 		orgID,
 		orgID,
-		startDate,
-		endDate,
+		startAt,
+		endExclusive,
 	).Scan(&revenueAny, &totalBookingAny); err != nil {
 		return nil, err
 	}
@@ -1075,6 +1115,153 @@ func (r *FleetUnitRepository) GetUnitRevenue(orgID, unitID, startDate, endDate s
 	}
 
 	return &model.FleetUnitRevenue{TotalRevenue: revenue, TotalBooking: totalBooking}, nil
+}
+
+func (r *FleetUnitRepository) ListUnitRevenueHistory(orgID, unitID, startDate, endDate string) ([]model.FleetUnitRevenueHistoryItem, error) {
+	if r.driver != "postgres" && r.driver != "pgx" {
+		return nil, fmt.Errorf("unsupported driver")
+	}
+
+	startAt, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(startDate), time.Local)
+	if err != nil {
+		return nil, err
+	}
+	endAt, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(endDate), time.Local)
+	if err != nil {
+		return nil, err
+	}
+	endExclusive := endAt.AddDate(0, 0, 1)
+
+	parseFloat64 := func(v interface{}) (float64, bool) {
+		switch vv := v.(type) {
+		case nil:
+			return 0, true
+		case float64:
+			return vv, true
+		case float32:
+			return float64(vv), true
+		case int64:
+			return float64(vv), true
+		case int32:
+			return float64(vv), true
+		case int:
+			return float64(vv), true
+		case []byte:
+			f, e := strconv.ParseFloat(string(vv), 64)
+			return f, e == nil
+		case string:
+			f, e := strconv.ParseFloat(vv, 64)
+			return f, e == nil
+		default:
+			return 0, false
+		}
+	}
+
+	parseInt := func(v interface{}) (int, bool) {
+		switch vv := v.(type) {
+		case nil:
+			return 0, true
+		case int:
+			return vv, true
+		case int32:
+			return int(vv), true
+		case int64:
+			return int(vv), true
+		case float64:
+			return int(vv), true
+		case float32:
+			return int(vv), true
+		case []byte:
+			i, e := strconv.ParseInt(string(vv), 10, 64)
+			return int(i), e == nil
+		case string:
+			i, e := strconv.ParseInt(vv, 10, 64)
+			return int(i), e == nil
+		default:
+			return 0, false
+		}
+	}
+
+	query := `
+		SELECT
+			t.transaction_date,
+			t.reference_id::text AS order_id,
+			COALESCE(t.payment_type, 0) AS payment_type,
+			COALESCE(t.invoice_number, '') AS invoice_number,
+			COALESCE(t.payment_method, 0) AS payment_method,
+			COALESCE(SUM(t.amount) / NULLIF(SUM(foi.quantity), 0), 0) AS amount
+		FROM schedule_fleets sf
+		INNER JOIN transactions t ON t.reference_id::text = sf.order_id::text
+		INNER JOIN fleet_order_items foi ON foi.order_id::text = sf.order_id::text
+		WHERE sf.unit_id::text = $1
+			AND sf.organization_id::text = $2
+			AND t.transaction_date IS NOT NULL
+			AND t.transaction_date >= $3 AND t.transaction_date < $4
+			AND t.status = 1 AND t.transaction_type = 1
+		GROUP BY
+			t.amount,
+			foi.quantity,
+			t.transaction_date,
+			t.reference_id,
+			t.payment_type,
+			t.payment_method,
+			t.invoice_number,
+			t.created_at
+		ORDER BY t.created_at DESC
+	`
+
+	rows, err := database.Query(r.db, query, unitID, orgID, startAt, endExclusive)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]model.FleetUnitRevenueHistoryItem, 0)
+	for rows.Next() {
+		var it model.FleetUnitRevenueHistoryItem
+		var trxDate sql.NullTime
+		var orderID sql.NullString
+		var paymentTypeAny interface{}
+		var invoiceNumber sql.NullString
+		var paymentMethodAny interface{}
+		var revenueAny interface{}
+
+		if err := rows.Scan(
+			&trxDate,
+			&orderID,
+			&paymentTypeAny,
+			&invoiceNumber,
+			&paymentMethodAny,
+			&revenueAny,
+		); err != nil {
+			return nil, err
+		}
+
+		if trxDate.Valid {
+			it.TransactionDate = trxDate.Time.Format("2006-01-02")
+		}
+		if orderID.Valid {
+			it.OrderID = strings.TrimSpace(orderID.String)
+		}
+		if v, ok := parseInt(paymentTypeAny); ok {
+			it.PaymentType = v
+		}
+		if invoiceNumber.Valid {
+			it.InvoiceNumber = strings.TrimSpace(invoiceNumber.String)
+		}
+		if v, ok := parseInt(paymentMethodAny); ok {
+			it.PaymentMethod = v
+		}
+		if v, ok := parseFloat64(revenueAny); ok {
+			it.Amount = v
+		}
+
+		out = append(out, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (r *FleetUnitRepository) ListUnitExpenses(orgID, unitID string, startDate, endDate time.Time) ([]model.FleetUnitExpenseItem, error) {

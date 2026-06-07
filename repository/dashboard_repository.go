@@ -297,7 +297,7 @@ func (r *DashboardRepository) getRevenueExpenses(orgID string, TransactionItem i
 	query := fmt.Sprintf(`
 		SELECT COUNT(transaction_id) AS total, SUM(amount) AS amount
 		FROM transactions
-		WHERE organization_id = %s AND transaction_item = %s AND created_at BETWEEN %s AND %s
+		WHERE organization_id = %s AND transaction_type = %s AND created_at BETWEEN %s AND %s
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))
 
 	var currentTotal int
@@ -330,7 +330,7 @@ func (r *DashboardRepository) getTransactionMetricsByType(orgID string, Transact
 	query := fmt.Sprintf(`
 		SELECT transaction_type, SUM(amount) AS value
 		FROM transactions
-		WHERE organization_id = %s AND transaction_item = %s AND created_at BETWEEN %s AND %s
+		WHERE organization_id = %s AND transaction_type = %s AND created_at BETWEEN %s AND %s
 		GROUP BY transaction_type
 		ORDER BY value DESC
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))

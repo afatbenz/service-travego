@@ -22,6 +22,7 @@ type FleetUnitService struct {
 	transmissionLabel         map[string]string
 	commonOnce                sync.Once
 	paymentMethodLabels       map[int]string
+	paymentStatusLabels       map[int]string
 	transactionCategoryLabels map[string]string
 	transactionItemLabels     map[string]string
 }
@@ -79,6 +80,7 @@ func (s *FleetUnitService) ensureTransmissionLoaded() {
 func (s *FleetUnitService) ensureCommonLoaded() {
 	s.commonOnce.Do(func() {
 		s.paymentMethodLabels = map[int]string{}
+		s.paymentStatusLabels = map[int]string{}
 		s.transactionCategoryLabels = map[string]string{}
 		s.transactionItemLabels = map[string]string{}
 
@@ -90,6 +92,7 @@ func (s *FleetUnitService) ensureCommonLoaded() {
 
 		var cfg struct {
 			PaymentMethod         []model.CommonItem `json:"payment-method"`
+			PaymentStatus         []model.CommonItem `json:"payment-status"`
 			TransactionCategories []struct {
 				ID    string `json:"id"`
 				Label string `json:"label"`
@@ -104,6 +107,9 @@ func (s *FleetUnitService) ensureCommonLoaded() {
 		}
 		for _, it := range cfg.PaymentMethod {
 			s.paymentMethodLabels[it.ID] = it.Label
+		}
+		for _, it := range cfg.PaymentStatus {
+			s.paymentStatusLabels[it.ID] = it.Label
 		}
 		for _, it := range cfg.TransactionCategories {
 			k := strings.ToUpper(strings.TrimSpace(it.ID))
@@ -432,6 +438,32 @@ func (s *FleetUnitService) GetUnitRevenue(orgID, unitID, startDate, endDate stri
 	return revenue, nil
 }
 
+func (s *FleetUnitService) GetUnitRevenueHistory(orgID, unitID, startDate, endDate string) ([]model.FleetUnitRevenueHistoryItem, error) {
+	rows, err := s.repo.ListUnitRevenueHistory(orgID, strings.TrimSpace(unitID), startDate, endDate)
+	if err != nil {
+		fmt.Println(err)
+		return []model.FleetUnitRevenueHistoryItem{}, nil
+	}
+
+	s.ensureCommonLoaded()
+
+	for i := range rows {
+		if label, ok := s.paymentStatusLabels[rows[i].PaymentType]; ok && label != "" {
+			rows[i].PaymentTypeLabel = label
+		} else if rows[i].PaymentType != 0 {
+			rows[i].PaymentTypeLabel = strconv.Itoa(rows[i].PaymentType)
+		}
+
+		if label, ok := s.paymentMethodLabels[rows[i].PaymentMethod]; ok && label != "" {
+			rows[i].PaymentMethodLabel = label
+		} else if rows[i].PaymentMethod != 0 {
+			rows[i].PaymentMethodLabel = strconv.Itoa(rows[i].PaymentMethod)
+		}
+	}
+
+	return rows, nil
+}
+
 func (s *FleetUnitService) UnitExpenses(orgID, unitID, period string) ([]model.FleetUnitExpenseItem, error) {
 	t, err := time.Parse("2006-01", strings.TrimSpace(period))
 	if err != nil {
@@ -517,8 +549,8 @@ func (s *FleetUnitService) UnitScheduleStats(orgID, unitID string) (int64, *mode
 		return 0, nil, nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, msg)
 	}
 
-	today := time.Now().Format("2006-01-02")
-	latest, err := s.repo.UnitLatestSchedule(orgID, unitID, today)
+	now := time.Now()
+	latest, err := s.repo.UnitLatestSchedule(orgID, unitID, now)
 	if err != nil {
 		msg := "failed to get fleet unit schedules"
 		if env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV"))); env != "production" && env != "prod" {
@@ -526,7 +558,7 @@ func (s *FleetUnitService) UnitScheduleStats(orgID, unitID string) (int64, *mode
 		}
 		return 0, nil, nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, msg)
 	}
-	upcoming, err := s.repo.UnitUpcomingSchedule(orgID, unitID, today)
+	upcoming, err := s.repo.UnitUpcomingSchedule(orgID, unitID, now)
 	if err != nil {
 		msg := "failed to get fleet unit schedules"
 		if env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV"))); env != "production" && env != "prod" {

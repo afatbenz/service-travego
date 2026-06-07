@@ -15,6 +15,7 @@ type FleetUnitListItem struct {
 	CreatedBy      string `json:"created_by"`
 	CreatedDate    string `json:"created_date"`
 	Status         int    `json:"status"`
+	OwnershipType  int    `json:"ownership_type"`
 }
 
 type FleetUnitCreateRequest struct {
@@ -116,6 +117,22 @@ type FleetUnitRevenue struct {
 	Period       string  `json:"period,omitempty"`
 	TotalRevenue float64 `json:"total_revenue"`
 	TotalBooking int64   `json:"total_booking"`
+}
+
+type FleetUnitRevenueHistoryItem struct {
+	TransactionDate    string  `json:"transaction_date"`
+	OrderID            string  `json:"order_id"`
+	PaymentType        int     `json:"payment_type"`
+	InvoiceNumber      string  `json:"invoice_number"`
+	PaymentMethod      int     `json:"payment_method"`
+	Amount             float64 `json:"amount"`
+	PaymentTypeLabel   string  `json:"payment_type_label"`
+	PaymentMethodLabel string  `json:"payment_method_label"`
+}
+
+type FleetUnitRevenueResponse struct {
+	Summary []*FleetUnitRevenue           `json:"summary"`
+	History []FleetUnitRevenueHistoryItem `json:"history"`
 }
 
 type FleetUnitOrderHistoryRequest struct {

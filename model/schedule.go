@@ -152,16 +152,21 @@ type DailyAvailabilityFleetScheduleItem struct {
 }
 
 type DailyAvailabilityFleetUnitScheduleItem struct {
-	Date      string `json:"date"`
-	UnitID    string `json:"unit_id"`
-	VehicleID string `json:"vehicle_id"`
-	Available bool   `json:"available"`
+	Date           string `json:"date"`
+	UnitID         string `json:"unit_id"`
+	VehicleID      string `json:"vehicle_id"`
+	OrderID        string `json:"order_id"`
+	DestinationIDs string `json:"destination_ids"`
+	Destination    string `json:"destination"`
+	Available      bool   `json:"available"`
 }
 
 type DailyAvailabilityFleetUnitRow struct {
-	UnitID      string
-	VehicleID   string
-	PlateNumber string
+	UnitID         string
+	VehicleID      string
+	PlateNumber    string
+	OrderID        string
+	DestinationIDs string
 }
 
 type DailyAvailabilityFleetScheduledUnitDayRow struct {
@@ -170,7 +175,9 @@ type DailyAvailabilityFleetScheduledUnitDayRow struct {
 }
 
 type DailyAvailabilityFleetUnitScheduledDayRow struct {
-	Day time.Time
+	Day            time.Time
+	OrderID        string
+	DestinationIDs string
 }
 
 type ScheduleFleetInsertItem struct {
