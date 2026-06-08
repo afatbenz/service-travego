@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Pesanan Diterima - TraveGO</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+
+        body {
+            font-family: 'Plus Jakarta Sans', Arial, sans-serif;
+            line-height: 1.6;
+            color: #1a1a2e;
+            background-color: #f0f4f8;
+            margin: 0;
+            padding: 20px 0;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+        }
+
+        /* HEADER */
+        .header {
+            background: linear-gradient(135deg, #0f4c81, #1a73c1);
+            padding: 32px 36px 28px;
+            text-align: center;
+            position: relative;
+        }
+
+        .header::after {
+            content: '';
+            position: absolute;
+            bottom: -1px;
+            left: 0;
+            right: 0;
+            height: 32px;
+            background: #ffffff;
+            border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+        }
+
+        .header img {
+            max-height: 52px;
+            width: auto;
+            margin-bottom: 16px;
+            display: block;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .header h2 {
+            color: #ffffff;
+            font-size: 22px;
+            font-weight: 700;
+            margin: 0;
+            letter-spacing: 0.3px;
+        }
+
+        /* IKON SUKSES */
+        .success-icon-wrap {
+            text-align: center;
+            padding: 28px 36px 4px;
+        }
+
+        .success-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 64px;
+            height: 64px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
+            border: 3px solid #81c784;
+            margin-bottom: 10px;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background-color: #d8dcff;
+            color: #390b63;
+            font-size: 13px;
+            font-weight: 600;
+            padding: 7px 18px;
+            border-radius: 100px;
+        }
+
+        /* BODY */
+        .body {
+            padding: 8px 36px 28px;
+        }
+
+        .body p {
+            font-size: 15px;
+            color: #374151;
+            margin: 14px 0;
+        }
+
+        .body p strong {
+            color: #1a1a2e;
+        }
+
+        /* PAYMENT SUMMARY */
+        .payment-summary {
+            background: linear-gradient(145deg, #f1f8e9, #e8f5e9);
+            border: 1px solid #c5e1a5;
+            border-radius: 12px;
+            padding: 20px 24px;
+            margin: 20px 0;
+        }
+
+        .payment-summary .summary-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: #558b2f;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            margin-bottom: 14px;
+        }
+
+        .payment-summary ul {
+            list-style-type: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .payment-summary li {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 9px 0;
+            border-bottom: 1px solid #dcedc8;
+            font-size: 14px;
+        }
+
+        .payment-summary li:last-child {
+            border-bottom: none;
+            padding-bottom: 0;
+        }
+
+        .payment-summary li:first-child {
+            padding-top: 0;
+        }
+
+        .label {
+            font-weight: 600;
+            color: #558b2f;
+            min-width: 160px;
+            flex-shrink: 0;
+            font-size: 13.5px;
+        }
+
+        .value {
+            color: #1a1a2e;
+            font-weight: 500;
+        }
+
+        /* TOTAL ROW */
+        .payment-summary li.total-row {
+            background-color: #dcedc8;
+            margin: 8px -24px -20px;
+            padding: 12px 24px;
+            border-bottom: none;
+            border-radius: 0 0 11px 11px;
+        }
+
+        .payment-summary li.total-row .label {
+            color: #33691e;
+            font-size: 14.5px;
+        }
+
+        .payment-summary li.total-row .value {
+            color: #1b5e20;
+            font-size: 15px;
+            font-weight: 700;
+        }
+
+        /* ORDER DETAIL BOX */
+        .details {
+            background: linear-gradient(145deg, #f7faff, #eef3fb);
+            border: 1px solid #d6e4f7;
+            border-radius: 12px;
+            padding: 20px 24px;
+            margin: 20px 0;
+        }
+
+        .details .summary-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: #4b6a9b;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            margin-bottom: 14px;
+        }
+
+        .details ul {
+            list-style-type: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .details li {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 9px 0;
+            border-bottom: 1px solid #dce8f7;
+            font-size: 14px;
+        }
+
+        .details li:last-child {
+            border-bottom: none;
+            padding-bottom: 0;
+        }
+
+        .details li:first-child {
+            padding-top: 0;
+        }
+
+        .details .label {
+            color: #4b6a9b;
+        }
+
+        /* INFO NOTE */
+        .info-note {
+            background-color: #e3f2fd;
+            border-left: 4px solid #1a73c1;
+            border-radius: 0 8px 8px 0;
+            padding: 12px 16px;
+            font-size: 13.5px;
+            color: #0d47a1;
+            margin: 20px 0;
+        }
+
+        /* DIVIDER */
+        .divider {
+            border: none;
+            border-top: 1px solid #e5eaf2;
+            margin: 8px 0 20px;
+        }
+
+        /* TOMBOL */
+        .btn-wrap {
+            text-align: center;
+            margin: 24px 0 8px;
+        }
+
+        .btn-primary {
+            display: inline-block;
+            background: linear-gradient(135deg, #0f4c81, #1a73c1);
+            color: #ffffff !important;
+            font-size: 15px;
+            font-weight: 700;
+            padding: 14px 40px;
+            border-radius: 50px;
+            text-decoration: none;
+            letter-spacing: 0.3px;
+            box-shadow: 0 4px 16px rgba(15, 76, 129, 0.3);
+        }
+
+        .btn-review {
+            display: inline-block;
+            margin-top: 12px;
+            background-color: transparent;
+            color: #2e7d32 !important;
+            font-size: 13.5px;
+            font-weight: 600;
+            padding: 10px 28px;
+            border-radius: 50px;
+            text-decoration: none;
+            border: 1.5px solid #2e7d32;
+        }
+
+        /* FOOTER */
+        .footer {
+            background-color: #f7faff;
+            border-top: 1px solid #dce8f7;
+            padding: 20px 36px;
+            font-size: 12px;
+            color: #8898b0;
+            text-align: center;
+        }
+
+        .footer p { margin: 4px 0; }
+        .footer .brand { font-weight: 700; color: #4b6a9b; font-size: 13px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+
+        <!-- HEADER -->
+        <div class="header">
+            {{if .OrganizationLogo}}
+            <img src="{{.OrganizationLogo}}" alt="Logo">
+            {{end}}
+            <h2>Pesanan Baru !</h2>
+        </div>
+
+        <!-- BODY -->
+        <div class="body">
+            <p>Halo, <strong>{{.OrganizationName}}</strong>,</p>
+            <p>Pesanan baru telah <strong>berhasil diterima</strong>. Berikut ringkasan pesanan:</p>
+
+            <!-- RINGKASAN PEMBAYARAN -->
+            <div class="details">
+                <div class="summary-title">Ringkasan Pembayaran</div>
+                <ul>
+                    <li>
+                        <span class="label">ID Pesanan</span>
+                        <span class="value">{{.OrderID}}</span>
+                    </li>
+                    <li>
+                        <span class="label">Nama Armada</span>
+                        <span class="value">{{.FleetName}}</span>
+                    </li>
+                    <li>
+                        <span class="label">Lokasi Penjemputan</span>
+                        <span class="value">{{.PickupLocation}}</span>
+                    </li>
+                    <li>
+                        <span class="label">Tujuan</span>
+                        <span class="value">{{.Destination}}</span>
+                    </li>
+                </ul>
+            </div>
+
+            <!-- DETAIL PESANAN -->
+
+            <!-- CATATAN -->
+            <div class="info-note">
+                Konfirmasi pesanan agar pelanggan dapat melanjutkan pembayaran
+            </div>
+
+            <!-- TOMBOL -->
+            <div class="btn-wrap">
+                <a href="{{.DashboardOrderDetailUrl}}" class="btn-primary">Lihat Detail Pesanan</a>
+                <br>
+            </div>
+
+            <hr class="divider">
+
+            <p style="font-size:13.5px; color:#6b7280;">Jika Anda memiliki pertanyaan, silakan hubungi tim dukungan kami. Kami siap membantu Anda.</p>
+            <p style="font-size:14px;">Terima kasih telah memilih <strong>TraveGO</strong>! Selamat menikmati perjalanan Anda.</p>
+        </div>
+
+        <!-- FOOTER -->
+        <div class="footer">
+            <p>TraveGO - Transport Solutions</p>
+            <p>Travel Business Partner.</p>
+        </div>
+
+    </div>
+</body>
+</html>

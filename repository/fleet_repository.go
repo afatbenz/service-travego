@@ -181,6 +181,7 @@ func (r *FleetRepository) ListFleets(req *model.ListFleetRequest) ([]model.Fleet
 		query = query + " WHERE " + strings.Join(where, " AND ")
 	}
 	query = query + " GROUP BY f.uuid, ft.label, f.fleet_name, f.capacity, f.engine, f.body, f.active, f.status, f.thumbnail, f.created_at ORDER BY f.created_at DESC"
+	fmt.Println(query)
 
 	rows, err := database.Query(r.db, query, args...)
 	if err != nil {
@@ -3321,9 +3322,10 @@ func (r *FleetRepository) GetPartnerOrderSummary(orgID string, filter *model.Par
             COALESCE(SUM(CASE WHEN fo.payment_status = 1 THEN 1 ELSE 0 END), 0) AS paid,
             COALESCE(SUM(CASE WHEN fo.payment_status = 2 THEN 1 ELSE 0 END), 0) AS unpaid,
             COALESCE(SUM(CASE WHEN fo.payment_status IN (3,4) THEN 1 ELSE 0 END), 0) AS pending,
-            COALESCE(SUM(CASE WHEN fo.payment_status = 1 THEN fo.total_amount ELSE 0 END), 0) AS revenue,
+            COALESCE(SUM(CASE WHEN fo.payment_status IN (1,4) THEN t.amount ELSE 0 END), 0) AS revenue,
             COALESCE(SUM(CASE WHEN fo.start_date <= CURRENT_DATE AND fo.end_date >= CURRENT_DATE THEN 1 ELSE 0 END), 0) AS ongoing
         FROM fleet_orders fo
+		INNER JOIN transactions t ON t.reference_id = fo.order_id
         INNER JOIN fleets f ON fo.fleet_id = f.uuid
         WHERE f.organization_id = %[1]s
     `

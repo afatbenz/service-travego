@@ -133,6 +133,13 @@ LEFT JOIN fleets f ON f.uuid::text = fu.fleet_id::text
 LEFT JOIN schedule_fleets sf ON sf.fleet_id::text = fu.fleet_id::text
 AND sf.order_id::text = $3
 WHERE fu.organization_id::text = $1 AND (fu.fleet_id::text = $2 OR $2 = '')
+AND (
+	$4 = '' OR
+	COALESCE(fu.vehicle_id::text, '') ILIKE $4 OR
+	COALESCE(fu.plate_number, '') ILIKE $4 OR
+	COALESCE(f.fleet_name, '') ILIKE $4 OR
+	COALESCE(fu.engine, '') ILIKE $4
+)
 ORDER BY fu.created_at DESC
 `
 
@@ -155,6 +162,13 @@ FROM fleet_units fu
 LEFT JOIN fleets f ON f.uuid::text = fu.fleet_id::text
 INNER JOIN schedule_fleets sf ON sf.fleet_id::text = fu.fleet_id::text
 WHERE fu.organization_id::text = $1 AND (fu.fleet_id::text = $2 OR $2 = '') AND sf.order_id::text = $3
+AND (
+	$4 = '' OR
+	COALESCE(fu.vehicle_id::text, '') ILIKE $4 OR
+	COALESCE(fu.plate_number, '') ILIKE $4 OR
+	COALESCE(f.fleet_name, '') ILIKE $4 OR
+	COALESCE(fu.engine, '') ILIKE $4
+)
 ORDER BY fu.created_at DESC
 `
 
@@ -441,17 +455,23 @@ func (r *FleetUnitRepository) GetFleetPickupCityIDs(orgID, fleetID string) ([]in
 	return items, nil
 }
 
-func (r *FleetUnitRepository) List(orgID, fleetId, orderID string) ([]model.FleetUnitListItem, error) {
+func (r *FleetUnitRepository) List(orgID, fleetId, orderID, search string) ([]model.FleetUnitListItem, error) {
+	search = strings.TrimSpace(search)
+	searchPattern := ""
+	if search != "" {
+		searchPattern = "%" + search + "%"
+	}
 
 	query := listFleetUnitsPostgres
 	if strings.TrimSpace(orderID) != "" {
 		query = listFleetUnitsPostgresByOrderID
 	}
 
-	args := make([]interface{}, 0, 3)
+	args := make([]interface{}, 0, 4)
 	args = append(args, orgID)
 	args = append(args, fleetId)
 	args = append(args, orderID)
+	args = append(args, searchPattern)
 	rows, err := database.Query(r.db, query, args...)
 	fmt.Println(query)
 	fmt.Println(args)

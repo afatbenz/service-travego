@@ -1,6 +1,8 @@
 package service
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 	"service-travego/model"
@@ -61,7 +63,9 @@ func (s *TransactionService) listTransactions(orgID string, req *model.Transacti
 			TransactionCategory:      r.TransactionCategory,
 			TransactionCategoryLabel: r.TransactionCategoryLabel,
 			TransactionDate:          r.TransactionDate.Format("2006-01-02"),
+			PaymentMethod:            r.PaymentType,
 			PaymentType:              r.PaymentType,
+			Status:                   r.Status,
 			Amount:                   r.Amount,
 			CreatedAt:                r.CreatedAt.Format("2006-01-02 15:04:05"),
 			CreatedBy:                r.CreatedBy,
@@ -295,4 +299,78 @@ func (s *TransactionService) SubmitExpenseTransaction(orgID, userID string, req 
 		TransactionCategory: transactionCategory,
 		TransactionItem:     transactionItem,
 	})
+}
+
+func (s *TransactionService) DeleteExpenseTransaction(orgID, transactionID string) error {
+	orgID = strings.TrimSpace(orgID)
+	transactionID = strings.TrimSpace(transactionID)
+	if orgID == "" {
+		return NewServiceError(ErrUnauthorized, http.StatusUnauthorized, "Organization not found")
+	}
+	if transactionID == "" {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "transaction_id is required")
+	}
+
+	err := s.repo.SoftDeleteExpenseTransaction(orgID, transactionID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return NewServiceError(ErrNotFound, http.StatusNotFound, "transaction not found")
+	}
+	return err
+}
+
+func (s *TransactionService) UpdateExpenseTransaction(orgID, userID string, req *model.UpdateExpenseTransactionRequest) error {
+	orgID = strings.TrimSpace(orgID)
+	userID = strings.TrimSpace(userID)
+	if orgID == "" {
+		return NewServiceError(ErrUnauthorized, http.StatusUnauthorized, "Organization not found")
+	}
+	if userID == "" {
+		return NewServiceError(ErrUnauthorized, http.StatusUnauthorized, "User not found")
+	}
+	if req == nil {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "Invalid request body")
+	}
+
+	transactionID := strings.TrimSpace(req.TransactionID)
+	unitID := strings.TrimSpace(req.UnitID)
+	transactionCategory := strings.ToUpper(strings.TrimSpace(req.TransactionCategory))
+	transactionItem := strings.ToUpper(strings.TrimSpace(req.TransactionItem))
+	transactionDateStr := strings.TrimSpace(req.TransactionDate)
+
+	if transactionID == "" {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "transaction_id is required")
+	}
+	if req.Amount <= 0 {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "amount must be greater than 0")
+	}
+	if req.PaymentMethod == 0 {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "payment_method is required")
+	}
+	if transactionDateStr == "" {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "transaction_date is required")
+	}
+	transactionDate, err := time.Parse("2006-01-02", transactionDateStr)
+	if err != nil {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "transaction_date must be YYYY-MM-DD")
+	}
+	if transactionCategory == "" {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "transaction_category is required")
+	}
+	if transactionItem == "" {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "transaction_item is required")
+	}
+
+	err = s.repo.UpdateExpenseTransaction(orgID, userID, &repository.UpdateExpenseTransactionRequest{
+		TransactionID:       transactionID,
+		Amount:              req.Amount,
+		UnitID:              unitID,
+		PaymentMethod:       req.PaymentMethod,
+		TransactionDate:     transactionDate,
+		TransactionCategory: transactionCategory,
+		TransactionItem:     transactionItem,
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return NewServiceError(ErrNotFound, http.StatusNotFound, "transaction not found")
+	}
+	return err
 }

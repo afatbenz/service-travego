@@ -77,5 +77,8 @@ func placeholder(driver string, pos int) string {
 }
 
 func formatInvoiceNumber(orderType int, now time.Time, sequence int) string {
-	return fmt.Sprintf("INV-%s0%d-%05d", now.Format("02012006"), orderType, sequence)
+	datePart := now.Format("060201")
+	ms := now.Nanosecond() / 1e6
+	timePart := fmt.Sprintf("%03d", ms)
+	return fmt.Sprintf("INV-%s%d-%s%04d", datePart, orderType, timePart, sequence)
 }

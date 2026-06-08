@@ -2,7 +2,6 @@ package handler
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"service-travego/configs"
 	"service-travego/helper"
@@ -21,6 +20,7 @@ import (
 var paymentStatusOnce sync.Once
 var paymentStatusMap map[int]string
 var paymentMethodMap map[int]string
+var paymentTypeMap map[int]string
 var transactionCategoryMap map[string]string
 var transactionItemMap map[string]string
 
@@ -37,6 +37,7 @@ func ensurePaymentStatusLoaded() {
 		paymentStatusMap = map[int]string{}
 		paymentMethodMap = map[int]string{}
 		transactionCategoryMap = map[string]string{}
+		paymentTypeMap = map[int]string{}
 		transactionItemMap = map[string]string{}
 		f, err := os.Open("config/common.json")
 		if err != nil {
@@ -47,6 +48,7 @@ func ensurePaymentStatusLoaded() {
 		var cfg struct {
 			PaymentStatus         []model.CommonItem `json:"payment-status"`
 			PaymentMethod         []model.CommonItem `json:"payment-method"`
+			PaymentType           []model.CommonItem `json:"payment-type"`
 			TransactionCategories []struct {
 				ID    string `json:"id"`
 				Label string `json:"label"`
@@ -64,6 +66,9 @@ func ensurePaymentStatusLoaded() {
 		}
 		for _, it := range cfg.PaymentMethod {
 			paymentMethodMap[it.ID] = it.Label
+		}
+		for _, it := range cfg.PaymentStatus {
+			paymentTypeMap[it.ID] = it.Label
 		}
 		for _, it := range cfg.TransactionCategories {
 			transactionCategoryMap[it.ID] = it.Label
@@ -112,6 +117,52 @@ func loadTransactionCategoryItemSets() (map[string]struct{}, map[string]struct{}
 	return categories, items, nil
 }
 
+func validateExpenseMutationPayload(transactionID, unitID, transactionDate, transactionCategory, transactionItem string, amount float64, paymentMethod int, requireTransactionID bool) (int, string) {
+	if requireTransactionID {
+		if transactionID == "" {
+			return fiber.StatusBadRequest, "transaction_id is required"
+		}
+		if _, err := uuid.Parse(transactionID); err != nil {
+			return fiber.StatusBadRequest, "transaction_id must be a valid uuid"
+		}
+	}
+	if amount <= 0 {
+		return fiber.StatusBadRequest, "amount must be greater than 0"
+	}
+	if paymentMethod == 0 {
+		return fiber.StatusBadRequest, "payment_method is required"
+	}
+	if transactionDate == "" {
+		return fiber.StatusBadRequest, "transaction_date is required"
+	}
+	if _, err := time.Parse("2006-01-02", transactionDate); err != nil {
+		return fiber.StatusBadRequest, "transaction_date must be YYYY-MM-DD"
+	}
+	if transactionCategory == "" {
+		return fiber.StatusBadRequest, "transaction_category is required"
+	}
+	if transactionItem == "" {
+		return fiber.StatusBadRequest, "transaction_item is required"
+	}
+	if unitID != "" {
+		if _, err := uuid.Parse(unitID); err != nil {
+			return fiber.StatusBadRequest, "unit_id must be a valid uuid"
+		}
+	}
+
+	catSet, itemSet, err := loadTransactionCategoryItemSets()
+	if err != nil {
+		return fiber.StatusInternalServerError, "Failed to load common config"
+	}
+	if _, ok := catSet[transactionCategory]; !ok {
+		return fiber.StatusBadRequest, "transaction_category not found"
+	}
+	if _, ok := itemSet[transactionItem]; !ok {
+		return fiber.StatusBadRequest, "transaction_item not found"
+	}
+	return fiber.StatusOK, ""
+}
+
 func (h *TransactionHandler) ListAllRevenue(c *fiber.Ctx) error {
 	return h.listTransactions(c, "revenue")
 }
@@ -154,16 +205,12 @@ func (h *TransactionHandler) listTransactions(c *fiber.Ctx, mode string) error {
 			transactionDateStr = row.TransactionDate
 		}
 
-		statusLabel := ""
-		if label, ok := paymentStatusMap[row.Status]; ok && label != "" {
-			statusLabel = label
-		} else if row.Status != 0 {
-			statusLabel = strconv.Itoa(row.Status)
-		}
-
 		transactionTypeLabel := ""
-		if label, ok := configs.TransactionTypeLabel[row.TransactionType]; ok {
-			transactionTypeLabel = label
+		switch row.TransactionType {
+		case 1:
+			transactionTypeLabel = "revenue"
+		case 2:
+			transactionTypeLabel = "expenses"
 		}
 
 		paymentMethodLabel := ""
@@ -171,6 +218,13 @@ func (h *TransactionHandler) listTransactions(c *fiber.Ctx, mode string) error {
 			paymentMethodLabel = label
 		} else if row.PaymentMethod != 0 {
 			paymentMethodLabel = strconv.Itoa(row.PaymentMethod)
+		}
+
+		paymentTypeLabel := ""
+		if label, ok := paymentTypeMap[row.PaymentType]; ok && label != "" {
+			paymentTypeLabel = label
+		} else if row.PaymentType != 0 {
+			paymentTypeLabel = strconv.Itoa(row.PaymentType)
 		}
 
 		transactionCategoryKey := strings.ToUpper(strings.TrimSpace(row.TransactionCategory))
@@ -184,7 +238,6 @@ func (h *TransactionHandler) listTransactions(c *fiber.Ctx, mode string) error {
 		}
 
 		transactionItemKey := strings.ToUpper(strings.TrimSpace(row.TransactionItem))
-		fmt.Println("get transaction item key:", row.TransactionItem, transactionItemKey)
 		transactionItemLabel := ""
 		if transactionItemKey != "" {
 			if label, ok := transactionItemMap[transactionItemKey]; ok && label != "" {
@@ -214,10 +267,11 @@ func (h *TransactionHandler) listTransactions(c *fiber.Ctx, mode string) error {
 			TransactionCategory:      transactionCategoryKey,
 			TransactionCategoryLabel: transactionCategoryLabel,
 			Status:                   int(row.Status),
-			StatusLabel:              statusLabel,
 			CreatedAt:                createdAtStr,
 			CreatedBy:                row.CreatedBy,
 			Amount:                   row.Amount,
+			PaymentType:              row.PaymentType,
+			PaymentTypeLabel:         paymentTypeLabel,
 		}
 	}
 
@@ -314,33 +368,11 @@ func (h *TransactionHandler) SubmitExpenseTransaction(c *fiber.Ctx) error {
 	if req.PaymentType == 0 {
 		return helper.BadRequestResponse(c, "payment_type is required")
 	}
-	if req.TransactionDate == "" {
-		return helper.BadRequestResponse(c, "transaction_date is required")
-	}
-	if _, err := time.Parse("2006-01-02", req.TransactionDate); err != nil {
-		return helper.BadRequestResponse(c, "transaction_date must be YYYY-MM-DD")
-	}
-	if req.TransactionCategory == "" {
-		return helper.BadRequestResponse(c, "transaction_category is required")
-	}
-	if req.TransactionItem == "" {
-		return helper.BadRequestResponse(c, "transaction_item is required")
-	}
-	if req.UnitID != "" {
-		if _, err := uuid.Parse(req.UnitID); err != nil {
-			return helper.BadRequestResponse(c, "unit_id must be a valid uuid")
+	if statusCode, message := validateExpenseMutationPayload("", req.UnitID, req.TransactionDate, req.TransactionCategory, req.TransactionItem, req.Amount, req.PaymentMethod, false); message != "" {
+		if statusCode >= fiber.StatusInternalServerError {
+			return helper.SendErrorResponse(c, statusCode, message)
 		}
-	}
-
-	catSet, itemSet, err := loadTransactionCategoryItemSets()
-	if err != nil {
-		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to load common config")
-	}
-	if _, ok := catSet[req.TransactionCategory]; !ok {
-		return helper.BadRequestResponse(c, "transaction_category not found")
-	}
-	if _, ok := itemSet[req.TransactionItem]; !ok {
-		return helper.BadRequestResponse(c, "transaction_item not found")
+		return helper.BadRequestResponse(c, message)
 	}
 
 	orgID, ok := c.Locals("organization_id").(string)
@@ -358,6 +390,69 @@ func (h *TransactionHandler) SubmitExpenseTransaction(c *fiber.Ctx) error {
 	}
 
 	return helper.SuccessResponse(c, fiber.StatusCreated, "Expense transaction submitted successfully", nil)
+}
+
+func (h *TransactionHandler) DeleteExpenseTransaction(c *fiber.Ctx) error {
+	var req model.DeleteExpenseTransactionRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.BadRequestResponse(c, "Invalid request body")
+	}
+
+	req.TransactionID = strings.TrimSpace(req.TransactionID)
+	if req.TransactionID == "" {
+		return helper.BadRequestResponse(c, "transaction_id is required")
+	}
+	if _, err := uuid.Parse(req.TransactionID); err != nil {
+		return helper.BadRequestResponse(c, "transaction_id must be a valid uuid")
+	}
+
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || strings.TrimSpace(orgID) == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Organization not found")
+	}
+
+	if err := h.service.DeleteExpenseTransaction(orgID, req.TransactionID); err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Expense transaction deleted successfully", nil)
+}
+
+func (h *TransactionHandler) UpdateExpenseTransaction(c *fiber.Ctx) error {
+	var req model.UpdateExpenseTransactionRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.BadRequestResponse(c, "Invalid request body")
+	}
+
+	req.TransactionID = strings.TrimSpace(req.TransactionID)
+	req.UnitID = strings.TrimSpace(req.UnitID)
+	req.TransactionDate = strings.TrimSpace(req.TransactionDate)
+	req.TransactionCategory = strings.ToUpper(strings.TrimSpace(req.TransactionCategory))
+	req.TransactionItem = strings.ToUpper(strings.TrimSpace(req.TransactionItem))
+
+	if statusCode, message := validateExpenseMutationPayload(req.TransactionID, req.UnitID, req.TransactionDate, req.TransactionCategory, req.TransactionItem, req.Amount, req.PaymentMethod, true); message != "" {
+		if statusCode >= fiber.StatusInternalServerError {
+			return helper.SendErrorResponse(c, statusCode, message)
+		}
+		return helper.BadRequestResponse(c, message)
+	}
+
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || strings.TrimSpace(orgID) == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Organization not found")
+	}
+	userID, ok := c.Locals("user_id").(string)
+	if !ok || strings.TrimSpace(userID) == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "User not found")
+	}
+
+	if err := h.service.UpdateExpenseTransaction(orgID, userID, &req); err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Expense transaction updated successfully", nil)
 }
 
 func (h *TransactionHandler) ListTransactionLabels(c *fiber.Ctx) error {

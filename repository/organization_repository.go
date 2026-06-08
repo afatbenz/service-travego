@@ -672,6 +672,27 @@ func (r *OrganizationRepository) GetDomainURL(orgID string) (string, error) {
 	return "", nil
 }
 
+func (r *OrganizationRepository) GetOrganizationEmailAndName(orgID string) (string, string, string, error) {
+	query := fmt.Sprintf(`
+		SELECT
+			COALESCE(email, ''),
+			COALESCE(organization_name, ''),
+			COALESCE(domain_url, '')
+		FROM organizations
+		WHERE organization_id = %s
+		LIMIT 1
+	`, r.getPlaceholder(1))
+
+	var email, organizationName, domainURL string
+	if err := database.QueryRow(r.db, query, orgID).Scan(&email, &organizationName, &domainURL); err != nil {
+		if err == sql.ErrNoRows {
+			return "", "", "", nil
+		}
+		return "", "", "", err
+	}
+	return email, organizationName, domainURL, nil
+}
+
 // UpdateDomainURL updates domain_url
 func (r *OrganizationRepository) UpdateDomainURL(orgID string, domainURL string) error {
 	query := fmt.Sprintf("UPDATE organizations SET domain_url = %s, updated_at = %s WHERE organization_id = %s", r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))

@@ -22,11 +22,11 @@ type PaymentRepository interface {
 	UpdatePaymentOrderNotification(orderID string, organizationID string, totalAmount int64, paymentAmount float64, transactionID string, paymentType string) error
 	InsertPaymentMidtrans(req *model.MidtransWebhookRequest, createdAt string) error
 	InsertPaymentOrder(paymentID string, orderType int64, orderID string, organizationID string, paymentType int, paymentMethod int, invoiceNumber string, createdAt string, createdBy string) error
-	GetPaymentOrderMeta(orderID string, organizationID string) (invoiceNumber string, orderType int64, createdBy string, err error)
+	GetPaymentOrderMeta(orderID string, organizationID string) (invoiceNumber string, orderType int64, paymentType int64, paymentMethod int64, createdBy string, err error)
 	GetLatestPaymentOrderRemainingAmount(orderID string, organizationID string, orderType int64) (remainingAmount sql.NullFloat64, err error)
 	GetFleetOrderEmailData(orderID string, organizationID string) (customerName string, customerEmail string, fleetName string, pickupLocation string, startDate time.Time, endDate time.Time, destination string, err error)
 	TransactionExistsByInvoice(organizationID string, invoiceNumber string) (bool, error)
-	InsertTransactionMidtrans(transactionID string, orderType int64, invoiceNumber string, description string, transactionDate time.Time, status int, amount float64, organizationID string, transactionType int, TransactionItem int, createdAt time.Time, createdBy string) error
+	InsertTransactionMidtrans(transactionID string, orderType int64, invoiceNumber string, description string, transactionDate time.Time, paymentType int64, paymentMethod int64, amount float64, organizationID string, transactionCategory string, createdAt time.Time, customerID string, orderID string) error
 	GetNextInvoiceNumber(organizationID string, orderType int) (string, error)
 }
 
@@ -206,20 +206,19 @@ func (r *paymentRepository) InsertPaymentOrder(paymentID string, orderType int64
 	return err
 }
 
-func (r *paymentRepository) GetPaymentOrderMeta(orderID string, organizationID string) (string, int64, string, error) {
-	createdByExpr := "COALESCE(created_by, '')"
-	d := strings.ToLower(r.driver)
-	if d == "postgres" || d == "pgx" || d == "pq" {
-		createdByExpr = "COALESCE(created_by::text, '')"
-	}
+func (r *paymentRepository) GetPaymentOrderMeta(orderID string, organizationID string) (string, int64, int64, int64, string, error) {
+	createdByExpr := "COALESCE(co.customer_id::text, '') as customer_id"
 	query := fmt.Sprintf(`
 		SELECT
-			COALESCE(invoice_number, ''),
-			COALESCE(order_type, 0),
+			COALESCE(po.invoice_number, ''),
+			COALESCE(po.order_type, 0),
+			COALESCE(po.payment_type, 0),
+			COALESCE(po.payment_method, 0),
 			%s
-		FROM payment_orders
-		WHERE order_id = %s AND organization_id = %s
-		ORDER BY created_at DESC
+		FROM payment_orders po
+		INNER JOIN customer_orders co ON co.order_id = po.order_id
+		WHERE po.order_id = %s AND po.organization_id::text = %s
+		ORDER BY po.created_at DESC
 		LIMIT 1
 	`, createdByExpr, r.getPlaceholder(1), r.getPlaceholder(2))
 	fmt.Println("[DEBUG] GetPaymentOrderMeta - query:", query)
@@ -227,12 +226,14 @@ func (r *paymentRepository) GetPaymentOrderMeta(orderID string, organizationID s
 
 	var invoiceNumber string
 	var orderType int64
+	var paymentType int64
+	var paymentMethod int64
 	var createdBy string
-	if err := database.QueryRow(r.db, query, orderID, organizationID).Scan(&invoiceNumber, &orderType, &createdBy); err != nil {
+	if err := database.QueryRow(r.db, query, orderID, organizationID).Scan(&invoiceNumber, &orderType, &paymentType, &paymentMethod, &createdBy); err != nil {
 		fmt.Println("[DEBUG] GetPaymentOrderMeta - err:", err)
-		return "", 0, "", err
+		return "", 0, 0, 0, "", err
 	}
-	return invoiceNumber, orderType, createdBy, nil
+	return invoiceNumber, orderType, paymentType, paymentMethod, createdBy, nil
 }
 
 func (r *paymentRepository) GetLatestPaymentOrderRemainingAmount(invoiceNumber string, organizationID string, orderType int64) (sql.NullFloat64, error) {
@@ -310,14 +311,14 @@ func (r *paymentRepository) TransactionExistsByInvoice(organizationID string, in
 	return false, err
 }
 
-func (r *paymentRepository) InsertTransactionMidtrans(transactionID string, orderType int64, invoiceNumber string, description string, transactionDate time.Time, status int, amount float64, organizationID string, transactionType int, TransactionItem int, createdAt time.Time, createdBy string) error {
+func (r *paymentRepository) InsertTransactionMidtrans(transactionID string, orderType int64, invoiceNumber string, description string, transactionDate time.Time, paymentType int64, paymentMethod int64, amount float64, organizationID string, transactionCategory string, createdAt time.Time, createdBy string, orderID string) error {
 	query := fmt.Sprintf(`
 		INSERT INTO transactions
-			(transaction_id, order_type, invoice_number, description, transaction_date, payment_type, amount, organization_id, transaction_type, transaction_item, created_at, created_by, status)
+			(transaction_id, order_type, transaction_type, invoice_number, description, transaction_date, payment_type, amount, organization_id, transaction_category, created_at, created_by, status, reference_id, payment_method)
 		VALUES
-			(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
+			(%s, %s, 1, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, %s)
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6),
-		r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12))
+		r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12), r.getPlaceholder(13))
 
 	orgID := sql.NullString{String: organizationID, Valid: strings.TrimSpace(organizationID) != ""}
 	cb := sql.NullString{String: createdBy, Valid: strings.TrimSpace(createdBy) != ""}
@@ -330,13 +331,14 @@ func (r *paymentRepository) InsertTransactionMidtrans(transactionID string, orde
 		invoiceNumber,
 		description,
 		transactionDate,
-		status,
+		paymentType,
 		amount,
 		orgID,
-		transactionType,
-		TransactionItem,
+		transactionCategory,
 		createdAt,
 		cb,
+		orderID,
+		paymentMethod,
 	)
 	return err
 }

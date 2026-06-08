@@ -7,6 +7,7 @@ import (
 	"service-travego/configs"
 	"service-travego/helper"
 	"service-travego/model"
+	"service-travego/repository"
 	"service-travego/service"
 	"strconv"
 	"strings"
@@ -17,10 +18,14 @@ import (
 
 type FleetHandler struct {
 	service *service.FleetService
+	orgRepo *repository.OrganizationRepository
 }
 
-func NewFleetHandler(s *service.FleetService) *FleetHandler {
-	return &FleetHandler{service: s}
+func NewFleetHandler(s *service.FleetService, orgRepo *repository.OrganizationRepository) *FleetHandler {
+	return &FleetHandler{
+		service: s,
+		orgRepo: orgRepo,
+	}
 }
 
 func (h *FleetHandler) CreateFleet(c *fiber.Ctx) error {
@@ -1237,7 +1242,16 @@ func (h *FleetHandler) ProcessFleetOrder(c *fiber.Ctx) error {
 					}
 					destStr := strings.Join(destinations, ", ")
 
-					baseURL := "http://localhost:5174"
+					orgID, _ := c.Locals("organization_id").(string)
+					domainURL, derr := h.orgRepo.GetDomainURL(orgID)
+					if derr != nil {
+						fmt.Println("failed to get domain url:", derr)
+					}
+
+					baseURL := ""
+					if strings.TrimSpace(domainURL) != "" {
+						baseURL = domainURL
+					}
 					baseURL = strings.TrimSuffix(baseURL, "/")
 
 					emailData := helper.OrderSuccessEmailData{

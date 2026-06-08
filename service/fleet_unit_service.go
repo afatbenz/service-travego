@@ -128,8 +128,8 @@ func (s *FleetUnitService) ensureCommonLoaded() {
 	})
 }
 
-func (s *FleetUnitService) List(orgID, fleetId, orderID string) ([]model.FleetUnitListItem, error) {
-	items, err := s.repo.List(orgID, fleetId, orderID)
+func (s *FleetUnitService) List(orgID, fleetId, orderID, search string) ([]model.FleetUnitListItem, error) {
+	items, err := s.repo.List(orgID, fleetId, orderID, search)
 	if err != nil {
 		msg := "failed to get fleet units"
 		if env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV"))); env != "production" && env != "prod" {

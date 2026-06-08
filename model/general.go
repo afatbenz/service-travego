@@ -28,8 +28,9 @@ type WebMenu struct {
 }
 
 type CommonItem struct {
-	ID    int    `json:"id"`
-	Label string `json:"label"`
+	ID    int      `json:"id"`
+	Label string   `json:"label"`
+	Type  []string `json:"type,omitempty"`
 }
 
 type CommonConfig struct {

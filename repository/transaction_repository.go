@@ -79,15 +79,15 @@ func (r *TransactionRepository) listTransactions(orgID string, TransactionItem i
 			t.transaction_type,
 			t.transaction_item,
 			t.transaction_category,
-			COALESCE(t.payment_type, 0) AS payment_type,
-			COALESCE(t.status, 0) AS status,
+			t.payment_type,
+			t.status,
 			COALESCE(t.amount, 0) as amount,
 			t.transaction_date,
 			t.created_at,
 			COALESCE(u.fullname, '') as created_by
 		FROM transactions t
-		INNER JOIN users u ON t.created_by = u.user_id
-		WHERE %s
+		LEFT JOIN users u ON t.created_by = u.user_id
+		WHERE t.status = 1 AND %s
 		ORDER BY t.created_at DESC
 	`, strings.Join(where, " AND "))
 	rows, err := database.Query(r.db, query, args...)
@@ -97,7 +97,6 @@ func (r *TransactionRepository) listTransactions(orgID string, TransactionItem i
 	defer rows.Close()
 
 	var transactionItem sql.NullString
-	var status sql.NullInt64
 
 	out := make([]model.TransactionListRow, 0)
 	for rows.Next() {
@@ -111,7 +110,7 @@ func (r *TransactionRepository) listTransactions(orgID string, TransactionItem i
 			&transactionItem,
 			&it.TransactionCategory,
 			&it.PaymentType,
-			&status,
+			&it.Status,
 			&it.Amount,
 			&it.TransactionDate,
 			&it.CreatedAt,
@@ -150,6 +149,16 @@ type CreateExpenseTransactionRequest struct {
 	UnitID              string
 	PaymentMethod       int
 	PaymentType         int
+	TransactionDate     time.Time
+	TransactionCategory string
+	TransactionItem     string
+}
+
+type UpdateExpenseTransactionRequest struct {
+	TransactionID       string
+	Amount              float64
+	UnitID              string
+	PaymentMethod       int
 	TransactionDate     time.Time
 	TransactionCategory string
 	TransactionItem     string
@@ -404,6 +413,166 @@ func (r *TransactionRepository) CreateExpenseTransaction(orgID, userID string, r
 			userID,
 		)
 		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (r *TransactionRepository) SoftDeleteExpenseTransaction(orgID, transactionID string) error {
+	placeholder := r.getPlaceholder
+
+	transactionIDExpr := "transaction_id = " + placeholder(1)
+	orgExpr := "organization_id = " + placeholder(2)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		transactionIDExpr = "transaction_id::text = " + placeholder(1)
+		orgExpr = "organization_id::text = " + placeholder(2)
+	}
+
+	query := fmt.Sprintf(`
+		UPDATE transactions
+		SET status = 0
+		WHERE %s AND %s AND transaction_type = %s AND COALESCE(status, 1) <> 0
+	`, transactionIDExpr, orgExpr, placeholder(3))
+
+	result, err := r.db.Exec(query, transactionID, orgID, 2)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (r *TransactionRepository) UpdateExpenseTransaction(orgID, userID string, req *UpdateExpenseTransactionRequest) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	placeholder := r.getPlaceholder
+	orderType := 4
+	if strings.TrimSpace(req.UnitID) != "" {
+		orderType = 1
+	}
+
+	transactionIDExpr := "transaction_id = " + placeholder(7)
+	orgExpr := "organization_id = " + placeholder(8)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		transactionIDExpr = "transaction_id::text = " + placeholder(7)
+		orgExpr = "organization_id::text = " + placeholder(8)
+	}
+
+	query := fmt.Sprintf(`
+		UPDATE transactions
+		SET
+			order_type = %[1]s,
+			transaction_category = %[2]s,
+			transaction_item = %[3]s,
+			amount = %[4]s,
+			transaction_date = %[5]s,
+			payment_method = %[6]s
+		WHERE %[7]s AND %[8]s AND transaction_type = %[9]s AND COALESCE(status, 1) <> 0
+	`,
+		placeholder(1), placeholder(2), placeholder(3), placeholder(4), placeholder(5), placeholder(6),
+		transactionIDExpr, orgExpr, placeholder(9),
+	)
+
+	result, err := tx.Exec(
+		query,
+		orderType,
+		req.TransactionCategory,
+		req.TransactionItem,
+		req.Amount,
+		req.TransactionDate,
+		req.PaymentMethod,
+		req.TransactionID,
+		orgID,
+		2,
+	)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+
+	fleetTransactionIDExpr := "transaction_id = " + placeholder(1)
+	fleetOrgExpr := "organization_id = " + placeholder(2)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		fleetTransactionIDExpr = "transaction_id::text = " + placeholder(1)
+		fleetOrgExpr = "organization_id::text = " + placeholder(2)
+	}
+
+	if strings.TrimSpace(req.UnitID) != "" {
+		updateFleetQuery := fmt.Sprintf(`
+			UPDATE transaction_fleets
+			SET fleet_unit_id = %s
+			WHERE %s AND %s
+		`, placeholder(3), fleetTransactionIDExpr, fleetOrgExpr)
+
+		updateFleetResult, err := tx.Exec(updateFleetQuery, req.TransactionID, orgID, req.UnitID)
+		if err != nil {
+			return err
+		}
+
+		fleetRowsAffected, err := updateFleetResult.RowsAffected()
+		if err != nil {
+			return err
+		}
+
+		if fleetRowsAffected == 0 {
+			transactionFleetID, err := uuid.NewV7()
+			if err != nil {
+				return err
+			}
+
+			insertFleetQuery := fmt.Sprintf(`
+				INSERT INTO transaction_fleets (
+					transaction_fleet_id,
+					transaction_id,
+					fleet_unit_id,
+					organization_id,
+					created_at,
+					created_by
+				) VALUES (
+					%[1]s, %[2]s, %[3]s, %[4]s, %[5]s, %[6]s
+				)
+			`, placeholder(1), placeholder(2), placeholder(3), placeholder(4), placeholder(5), placeholder(6))
+
+			_, err = tx.Exec(
+				insertFleetQuery,
+				transactionFleetID.String(),
+				req.TransactionID,
+				req.UnitID,
+				orgID,
+				time.Now(),
+				userID,
+			)
+			if err != nil {
+				return err
+			}
+		}
+	} else {
+		deleteFleetQuery := fmt.Sprintf(`
+			DELETE FROM transaction_fleets
+			WHERE %s AND %s
+		`, fleetTransactionIDExpr, fleetOrgExpr)
+
+		if _, err := tx.Exec(deleteFleetQuery, req.TransactionID, orgID); err != nil {
 			return err
 		}
 	}

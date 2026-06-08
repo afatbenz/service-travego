@@ -43,23 +43,36 @@ type OrderSuccessEmailData struct {
 }
 
 type PaymentSuccessEmailData struct {
-	CustomerName     string
-	OrganizationLogo string
-	TransactionID    string
-	OrderID          string
-	PaymentMethod    string
-	PaymentDate      string
-	TotalPrice       string
-	FleetName        string
-	Duration         string
-	Facilities       string
-	PickupLocation   string
-	Destination      string
-	OrderDetailUrl   string
-	ReviewUrl        string
-	Year             int
-	BrandName        string
-	CompanyName      string
+	CustomerName            string
+	OrganizationName        string
+	OrganizationLogo        string
+	TransactionID           string
+	OrderID                 string
+	PaymentMethod           string
+	PaymentDate             string
+	TotalPrice              string
+	FleetName               string
+	Duration                string
+	Facilities              string
+	PickupLocation          string
+	Destination             string
+	OrderDetailUrl          string
+	ReviewUrl               string
+	Year                    int
+	BrandName               string
+	DashboardOrderDetailUrl string
+	CompanyName             string
+}
+
+type OrderReceivedEmailData struct {
+	OrganizationName        string
+	OrganizationLogo        string
+	OrderID                 string
+	FleetName               string
+	PickupLocation          string
+	Destination             string
+	DashboardOrderDetailUrl string
+	Year                    int
 }
 
 // GetOTPLength returns the OTP length from environment variable or default to 8
@@ -265,5 +278,27 @@ func SendPaymentSuccessEmail(cfg *configs.EmailConfig, to string, data PaymentSu
 	}
 
 	subject := fmt.Sprintf("Pembayaran Berhasil - %s", data.OrderID)
+	return sendHTMLEmail(cfg, to, subject, htmlBody)
+}
+
+func SendPaymentReceivedEmail(cfg *configs.EmailConfig, to string, data PaymentSuccessEmailData) error {
+	data.Year = time.Now().Year()
+	htmlBody, err := renderEmailTemplate("payment_received.html", data)
+	if err != nil {
+		return err
+	}
+
+	subject := fmt.Sprintf("Pembayaran Diterima - %s", data.OrderID)
+	return sendHTMLEmail(cfg, to, subject, htmlBody)
+}
+
+func SendOrderReceivedEmail(cfg *configs.EmailConfig, to string, data OrderReceivedEmailData) error {
+	data.Year = time.Now().Year()
+	htmlBody, err := renderEmailTemplate("order_received.html", data)
+	if err != nil {
+		return err
+	}
+
+	subject := fmt.Sprintf("Pesanan Baru - %s", data.OrderID)
 	return sendHTMLEmail(cfg, to, subject, htmlBody)
 }

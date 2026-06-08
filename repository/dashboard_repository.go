@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"service-travego/configs"
 	"service-travego/database"
 	"service-travego/model"
 	"strings"
@@ -17,6 +16,10 @@ import (
 var (
 	dashboardCitiesOnce sync.Once
 	dashboardCitiesMap  map[string]string
+
+	dashboardCommonOnce               sync.Once
+	dashboardTransactionCategoryLabel map[string]string
+	dashboardTransactionItemLabel     map[string]string
 )
 
 func ensureDashboardCitiesLoaded() {
@@ -45,6 +48,58 @@ func ensureDashboardCitiesLoaded() {
 func getDashboardCitiesMap() map[string]string {
 	ensureDashboardCitiesLoaded()
 	return dashboardCitiesMap
+}
+
+func ensureDashboardCommonLoaded() {
+	dashboardCommonOnce.Do(func() {
+		dashboardTransactionCategoryLabel = map[string]string{}
+		dashboardTransactionItemLabel = map[string]string{}
+
+		f, err := os.Open("config/common.json")
+		if err != nil {
+			return
+		}
+		defer f.Close()
+
+		var cfg struct {
+			TransactionCategories []struct {
+				ID    string `json:"id"`
+				Label string `json:"label"`
+			} `json:"transaction-categories"`
+			TransactionItems []struct {
+				ID    string `json:"id"`
+				Label string `json:"label"`
+			} `json:"transaction-items"`
+		}
+		if err := json.NewDecoder(f).Decode(&cfg); err != nil {
+			return
+		}
+
+		for _, it := range cfg.TransactionCategories {
+			k := strings.ToUpper(strings.TrimSpace(it.ID))
+			if k == "" {
+				continue
+			}
+			dashboardTransactionCategoryLabel[k] = it.Label
+		}
+		for _, it := range cfg.TransactionItems {
+			k := strings.ToUpper(strings.TrimSpace(it.ID))
+			if k == "" {
+				continue
+			}
+			dashboardTransactionItemLabel[k] = it.Label
+		}
+	})
+}
+
+func getDashboardTransactionCategoryLabels() map[string]string {
+	ensureDashboardCommonLoaded()
+	return dashboardTransactionCategoryLabel
+}
+
+func getDashboardTransactionItemLabels() map[string]string {
+	ensureDashboardCommonLoaded()
+	return dashboardTransactionItemLabel
 }
 
 type DashboardRepository struct {
@@ -328,10 +383,10 @@ func (r *DashboardRepository) getRevenueExpenses(orgID string, TransactionItem i
 
 func (r *DashboardRepository) getTransactionMetricsByType(orgID string, TransactionItem int, from time.Time, to time.Time) ([]model.DashboardTransactionMetricItem, error) {
 	query := fmt.Sprintf(`
-		SELECT transaction_type, SUM(amount) AS value
+		SELECT transaction_category, transaction_item, SUM(amount) AS value
 		FROM transactions
 		WHERE organization_id = %s AND transaction_type = %s AND created_at BETWEEN %s AND %s
-		GROUP BY transaction_type
+		GROUP BY transaction_category, transaction_item
 		ORDER BY value DESC
 	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))
 
@@ -342,16 +397,31 @@ func (r *DashboardRepository) getTransactionMetricsByType(orgID string, Transact
 	defer rows.Close()
 
 	items := make([]model.DashboardTransactionMetricItem, 0)
+	categoryLabels := getDashboardTransactionCategoryLabels()
+	itemLabels := getDashboardTransactionItemLabels()
 	for rows.Next() {
-		var transactionType int
+		var transactionCategory sql.NullString
+		var transactionItem sql.NullString
 		var value sql.NullFloat64
-		if err := rows.Scan(&transactionType, &value); err != nil {
+		if err := rows.Scan(&transactionCategory, &transactionItem, &value); err != nil {
 			return nil, err
 		}
 
 		label := ""
-		if l, ok := configs.TransactionTypeLabel[transactionType]; ok {
-			label = l
+		itemKey := strings.ToUpper(strings.TrimSpace(transactionItem.String))
+		if transactionItem.Valid && itemKey != "" {
+			if l := strings.TrimSpace(itemLabels[itemKey]); l != "" {
+				label = l
+			} else {
+				label = itemKey
+			}
+		} else {
+			catKey := strings.ToUpper(strings.TrimSpace(transactionCategory.String))
+			if l := strings.TrimSpace(categoryLabels[catKey]); l != "" {
+				label = l
+			} else {
+				label = catKey
+			}
 		}
 
 		items = append(items, model.DashboardTransactionMetricItem{
@@ -707,6 +777,7 @@ func (r *DashboardRepository) getTransactionMetrics(orgID string) (*model.Dashbo
 
 	return &model.DashboardTransaction{
 		TotalOrder:      total,
+		PrevTotalOrders: lastMonthCount,
 		OrderPercentage: math.Round(percentage*100) / 100,
 	}, nil
 }
@@ -756,6 +827,7 @@ func (r *DashboardRepository) getCustomerMetrics(orgID string) (*model.Dashboard
 
 	return &model.DashboardCustomers{
 		TotalCustomers:     total,
+		PrevTotalCustomers: lastMonthCount,
 		CustomerPercentage: math.Round(percentage*100) / 100,
 	}, nil
 }
