@@ -180,6 +180,7 @@ type PartnerOrderListItem struct {
 	RentType            string                    `json:"rent_type"`
 	LatestPaymentType   int                       `json:"-"`
 	ScheduleID          string                    `json:"schedule_id"`
+	CreatedAt           string                    `json:"created_at"`
 }
 
 type PartnerOrderSummary struct {
@@ -201,6 +202,7 @@ type PartnerOrderListFilter struct {
 	StartDateTo      string
 	OrderDateFrom    string
 	OrderDateTo      string
+	Search           string
 	PaymentStatus    int
 	HasPaymentStatus bool
 }

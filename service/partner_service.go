@@ -23,7 +23,7 @@ func (s *PartnerService) Create(req model.CreateOperationPartnerRequest, orgID, 
 }
 
 func (s *PartnerService) Update(req model.UpdateOperationPartnerRequest, orgID, userID string) (*model.OperationPartner, error) {
-	partner, err := s.repo.GetByID(req.PartnerID, orgID)
+	partner, err := s.repo.GetByID(req.PartnerID, orgID, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -33,8 +33,11 @@ func (s *PartnerService) Update(req model.UpdateOperationPartnerRequest, orgID, 
 	return s.repo.Update(req, orgID, userID)
 }
 
-func (s *PartnerService) Detail(partnerID, orgID string) (*model.OperationPartnerDetailResponse, error) {
-	partner, err := s.repo.GetByID(partnerID, orgID)
+func (s *PartnerService) Detail(req *model.OperationPartnerDetailRequest, orgID string) (*model.OperationPartnerDetailResponse, error) {
+	if req == nil || req.PartnerID == "" {
+		return nil, errors.New("partner not found")
+	}
+	partner, err := s.repo.GetByID(req.PartnerID, orgID, req)
 	if err != nil {
 		return nil, err
 	}
@@ -43,7 +46,7 @@ func (s *PartnerService) Detail(partnerID, orgID string) (*model.OperationPartne
 	}
 
 	label := s.repo.GetCityLabel(partner.PartnerCity)
-	fleetUnits, _ := s.repo.GetPartnerFleetUnits(partnerID, orgID)
+	fleetUnits, _ := s.repo.GetPartnerFleetUnits(req.PartnerID, orgID)
 	if fleetUnits == nil {
 		fleetUnits = []model.PartnerFleetUnit{}
 	}

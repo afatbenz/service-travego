@@ -48,6 +48,13 @@ func NewPartnerRepository(db *sql.DB, driver string) *PartnerRepository {
 	return &PartnerRepository{db: db, driver: driver}
 }
 
+func (r *PartnerRepository) getPlaceholder(pos int) string {
+	if r.driver == "postgres" || r.driver == "pgx" {
+		return fmt.Sprintf("$%d", pos)
+	}
+	return "?"
+}
+
 func (r *PartnerRepository) GetCityLabel(cityID *int) string {
 	if cityID == nil {
 		return ""
@@ -94,7 +101,9 @@ func (r *PartnerRepository) List(orgID, partnerName string) ([]model.OperationPa
 		var p model.OperationPartner
 		err := rows.Scan(
 			&p.PartnerID, &p.PartnerName, &p.PartnerAddress, &p.PartnerCity, &p.PartnerPhone, &p.PartnerEmail, &p.PicName,
-			&p.CreatedAt, &p.CreatedBy, &p.UpdatedAt, &p.UpdatedBy, &p.OrganizationID, &p.TotalUnit,
+			&p.CreatedAt,
+
+			&p.OrganizationID, &p.TotalUnit,
 		)
 		if err != nil {
 			return nil, err
@@ -133,7 +142,7 @@ func (r *PartnerRepository) Create(req model.CreateOperationPartnerRequest, orgI
 		return nil, err
 	}
 
-	return r.GetByID(partnerID, orgID)
+	return r.GetByID(partnerID, orgID, nil)
 }
 
 func (r *PartnerRepository) Update(req model.UpdateOperationPartnerRequest, orgID, userID string) (*model.OperationPartner, error) {
@@ -162,24 +171,103 @@ func (r *PartnerRepository) Update(req model.UpdateOperationPartnerRequest, orgI
 		return nil, err
 	}
 
-	return r.GetByID(req.PartnerID, orgID)
+	return r.GetByID(req.PartnerID, orgID, nil)
 }
 
-func (r *PartnerRepository) GetByID(partnerID, orgID string) (*model.OperationPartner, error) {
-	query := `
-		SELECT partner_id, partner_name, partner_address, partner_city, partner_phone, partner_email, pic_name, created_at, created_by, updated_at, updated_by, organization_id
-		FROM operation_partner
-		WHERE partner_id = $1 AND organization_id = $2
-	`
-	if r.driver == "mysql" {
-		query = strings.ReplaceAll(query, "$1", "?")
-		query = strings.ReplaceAll(query, "$2", "?")
+func (r *PartnerRepository) GetByID(partnerID, orgID string, filter *model.OperationPartnerDetailRequest) (*model.OperationPartner, error) {
+	args := make([]interface{}, 0, 6)
+	args = append(args, partnerID, orgID)
+
+	tripCond := ""
+	transactionCond := ""
+
+	if filter != nil {
+		if v := strings.TrimSpace(filter.TripStartDate); v != "" {
+			tripCond += fmt.Sprintf(" AND fo.end_date >= %s", r.getPlaceholder(len(args)+1))
+			args = append(args, v)
+		}
+		if v := strings.TrimSpace(filter.TripEndDate); v != "" {
+			tripCond += fmt.Sprintf(" AND fo.start_date <= %s", r.getPlaceholder(len(args)+1))
+			args = append(args, v)
+		}
+		if v := strings.TrimSpace(filter.TransactionStartDate); v != "" {
+			transactionCond += fmt.Sprintf(" AND t.transaction_date >= %s", r.getPlaceholder(len(args)+1))
+			args = append(args, v)
+		}
+		if v := strings.TrimSpace(filter.TransactionEndDate); v != "" {
+			transactionCond += fmt.Sprintf(" AND t.transaction_date <= %s", r.getPlaceholder(len(args)+1))
+			args = append(args, v)
+		}
 	}
 
+	query := fmt.Sprintf(`
+		SELECT 
+			op.partner_name, 
+			op.partner_address, 
+			op.partner_city, 
+			op.partner_phone, 
+			op.pic_name, 
+			op.partner_email, 
+			op.created_at AS join_date, 
+			
+			(SELECT COUNT(fuo.unit_id) 
+			 FROM fleet_unit_ownership fuo 
+			 WHERE fuo.partner_id = op.partner_id AND fuo.organization_id = op.organization_id) AS total_units, 
+			  
+			(SELECT COUNT(sf.uuid) 
+			 FROM fleet_units fu 
+			 INNER JOIN schedule_fleets sf ON sf.unit_id = fu.unit_id 
+			 INNER JOIN fleet_unit_ownership fuo ON fuo.unit_id = fu.unit_id 
+			 INNER JOIN fleet_orders fo ON fo.order_id = sf.order_id
+			 WHERE fuo.partner_id = op.partner_id
+			   AND fuo.organization_id = op.organization_id
+			   AND sf.organization_id = op.organization_id
+			   %s) AS total_schedule, 
+
+			COALESCE(finance.total_revenue, 0) AS total_revenue, 
+			COALESCE(finance.total_expenses, 0) AS total_expenses
+		FROM operation_partner op 
+		LEFT JOIN ( 
+			SELECT 
+				fuo.partner_id, 
+				SUM(CASE WHEN t.transaction_type = 1 THEN t.amount ELSE 0 END) AS total_revenue, 
+				SUM(CASE WHEN t.transaction_type = 2 THEN t.amount ELSE 0 END) AS total_expenses 
+			FROM fleet_unit_ownership fuo 
+			INNER JOIN fleet_units fu ON fu.unit_id = fuo.unit_id 
+			INNER JOIN schedule_fleets sf ON sf.unit_id = fu.unit_id 
+			INNER JOIN fleet_orders fo ON fo.order_id = sf.order_id
+			INNER JOIN transactions t ON t.reference_id = sf.schedule_number 
+			WHERE fuo.partner_id = %s
+			  AND fuo.organization_id = %s
+			  AND sf.organization_id = %s
+			  AND t.organization_id = %s
+			  %s
+			  %s
+			GROUP BY fuo.partner_id 
+		) finance ON finance.partner_id = op.partner_id 
+		WHERE op.partner_id = %s AND op.organization_id = %s
+		LIMIT 1
+	`,
+		tripCond,
+		r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(2), r.getPlaceholder(2),
+		tripCond, transactionCond,
+		r.getPlaceholder(1), r.getPlaceholder(2),
+	)
+
 	var p model.OperationPartner
-	err := r.db.QueryRow(query, partnerID, orgID).Scan(
-		&p.PartnerID, &p.PartnerName, &p.PartnerAddress, &p.PartnerCity, &p.PartnerPhone, &p.PartnerEmail, &p.PicName,
-		&p.CreatedAt, &p.CreatedBy, &p.UpdatedAt, &p.UpdatedBy, &p.OrganizationID,
+	var joinDate time.Time
+	err := r.db.QueryRow(query, args...).Scan(
+		&p.PartnerName,
+		&p.PartnerAddress,
+		&p.PartnerCity,
+		&p.PartnerPhone,
+		&p.PicName,
+		&p.PartnerEmail,
+		&joinDate,
+		&p.TotalUnits,
+		&p.TotalSchedule,
+		&p.TotalRevenue,
+		&p.TotalExpenses,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -187,6 +275,13 @@ func (r *PartnerRepository) GetByID(partnerID, orgID string) (*model.OperationPa
 		}
 		return nil, err
 	}
+
+	p.PartnerID = partnerID
+	p.OrganizationID = &orgID
+	p.JoinDate = &joinDate
+	p.CreatedAt = &joinDate
+	p.TotalUnit = p.TotalUnits
+	p.PartnerCityLabel = r.GetCityLabel(p.PartnerCity)
 	return &p, nil
 }
 
