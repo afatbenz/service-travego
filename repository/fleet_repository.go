@@ -1011,11 +1011,12 @@ func (r *FleetRepository) CreatePartnerOrder(orderID, fleetID, startDate, endDat
 			id := uuid2()
 			for {
 				_, _ = database.TxExec(tx, "SAVEPOINT sp_it")
-				if mode == 0 {
+				switch mode {
+				case 0:
 					_, err = database.TxExec(tx, itineraryWithCreatedBy, id, orderID, it.Day, it.CityID, it.Destination, orgID, now, createdBy)
-				} else if mode == 1 {
+				case 1:
 					_, err = database.TxExec(tx, itineraryWithoutCreatedBy, id, orderID, it.Day, it.CityID, it.Destination, orgID, now)
-				} else {
+				default:
 					_, err = database.TxExec(tx, destQuery, id, orderID, it.CityID, it.Destination, now)
 				}
 				if err == nil {
@@ -3221,7 +3222,7 @@ func (r *FleetRepository) GetPartnerOrderList(orgID string, filter *model.Partne
 			COALESCE(c.customer_name, '') as customer_name,
 			COALESCE(c.customer_phone, '') as customer_phone,
 			fo.start_date, fo.end_date, fo.unit_qty, fo.payment_status, fo.status,
-			p.duration, p.uom, fo.total_amount, p.rent_type,
+			p.duration, p.uom, fo.total_amount, p.rent_type, fo.created_at as order_date,
 			COALESCE((
 				SELECT po.payment_type
 				FROM payment_orders po
@@ -3265,6 +3266,21 @@ func (r *FleetRepository) GetPartnerOrderList(orgID string, filter *model.Partne
 			cond += fmt.Sprintf(" AND fo.payment_status = %s", r.getPlaceholder(len(args)+1))
 			args = append(args, filter.PaymentStatus)
 		}
+		if v := strings.TrimSpace(filter.Search); v != "" {
+			op := "LIKE"
+			if r.driver == "postgres" || r.driver == "pgx" {
+				op = "ILIKE"
+			}
+			like := "%" + v + "%"
+			pos := len(args) + 1
+			cond += fmt.Sprintf(
+				" AND (fo.order_id %s %s OR COALESCE(c.customer_name, '') %s %s OR COALESCE(f.fleet_name, '') %s %s)",
+				op, r.getPlaceholder(pos),
+				op, r.getPlaceholder(pos+1),
+				op, r.getPlaceholder(pos+2),
+			)
+			args = append(args, like, like, like)
+		}
 	}
 	query := fmt.Sprintf(base, r.getPlaceholder(1)) + cond + " ORDER BY fo.created_at DESC"
 
@@ -3281,10 +3297,11 @@ func (r *FleetRepository) GetPartnerOrderList(orgID string, filter *model.Partne
 		var rentType int
 		var latestPaymentType int
 		var scheduleID sql.NullString
+		var orderDate, createdAt time.Time
 		if err := rows.Scan(
 			&it.OrderID, &it.FleetName, &it.Thumbnail, &it.CustomerName, &it.CustomerPhone,
 			&startDate, &endDate, &it.UnitQty, &it.PaymentStatus, &it.Status,
-			&it.Duration, &it.Uom, &it.TotalAmount, &rentType,
+			&it.Duration, &it.Uom, &it.TotalAmount, &rentType, &orderDate,
 			&latestPaymentType, &scheduleID,
 		); err != nil {
 			return nil, err
@@ -3297,7 +3314,8 @@ func (r *FleetRepository) GetPartnerOrderList(orgID string, filter *model.Partne
 		} else {
 			it.ScheduleID = scheduleID.String
 		}
-
+		it.OrderDate = orderDate.Format("2006-01-02")
+		it.CreatedAt = createdAt.Format("2006-01-02")
 		switch rentType {
 		case 1:
 			it.RentType = "Cititour"
@@ -3327,6 +3345,8 @@ func (r *FleetRepository) GetPartnerOrderSummary(orgID string, filter *model.Par
         FROM fleet_orders fo
 		INNER JOIN transactions t ON t.reference_id = fo.order_id
         INNER JOIN fleets f ON fo.fleet_id = f.uuid
+		LEFT JOIN customer_orders co ON co.order_id = fo.order_id
+		LEFT JOIN customers c ON c.customer_id = co.customer_id AND c.organization_id = f.organization_id
         WHERE f.organization_id = %[1]s
     `
 	args := make([]interface{}, 0, 6)
@@ -3352,6 +3372,21 @@ func (r *FleetRepository) GetPartnerOrderSummary(orgID string, filter *model.Par
 		if filter.HasPaymentStatus {
 			cond += fmt.Sprintf(" AND fo.payment_status = %s", r.getPlaceholder(len(args)+1))
 			args = append(args, filter.PaymentStatus)
+		}
+		if v := strings.TrimSpace(filter.Search); v != "" {
+			op := "LIKE"
+			if r.driver == "postgres" || r.driver == "pgx" {
+				op = "ILIKE"
+			}
+			like := "%" + v + "%"
+			pos := len(args) + 1
+			cond += fmt.Sprintf(
+				" AND (fo.order_id %s %s OR COALESCE(c.customer_name, '') %s %s OR COALESCE(f.fleet_name, '') %s %s)",
+				op, r.getPlaceholder(pos),
+				op, r.getPlaceholder(pos+1),
+				op, r.getPlaceholder(pos+2),
+			)
+			args = append(args, like, like, like)
 		}
 	}
 	query := fmt.Sprintf(base, r.getPlaceholder(1)) + cond

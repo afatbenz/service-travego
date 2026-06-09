@@ -5,20 +5,22 @@ import (
 )
 
 type OperationPartner struct {
-	PartnerID      string     `json:"partner_id"`
-	PartnerName    string     `json:"partner_name"`
-	PartnerAddress *string    `json:"partner_address"`
-	PartnerCity    *int       `json:"partner_city"`
-	PartnerPhone   string     `json:"partner_phone"`
-	PartnerEmail   *string    `json:"partner_email"`
-	PicName        string     `json:"pic_name"`
-	CreatedAt      *time.Time `json:"created_at"`
-	CreatedBy      *string    `json:"created_by"`
-	UpdatedAt      *time.Time `json:"updated_at"`
-	UpdatedBy      *string    `json:"updated_by"`
-	OrganizationID *string    `json:"organization_id"`
-	TotalUnit      int64      `json:"total_unit"`
-	PartnerCityLabel string   `json:"partner_city_label"`
+	PartnerID        string     `json:"partner_id"`
+	PartnerName      string     `json:"partner_name"`
+	PartnerAddress   *string    `json:"partner_address"`
+	PartnerCity      *int       `json:"partner_city"`
+	PartnerPhone     string     `json:"partner_phone"`
+	PartnerEmail     *string    `json:"partner_email"`
+	PicName          string     `json:"pic_name"`
+	CreatedAt        *time.Time `json:"created_at"`
+	OrganizationID   *string    `json:"organization_id"`
+	TotalUnit        int64      `json:"total_unit"`
+	PartnerCityLabel string     `json:"partner_city_label"`
+	JoinDate         *time.Time `json:"join_date,omitempty"`
+	TotalUnits       int64      `json:"total_units,omitempty"`
+	TotalSchedule    int64      `json:"total_schedule,omitempty"`
+	TotalRevenue     float64    `json:"total_revenue"`
+	TotalExpenses    float64    `json:"total_expenses,omitempty"`
 }
 
 type CreateOperationPartnerRequest struct {
@@ -41,7 +43,11 @@ type UpdateOperationPartnerRequest struct {
 }
 
 type OperationPartnerDetailRequest struct {
-	PartnerID string `json:"partner_id" validate:"required"`
+	PartnerID            string `json:"partner_id" validate:"required"`
+	TransactionStartDate string `json:"transaction_start_date,omitempty"`
+	TransactionEndDate   string `json:"transaction_end_date,omitempty"`
+	TripStartDate        string `json:"trip_start_date,omitempty"`
+	TripEndDate          string `json:"trip_end_date,omitempty"`
 }
 
 type PartnerFleetUnit struct {

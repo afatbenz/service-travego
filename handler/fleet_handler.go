@@ -685,6 +685,9 @@ func (h *FleetHandler) GetPartnerOrderList(c *fiber.Ctx) error {
 			filter.HasPaymentStatus = true
 		}
 	}
+	if v := strings.TrimSpace(c.Query("search")); v != "" {
+		filter.Search = v
+	}
 	if strings.TrimSpace(filter.OrderDateFrom) == "" && strings.TrimSpace(filter.OrderDateTo) == "" {
 		now := time.Now()
 		from := now.AddDate(-1, 0, 0)
@@ -1160,13 +1163,6 @@ func debugWriteNDJSON(runID, hypothesisID, location, message string, data map[st
 	_, _ = f.Write(append(b, '\n'))
 }
 
-func errString(err error) string {
-	if err == nil {
-		return ""
-	}
-	return err.Error()
-}
-
 func firstSliceElemType(v interface{}) string {
 	arr, ok := v.([]interface{})
 	if !ok || len(arr) == 0 {
@@ -1184,11 +1180,12 @@ func (h *FleetHandler) ProcessFleetOrder(c *fiber.Ctx) error {
 		return helper.BadRequestResponse(c, "invalid processType")
 	}
 	var processTypeId int
-	if processType == "approve" {
+	switch processType {
+	case "approve":
 		processTypeId = 1
-	} else if processType == "reject" {
+	case "reject":
 		processTypeId = 0
-	} else {
+	default:
 		return helper.BadRequestResponse(c, "invalid processType")
 	}
 	orderID := c.Params("order_id")

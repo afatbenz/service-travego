@@ -102,7 +102,7 @@ func (h *PartnerHandler) Detail(c *fiber.Ctx) error {
 		return helper.SendValidationErrorResponse(c, errs)
 	}
 
-	partner, err := h.service.Detail(req.PartnerID, orgID)
+	partner, err := h.service.Detail(&req, orgID)
 	if err != nil {
 		if err.Error() == "partner not found" {
 			return helper.NotFoundResponse(c, "Partner not found")

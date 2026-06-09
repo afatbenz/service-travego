@@ -102,30 +102,30 @@
             "tags": ["general"]
         },
         {
-            "id": "TRX06",
+            "id": "TRX05",
             "label": "Operasional Tour",
             "type": ["expense"],
             "tags": ["general"]
         },
         {
-            "id": "TRX07",
+            "id": "TRX06",
             "label": "Iklan dan Marketing",
             "type": ["income", "expense"]
         },
         {
-            "id": "TRX08",
+            "id": "TRX07",
             "label": "Operasional Kantor",
             "type": ["expense"],
             "tags": ["general"]
         },
         {
-            "id": "TRX09",
+            "id": "TRX08",
             "label": "Persediaan Asset",
             "type": ["expense"],
             "tags": ["general"]
         },
         {
-            "id": "TRX10",
+            "id": "TRX09",
             "label": "Kebutuhan Lain",
             "type": ["income", "expense"],
             "tags": ["general"]
