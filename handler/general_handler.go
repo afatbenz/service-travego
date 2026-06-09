@@ -4,6 +4,7 @@ import (
 	"service-travego/helper"
 	"service-travego/service"
 	"strconv"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -148,11 +149,28 @@ func (h *GeneralHandler) GetPaymentStatuses(c *fiber.Ctx) error {
 }
 
 func (h *GeneralHandler) GetPaymentMethods(c *fiber.Ctx) error {
+	reqType := strings.TrimSpace(c.Query("type", ""))
 	list, err := h.generalService.GetPaymentMethods()
 	if err != nil {
 		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to load payment methods")
 	}
-	return helper.SuccessResponse(c, fiber.StatusOK, "Payment methods loaded successfully", list)
+
+	message := "Payment methods loaded successfully"
+	if reqType != "" {
+		filtered := list[:0]
+		for _, it := range list {
+			for _, t := range it.Type {
+				if t == reqType {
+					filtered = append(filtered, it)
+					break
+				}
+			}
+		}
+		list = filtered
+		message = "Payment methods filtered by type loaded successfully"
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, message, list)
 }
 
 func (h *GeneralHandler) GetCities(c *fiber.Ctx) error {

@@ -21,4 +21,5 @@ func SetupPrintManagementRoutes(api fiber.Router, db *sql.DB, driver string) {
 	pm := services.Group("/print-management")
 	pm.Post("/fleet/invoice", h.GenerateFleetInvoiceDocument)
 	pm.Post("/fleet/order", h.GenerateOrderFleetDocument)
+	pm.Get("/fleet/trips/:schedule_number", h.GenerateFleetTripsDocument)
 }

@@ -17,11 +17,13 @@ type DashboardResponse struct {
 
 type DashboardTransaction struct {
 	TotalOrder      int     `json:"total_order"`
+	PrevTotalOrders int     `json:"prev_total_orders"`
 	OrderPercentage float64 `json:"order_percentage"`
 }
 
 type DashboardCustomers struct {
 	TotalCustomers     int     `json:"total_customers"`
+	PrevTotalCustomers int     `json:"prev_total_customers"`
 	CustomerPercentage float64 `json:"customer_percentage"`
 }
 
@@ -31,11 +33,12 @@ type DashboardMessages struct {
 }
 
 type DashboardRevenue struct {
-	Current            int                              `json:"current"`
-	TotalAmount        float64                          `json:"total_amount"`
-	Previous           int                              `json:"previous"`
-	PrevAmount         float64                          `json:"prev_amount"`
-	TransactionMetrics []DashboardTransactionMetricItem `json:"transaction_metrics"`
+	Current             int                              `json:"current"`
+	TotalAmount         float64                          `json:"total_amount"`
+	Previous            int                              `json:"previous"`
+	PrevAmount          float64                          `json:"prev_amount"`
+	TransactionMetrics  []DashboardTransactionMetricItem `json:"transaction_metrics"`
+	TransactionCategory []DashboardTransactionMetricItem `json:"transaction_category"`
 }
 
 type DashboardTransactionMetricItem struct {

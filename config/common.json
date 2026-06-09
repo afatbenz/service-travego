@@ -39,19 +39,27 @@
     "payment-method": [
         {
             "id": 1001,
-            "label": "Cash"
+            "label": "Cash",
+            "type": ["general"]
         },
         {
             "id": 1002,
-            "label": "Transfer"
+            "label": "Transfer",
+            "type": ["general"]
         },
         {
             "id": 1003,
-            "label": "QRIS"
+            "label": "QRIS",
+            "type": ["general"]
         },
         {
             "id": 1004,
-            "label": "Payment Gateway"
+            "label": "Payment Gateway",
+            "type": ["general"]
+        },
+        {
+            "id": 1005,
+            "label": "Reimbursement"
         }
     ],
     "schedule-type": [

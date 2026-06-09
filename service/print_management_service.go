@@ -39,6 +39,9 @@ type PrintManagementService struct {
 	paymentOnce         sync.Once
 	paymentTypeLabels   map[int]string
 	paymentMethodLabels map[int]string
+
+	transactionItemOnce   sync.Once
+	transactionItemLabels map[string]string
 }
 
 func NewPrintManagementService(repo *repository.PrintManagementRepository) *PrintManagementService {
@@ -127,6 +130,38 @@ func (s *PrintManagementService) ensurePaymentCommonLoaded() {
 		}
 		s.paymentTypeLabels = pt
 		s.paymentMethodLabels = pm
+	})
+}
+
+func (s *PrintManagementService) ensureTransactionItemsLoaded() {
+	s.transactionItemOnce.Do(func() {
+		f, err := os.Open("config/common.json")
+		if err != nil {
+			s.transactionItemLabels = map[string]string{}
+			return
+		}
+		defer f.Close()
+
+		var cfg struct {
+			TransactionItems []struct {
+				ID    string `json:"id"`
+				Label string `json:"label"`
+			} `json:"transaction-items"`
+		}
+		if err := json.NewDecoder(f).Decode(&cfg); err != nil {
+			s.transactionItemLabels = map[string]string{}
+			return
+		}
+
+		items := make(map[string]string, len(cfg.TransactionItems))
+		for _, it := range cfg.TransactionItems {
+			key := strings.TrimSpace(it.ID)
+			if key == "" {
+				continue
+			}
+			items[key] = strings.TrimSpace(it.Label)
+		}
+		s.transactionItemLabels = items
 	})
 }
 
@@ -577,6 +612,124 @@ func (s *PrintManagementService) GenerateFleetInvoicePDF(organizationID, orderID
 	return pdf, nil
 }
 
+func (s *PrintManagementService) GenerateFleetTripsPDF(organizationID, scheduleNumber string) ([]byte, error) {
+	scheduleNumber = strings.TrimSpace(scheduleNumber)
+	if scheduleNumber == "" {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "schedule_number is required")
+	}
+	if strings.TrimSpace(organizationID) == "" {
+		return nil, NewServiceError(ErrUnauthorized, http.StatusUnauthorized, "missing organization context")
+	}
+
+	org, err := s.repo.GetOrganizationInfo(organizationID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, NewServiceError(ErrNotFound, http.StatusNotFound, "organization not found")
+		}
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to fetch organization")
+	}
+
+	orderID, err := s.repo.GetOrderIDByScheduleNumber(scheduleNumber, organizationID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, NewServiceError(ErrNotFound, http.StatusNotFound, "schedule not found")
+		}
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to fetch schedule")
+	}
+
+	totalExpenses, totalReimburse, err := s.repo.GetFleetTripTotals(scheduleNumber, organizationID, orderID)
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to fetch totals")
+	}
+
+	operationalFee, err := s.repo.GetFleetTripOperationalFee(scheduleNumber, organizationID)
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to fetch operational fee")
+	}
+
+	history, err := s.repo.GetFleetTripExpenseHistory(scheduleNumber, organizationID, orderID)
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to fetch expenses history")
+	}
+	s.ensureTransactionItemsLoaded()
+	expenseRows := buildFleetTripExpenseRows(history, s.transactionItemLabels)
+
+	tplPath := filepath.FromSlash("docs/print/template/surat_jalan.html")
+	rawTpl, err := os.ReadFile(tplPath)
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to read template")
+	}
+
+	s.ensureLocationsLoaded()
+	companyCityLabel := s.cities[org.CompanyCity]
+	if companyCityLabel == "" {
+		companyCityLabel = org.CompanyCity
+	}
+	companyProvinceLabel := s.provinces[org.CompanyProvince]
+	if companyProvinceLabel == "" {
+		companyProvinceLabel = org.CompanyProvince
+	}
+
+	companyName := org.CompanyName
+	if strings.TrimSpace(companyName) == "" {
+		companyName = org.OrganizationName
+	}
+
+	ts := time.Now().Unix()
+	qrPayload := fmt.Sprintf("%s|%s|%d", scheduleNumber, orderID, ts)
+	qrPNG, err := qrcode.Encode(qrPayload, qrcode.Medium, 256)
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to generate qr")
+	}
+	qrDataURL := "data:image/png;base64," + base64.StdEncoding.EncodeToString(qrPNG)
+
+	companyLogoURL, companyLogoBase := resolveAssetURL(org.CompanyWebsite, org.CompanyLogo)
+	if shouldLogDev() {
+		log.Printf("[PRINT] company_logo raw=%q base=%q resolved=%q", strings.TrimSpace(org.CompanyLogo), companyLogoBase, companyLogoURL)
+	}
+	if dataURL, ok, err := fetchImageAsDataURL(companyLogoURL); ok {
+		companyLogoURL = dataURL
+	} else if shouldLogDev() && err != nil {
+		log.Printf("[PRINT] company_logo fetch failed resolved=%q err=%v", companyLogoURL, err)
+	}
+
+	expenseBalance := operationalFee - totalExpenses
+	if expenseBalance < 0 {
+		expenseBalance = 0
+	}
+
+	vars := map[string]string{
+		"page_class":             "bottom-pack",
+		"company_logo":           html.EscapeString(companyLogoURL),
+		"company_name":           html.EscapeString(companyName),
+		"company_address":        html.EscapeString(org.CompanyAddress),
+		"company_city":           html.EscapeString(org.CompanyCity),
+		"company_city_label":     html.EscapeString(companyCityLabel),
+		"company_province":       html.EscapeString(org.CompanyProvince),
+		"company_province_label": html.EscapeString(companyProvinceLabel),
+		"company_postal_code":    html.EscapeString(org.CompanyPostal),
+		"company_phone":          html.EscapeString(org.CompanyPhone),
+		"company_email":          html.EscapeString(org.CompanyEmail),
+		"company_website":        html.EscapeString(org.CompanyWebsite),
+		"qr_code":                html.EscapeString(qrDataURL),
+		"order_id":               html.EscapeString(orderID),
+		"schedule_number":        html.EscapeString(scheduleNumber),
+		"operational_fee":        html.EscapeString(formatIDR(operationalFee)),
+		"expense_rows":           expenseRows,
+		"total_expenses":         html.EscapeString(formatIDR(totalExpenses)),
+		"total_expense_balance":  html.EscapeString(formatIDR(expenseBalance)),
+		"total_reimburse":        html.EscapeString(formatIDR(totalReimburse)),
+		"driver_name":            "-",
+	}
+
+	htmlDoc := applyTemplateVars(string(rawTpl), vars)
+	pdf, err := renderHTMLToPDF(htmlDoc)
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to render pdf")
+	}
+	return pdf, nil
+}
+
 func applyTemplateVars(tpl string, vars map[string]string) string {
 	re := regexp.MustCompile(`\{\{\s*([a-zA-Z0-9_]+)\s*\}\}`)
 	return re.ReplaceAllStringFunc(tpl, func(m string) string {
@@ -590,6 +743,57 @@ func applyTemplateVars(tpl string, vars map[string]string) string {
 		}
 		return ""
 	})
+}
+
+func buildFleetTripExpenseRows(items []repository.PrintFleetTripExpense, transactionItemLabels map[string]string) string {
+	totalRows := 12
+	if len(items) > 12 {
+		totalRows = len(items) + 5
+	}
+
+	var b strings.Builder
+	for i := 0; i < totalRows; i++ {
+		b.WriteString("<tr>")
+		b.WriteString("<td>")
+		b.WriteString(strconv.Itoa(i + 1))
+		b.WriteString("</td>")
+
+		if i < len(items) {
+			it := items[i]
+			code := strings.TrimSpace(it.TransactionItem)
+			desc := strings.TrimSpace(transactionItemLabels[code])
+			if desc == "" {
+				desc = code
+			}
+			extra := strings.TrimSpace(it.Description)
+			if desc != "" && extra != "" {
+				desc = desc + " - " + extra
+			} else if desc == "" {
+				desc = extra
+			}
+			if strings.TrimSpace(desc) == "" {
+				desc = "-"
+			}
+
+			b.WriteString("<td>")
+			b.WriteString(html.EscapeString(formatDateLong(it.ExpenseDate)))
+			b.WriteString("</td>")
+			b.WriteString("<td>")
+			b.WriteString(html.EscapeString(desc))
+			b.WriteString("</td>")
+			b.WriteString(`<td style="text-align:right;">`)
+			b.WriteString(html.EscapeString(formatIDR(it.ExpenseAmount)))
+			b.WriteString("</td>")
+			b.WriteString("</tr>")
+			continue
+		}
+
+		b.WriteString("<td>&nbsp;</td>")
+		b.WriteString("<td>&nbsp;</td>")
+		b.WriteString("<td>&nbsp;</td>")
+		b.WriteString("</tr>")
+	}
+	return b.String()
 }
 
 func buildFleetRows(items []repository.PrintFleetOrderItem, addonsByItem map[string][]repository.PrintFleetOrderAddon) (string, []float64) {
@@ -984,5 +1188,3 @@ func formatThousand(v int64) string {
 	}
 	return b.String()
 }
-
-

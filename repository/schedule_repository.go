@@ -1083,16 +1083,10 @@ func (r *ScheduleRepository) ListScheduledFleetUnitDaysForDailyAvailability(orga
 }
 
 func (r *ScheduleRepository) GetFleetUnitForDailyAvailability(organizationID, unitID string) (model.DailyAvailabilityFleetUnitRow, bool, error) {
-	orgExpr := "organization_id = " + r.placeholder(1)
-	unitExpr := "unit_id = " + r.placeholder(2)
-	unitIDExpr := "COALESCE(CAST(unit_id AS CHAR), '')"
-	vehicleIDExpr := "COALESCE(CAST(vehicle_id AS CHAR), '')"
-	if r.driver == "postgres" || r.driver == "pgx" {
-		orgExpr = "organization_id::text = " + r.placeholder(1)
-		unitExpr = "unit_id::text = " + r.placeholder(2)
-		unitIDExpr = "COALESCE(unit_id::text, '')"
-		vehicleIDExpr = "COALESCE(vehicle_id::text, '')"
-	}
+	orgExpr := "organization_id::text = " + r.placeholder(1)
+	unitExpr := "unit_id::text = " + r.placeholder(2)
+	unitIDExpr := "COALESCE(unit_id::text, '')"
+	vehicleIDExpr := "COALESCE(vehicle_id::text, '')"
 
 	query := `
 		SELECT
@@ -1115,71 +1109,41 @@ func (r *ScheduleRepository) GetFleetUnitForDailyAvailability(organizationID, un
 }
 
 func (r *ScheduleRepository) ListScheduledUnitDaysForDailyAvailability(organizationID string, startDate, endDate time.Time, unitID string) ([]model.DailyAvailabilityFleetUnitScheduledDayRow, error) {
-	if r.driver == "postgres" || r.driver == "pgx" {
-		query := `
-			SELECT DISTINCT
-				gs.day::date AS day
+	query := `
+			SELECT
+				gs.day::date AS day,
+				COALESCE(sf.order_id::text, '-') AS order_id,
+				COALESCE(STRING_AGG(DISTINCT foi.city_id::text, ','), '') AS destination_ids
 			FROM schedule_fleets sf
 			INNER JOIN fleet_orders fo ON fo.order_id::text = sf.order_id::text AND fo.organization_id::text = sf.organization_id::text
+			LEFT JOIN fleet_order_itinerary foi ON foi.order_id::text = sf.order_id::text
 			CROSS JOIN LATERAL generate_series(date_trunc('day', fo.start_date), date_trunc('day', fo.end_date), interval '1 day') gs(day)
 			WHERE sf.organization_id::text = ` + r.placeholder(1) + `
 			  AND sf.unit_id::text = ` + r.placeholder(4) + `
 			  AND COALESCE(sf.status, 0) = 1
 			  AND gs.day::date >= ` + r.placeholder(2) + `::date
 			  AND gs.day::date <= ` + r.placeholder(3) + `::date
+			GROUP BY gs.day::date, sf.order_id::text
 		`
 
-		rows, err := database.Query(r.db, query, organizationID, startDate, endDate, strings.TrimSpace(unitID))
-		if err != nil {
+	rows, err := database.Query(r.db, query, organizationID, startDate, endDate, strings.TrimSpace(unitID))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make([]model.DailyAvailabilityFleetUnitScheduledDayRow, 0)
+	for rows.Next() {
+		var item model.DailyAvailabilityFleetUnitScheduledDayRow
+		if err := rows.Scan(&item.Day, &item.OrderID, &item.DestinationIDs); err != nil {
 			return nil, err
 		}
-		defer rows.Close()
-
-		result := make([]model.DailyAvailabilityFleetUnitScheduledDayRow, 0)
-		for rows.Next() {
-			var item model.DailyAvailabilityFleetUnitScheduledDayRow
-			if err := rows.Scan(&item.Day); err != nil {
-				return nil, err
-			}
-			result = append(result, item)
-		}
-		if err := rows.Err(); err != nil {
-			return nil, err
-		}
-		return result, nil
+		result = append(result, item)
 	}
-
-	orgExpr := "sf.organization_id = " + r.placeholder(1)
-	unitExpr := "sf.unit_id = " + r.placeholder(2)
-	if r.driver == "postgres" || r.driver == "pgx" {
-		orgExpr = "sf.organization_id::text = " + r.placeholder(1)
-		unitExpr = "sf.unit_id::text = " + r.placeholder(2)
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
-
-	query := `
-		SELECT 1
-		FROM schedule_fleets sf
-		INNER JOIN fleet_orders fo ON fo.order_id = sf.order_id AND fo.organization_id = sf.organization_id
-		WHERE ` + orgExpr + `
-		  AND ` + unitExpr + `
-		  AND COALESCE(sf.status, 0) = 1
-		  AND fo.start_date <= ` + r.placeholder(3) + `
-		  AND fo.end_date >= ` + r.placeholder(4) + `
-		LIMIT 1
-	`
-
-	days := make([]model.DailyAvailabilityFleetUnitScheduledDayRow, 0)
-	for d := startDate; !d.After(endDate); d = d.AddDate(0, 0, 1) {
-		var exists int
-		err := database.QueryRow(r.db, query, organizationID, strings.TrimSpace(unitID), d, d).Scan(&exists)
-		if err != nil && err != sql.ErrNoRows {
-			return nil, err
-		}
-		if err == nil {
-			days = append(days, model.DailyAvailabilityFleetUnitScheduledDayRow{Day: d})
-		}
-	}
-	return days, nil
+	return result, nil
 }
 
 func (r *ScheduleRepository) buildFleetFilterClause(columnName, queryValue string, position int) (string, []interface{}) {

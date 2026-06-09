@@ -498,20 +498,64 @@ func (s *ScheduleService) GetDailyAvailabilityFleetUnit(input model.DailyAvailab
 		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, s.internalMessage("failed to get daily fleet unit availability", err))
 	}
 
-	scheduledDays := make(map[string]struct{})
-	for _, row := range scheduledRows {
-		scheduledDays[row.Day.Format("2006-01-02")] = struct{}{}
+	type scheduledInfo struct {
+		OrderID        string
+		DestinationIDs string
 	}
+	scheduledByDay := make(map[string]scheduledInfo)
+	for _, row := range scheduledRows {
+		scheduledByDay[row.Day.Format("2006-01-02")] = scheduledInfo{
+			OrderID:        strings.TrimSpace(row.OrderID),
+			DestinationIDs: strings.TrimSpace(row.DestinationIDs),
+		}
+	}
+
+	s.ensureCitiesLoaded()
 
 	items := make([]model.DailyAvailabilityFleetUnitScheduleItem, 0)
 	for d := startDate; !d.After(endDate); d = d.AddDate(0, 0, 1) {
 		dateKey := d.Format("2006-01-02")
-		_, scheduled := scheduledDays[dateKey]
+		info, scheduled := scheduledByDay[dateKey]
+		orderID := strings.TrimSpace(info.OrderID)
+		destinationIDs := strings.TrimSpace(info.DestinationIDs)
+		if strings.TrimSpace(orderID) == "-" {
+			orderID = ""
+		}
+		if strings.TrimSpace(destinationIDs) == "-" {
+			destinationIDs = ""
+		}
+
+		destination := ""
+		if destinationIDs != "" {
+			parts := strings.Split(destinationIDs, ",")
+			labels := make([]string, 0, len(parts))
+			seen := map[string]struct{}{}
+			for _, p := range parts {
+				id := strings.TrimSpace(p)
+				if id == "" {
+					continue
+				}
+				if _, ok := seen[id]; ok {
+					continue
+				}
+				seen[id] = struct{}{}
+				if name := strings.TrimSpace(s.citiesMap[id]); name != "" {
+					labels = append(labels, name)
+				}
+			}
+			if len(labels) > 0 {
+				destination = strings.Join(labels, ",")
+			}
+		}
+
 		items = append(items, model.DailyAvailabilityFleetUnitScheduleItem{
-			Date:      dateKey,
-			UnitID:    unit.UnitID,
-			VehicleID: unit.VehicleID,
-			Available: !scheduled,
+			Date:           dateKey,
+			UnitID:         unit.UnitID,
+			VehicleID:      unit.VehicleID,
+			OrderID:        orderID,
+			DestinationIDs: destinationIDs,
+			Destination:    destination,
+			Available:      !scheduled,
 		})
 	}
 

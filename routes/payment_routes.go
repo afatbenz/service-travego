@@ -14,10 +14,9 @@ import (
 // SetupPaymentRoutes mendaftarkan route untuk integrasi payment
 func SetupPaymentRoutes(api fiber.Router, db *sql.DB, driver string, midtransCfg *config.MidtransConfig) {
 	repo := repository.NewPaymentRepository(db, driver)
-	svc := service.NewPaymentService(repo, midtransCfg)
-	h := handler.NewPaymentHandler(svc)
-
 	orgRepo := repository.NewOrganizationRepository(db, driver)
+	svc := service.NewPaymentService(repo, orgRepo, midtransCfg)
+	h := handler.NewPaymentHandler(svc)
 
 	serviceGroup := api.Group("/services")
 	paymentGroup := serviceGroup.Group("/payment/order")

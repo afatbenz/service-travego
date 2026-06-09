@@ -4,6 +4,7 @@ import (
 	"service-travego/helper"
 	"service-travego/model"
 	"service-travego/service"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -57,5 +58,27 @@ func (h *PrintManagementHandler) GenerateFleetInvoiceDocument(c *fiber.Ctx) erro
 
 	c.Set("Content-Type", "application/pdf")
 	c.Set("Content-Disposition", "inline; filename=fleet-invoice-"+req.OrderID+".pdf")
+	return c.Send(pdf)
+}
+
+func (h *PrintManagementHandler) GenerateFleetTripsDocument(c *fiber.Ctx) error {
+	scheduleNumber := strings.TrimSpace(c.Params("schedule_number"))
+	if scheduleNumber == "" {
+		return helper.BadRequestResponse(c, "schedule_number is required")
+	}
+
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Organization not found")
+	}
+
+	pdf, err := h.service.GenerateFleetTripsPDF(orgID, scheduleNumber)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	c.Set("Content-Type", "application/pdf")
+	c.Set("Content-Disposition", "inline; filename=fleet-trips-"+scheduleNumber+".pdf")
 	return c.Send(pdf)
 }

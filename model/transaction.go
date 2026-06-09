@@ -21,6 +21,9 @@ type TransactionListRow struct {
 	TransactionCategoryLabel string
 	PaymentType              int
 	PaymentTypeLabel         string
+	Status                   int
+	StatusLabel              string
+	UnitID                   string
 	TransactionDate          time.Time
 	Amount                   float64
 	CreatedAt                time.Time
@@ -42,7 +45,6 @@ type TransactionListItem struct {
 	PaymentMethod            int     `json:"payment_method"`
 	PaymentMethodLabel       string  `json:"payment_method_label"`
 	Status                   int     `json:"status"`
-	StatusLabel              string  `json:"status_label"`
 	CreatedAt                string  `json:"created_at"`
 	CreatedBy                string  `json:"created_by"`
 	Amount                   float64 `json:"amount"`
@@ -97,4 +99,18 @@ type SubmitExpenseTransactionRequest struct {
 	TransactionDate     string  `json:"transaction_date"`
 	TransactionCategory string  `json:"transaction_category"`
 	TransactionItem     string  `json:"transaction_item"`
+}
+
+type DeleteExpenseTransactionRequest struct {
+	TransactionID string `json:"transaction_id"`
+}
+
+type UpdateExpenseTransactionRequest struct {
+	TransactionID       string  `json:"transaction_id"`
+	UnitID              string  `json:"unit_id,omitempty"`
+	PaymentMethod       int     `json:"payment_method"`
+	TransactionDate     string  `json:"transaction_date"`
+	TransactionCategory string  `json:"transaction_category"`
+	TransactionItem     string  `json:"transaction_item"`
+	Amount              float64 `json:"amount"`
 }

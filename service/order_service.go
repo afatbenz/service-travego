@@ -143,20 +143,24 @@ func (s *OrderService) CreateOrder(req *model.CreateOrderRequest) (*model.Create
 		// Contact List
 		contactList, _ := s.contentRepo.GetContentListByTag("contact", req.OrganizationID)
 
-		// Fetch Domain URL
-		domainURL, err := s.orgRepo.GetDomainURL(req.OrganizationID)
-		if err != nil {
-			log.Printf("[WARN] Failed to get domain url for org %s: %v", req.OrganizationID, err)
+		orgEmail, orgName, domainURL, oerr := s.orgRepo.GetOrganizationEmailAndName(req.OrganizationID)
+		if oerr != nil {
+			log.Printf("[WARN] Failed to get organization email/name for org %s: %v", req.OrganizationID, oerr)
 		}
 
-		baseURL := "http://localhost:5174" // Default fallback
-		if domainURL != "" {
-			baseURL = domainURL
-		}
-		baseURL = strings.TrimSuffix(baseURL, "/")
+		baseCustomerURL := strings.TrimSuffix(strings.TrimSpace(domainURL), "/")
+		baseOrgURL := strings.TrimSuffix(strings.TrimSpace(os.Getenv("APP_BASE_URL")), "/")
 
 		// Generate Order Detail URL
-		orderDetailUrl := fmt.Sprintf("%s/order/detail/armada/%s", baseURL, token)
+		orderDetailUrl := ""
+		if baseCustomerURL != "" {
+			orderDetailUrl = fmt.Sprintf("%s/order/detail/armada/%s", baseCustomerURL, token)
+		}
+
+		dashboardOrderDetailUrl := ""
+		if baseOrgURL != "" {
+			dashboardOrderDetailUrl = fmt.Sprintf("%s/dashboard/partner/orders/fleet/detail/%s", baseOrgURL, orderID)
+		}
 
 		emailData := helper.OrderSuccessEmailData{
 			CustomerName:     req.Fullname,
@@ -180,6 +184,24 @@ func (s *OrderService) CreateOrder(req *model.CreateOrderRequest) (*model.Create
 				log.Printf("[ERROR] Failed to send order success email to %s: %v", req.Email, err)
 			}
 		}()
+
+		if oerr == nil && strings.TrimSpace(orgEmail) != "" {
+			orgEmailData := helper.OrderReceivedEmailData{
+				OrganizationName:        orgName,
+				OrganizationLogo:        orgLogo,
+				OrderID:                 orderID,
+				FleetName:               fleetSummary.FleetName,
+				PickupLocation:          req.PickupLocation,
+				Destination:             destStr,
+				DashboardOrderDetailUrl: dashboardOrderDetailUrl,
+			}
+
+			go func() {
+				if err := helper.SendOrderReceivedEmail(s.emailCfg, orgEmail, orgEmailData); err != nil {
+					log.Printf("[ERROR] Failed to send order received email to organization %s: %v", orgEmail, err)
+				}
+			}()
+		}
 	}
 
 	return &model.CreateOrderResponse{

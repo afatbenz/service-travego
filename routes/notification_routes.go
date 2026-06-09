@@ -12,7 +12,8 @@ import (
 // SetupNotificationRoutes mendaftarkan route untuk webhook publik
 func SetupNotificationRoutes(app *fiber.App, db *sql.DB, driver string) {
 	paymentRepo := repository.NewPaymentRepository(db, driver)
-	paymentSvc := service.NewPaymentService(paymentRepo, nil)
+	orgRepo := repository.NewOrganizationRepository(db, driver)
+	paymentSvc := service.NewPaymentService(paymentRepo, orgRepo, nil)
 	h := handler.NewPaymentHandler(paymentSvc)
 
 	app.Post("/api/notification/payment", h.HandlePaymentNotification)

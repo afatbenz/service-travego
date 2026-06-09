@@ -30,8 +30,9 @@ func (h *FleetUnitHandler) List(c *fiber.Ctx) error {
 
 	fleetId := strings.TrimSpace(c.Query("fleet_id"))
 	orderID := strings.TrimSpace(c.Query("order_id"))
+	search := strings.TrimSpace(c.Query("search"))
 
-	items, err := h.service.List(orgID, fleetId, orderID)
+	items, err := h.service.List(orgID, fleetId, orderID, search)
 	if err != nil {
 		code := service.GetStatusCode(err)
 		return helper.SendErrorResponse(c, code, err.Error())
@@ -257,7 +258,16 @@ func (h *FleetUnitHandler) UnitRevenue(c *fiber.Ctx) error {
 		}
 		prevRev.Period = formatFleetUnitPeriodIndonesian(prevT)
 
-		return helper.SuccessResponse(c, fiber.StatusOK, "Fleet unit revenue", []interface{}{currRev, prevRev})
+		history, err := h.service.GetUnitRevenueHistory(orgID, req.UnitID, currentStart, currentEnd)
+		if err != nil {
+			code := service.GetStatusCode(err)
+			return helper.SendErrorResponse(c, code, err.Error())
+		}
+
+		return helper.SuccessResponse(c, fiber.StatusOK, "Fleet unit revenue", model.FleetUnitRevenueResponse{
+			Summary: []*model.FleetUnitRevenue{currRev, prevRev},
+			History: history,
+		})
 	}
 
 	return helper.BadRequestResponse(c, "period is required")

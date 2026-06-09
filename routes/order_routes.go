@@ -19,7 +19,7 @@ func SetupOrderRoutes(api fiber.Router, db *sql.DB, driver string, cfg *configs.
 	orderHandler := handler.NewOrderHandler(orderService)
 	// Reuse fleet repository for partner order listing handler
 	fleetService := service.NewFleetService(fleetRepo)
-	fleetHandler := handler.NewFleetHandler(fleetService)
+	fleetHandler := handler.NewFleetHandler(fleetService, orgRepo)
 
 	orderGroup := api.Group("/order")
 	orderGroup.Use(helper.DualAuthMiddleware(orgRepo))

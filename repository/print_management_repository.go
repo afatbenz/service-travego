@@ -81,6 +81,13 @@ type PrintPaymentOrderInfo struct {
 	CreatedAt       time.Time
 }
 
+type PrintFleetTripExpense struct {
+	TransactionItem string
+	Description     string
+	ExpenseAmount   float64
+	ExpenseDate     time.Time
+}
+
 func NewPrintManagementRepository(db *sql.DB, driver string) *PrintManagementRepository {
 	return &PrintManagementRepository{db: db, driver: driver}
 }
@@ -510,6 +517,136 @@ func (r *PrintManagementRepository) GetOrganizationBankAccount(organizationID st
 		return nil, err
 	}
 	return &out, nil
+}
+
+func (r *PrintManagementRepository) GetOrderIDByScheduleNumber(scheduleNumber, organizationID string) (string, error) {
+	snExpr := "schedule_number = " + r.placeholder(1)
+	orgExpr := "organization_id = " + r.placeholder(2)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		snExpr = "schedule_number::text = " + r.placeholder(1)
+		orgExpr = "organization_id::text = " + r.placeholder(2)
+	}
+	query := fmt.Sprintf(`SELECT COALESCE(order_id, '') as order_id FROM schedule_fleets WHERE %s AND %s LIMIT 1`, snExpr, orgExpr)
+	var out sql.NullString
+	if err := database.QueryRow(r.db, query, strings.TrimSpace(scheduleNumber), strings.TrimSpace(organizationID)).Scan(&out); err != nil {
+		return "", err
+	}
+	if out.Valid {
+		if v := strings.TrimSpace(out.String); v != "" {
+			return v, nil
+		}
+	}
+	return "", sql.ErrNoRows
+}
+
+func (r *PrintManagementRepository) GetFleetTripTotals(scheduleNumber, organizationID, referenceID string) (float64, float64, error) {
+	snExpr := "schedule_number = " + r.placeholder(1)
+	orgExpr := "organization_id = " + r.placeholder(2)
+	refExpr := "reference_id = " + r.placeholder(3)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		snExpr = "schedule_number::text = " + r.placeholder(1)
+		orgExpr = "organization_id::text = " + r.placeholder(2)
+		refExpr = "reference_id::text = " + r.placeholder(3)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT
+			SUM(CASE WHEN payment_type = 1 THEN amount ELSE 0 END) as total_expenses,
+			SUM(CASE WHEN payment_type = 2 THEN amount ELSE 0 END) as total_reimburse
+		FROM transaction_fleet_trips
+		WHERE
+			%s AND %s AND %s
+			AND payment_type IN (1, 2)
+	`, snExpr, orgExpr, refExpr)
+
+	var totalExpenses sql.NullFloat64
+	var totalReimburse sql.NullFloat64
+	if err := database.QueryRow(r.db, query, strings.TrimSpace(scheduleNumber), strings.TrimSpace(organizationID), strings.TrimSpace(referenceID)).Scan(&totalExpenses, &totalReimburse); err != nil {
+		return 0, 0, err
+	}
+
+	te := 0.0
+	if totalExpenses.Valid {
+		te = totalExpenses.Float64
+	}
+	tr := 0.0
+	if totalReimburse.Valid {
+		tr = totalReimburse.Float64
+	}
+	return te, tr, nil
+}
+
+func (r *PrintManagementRepository) GetFleetTripOperationalFee(scheduleNumber, organizationID string) (float64, error) {
+	refExpr := "reference_id = " + r.placeholder(1)
+	orgExpr := "organization_id = " + r.placeholder(2)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		refExpr = "reference_id::text = " + r.placeholder(1)
+		orgExpr = "organization_id::text = " + r.placeholder(2)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT SUM(amount) as operational_fee
+		FROM transactions
+		WHERE transaction_type = 2
+			AND transaction_item = 'TRX-I00'
+			AND %s
+			AND status = 1
+			AND %s
+	`, refExpr, orgExpr)
+
+	var operationalFee sql.NullFloat64
+	if err := database.QueryRow(r.db, query, strings.TrimSpace(scheduleNumber), strings.TrimSpace(organizationID)).Scan(&operationalFee); err != nil {
+		return 0, err
+	}
+	if operationalFee.Valid {
+		return operationalFee.Float64, nil
+	}
+	return 0, nil
+}
+
+func (r *PrintManagementRepository) GetFleetTripExpenseHistory(scheduleNumber, organizationID, referenceID string) ([]PrintFleetTripExpense, error) {
+	snExpr := "schedule_number = " + r.placeholder(1)
+	orgExpr := "organization_id = " + r.placeholder(2)
+	refExpr := "reference_id = " + r.placeholder(3)
+	itemExpr := "COALESCE(transaction_item, '')"
+	if r.driver == "postgres" || r.driver == "pgx" {
+		snExpr = "schedule_number::text = " + r.placeholder(1)
+		orgExpr = "organization_id::text = " + r.placeholder(2)
+		refExpr = "reference_id::text = " + r.placeholder(3)
+		itemExpr = "COALESCE(transaction_item::text, '')"
+	} else if r.driver == "mysql" {
+		itemExpr = "COALESCE(CAST(transaction_item AS CHAR), '')"
+	}
+
+	query := fmt.Sprintf(`
+		SELECT
+			%s as transaction_item,
+			COALESCE(description, '') as description,
+			COALESCE(amount, 0) as expense_amount,
+			created_at as expense_date
+		FROM transaction_fleet_trips
+		WHERE %s AND %s AND %s
+		ORDER BY created_at ASC
+	`, itemExpr, snExpr, orgExpr, refExpr)
+
+	rows, err := database.Query(r.db, query, strings.TrimSpace(scheduleNumber), strings.TrimSpace(organizationID), strings.TrimSpace(referenceID))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]PrintFleetTripExpense, 0)
+	for rows.Next() {
+		var it PrintFleetTripExpense
+		if err := rows.Scan(&it.TransactionItem, &it.Description, &it.ExpenseAmount, &it.ExpenseDate); err != nil {
+			return nil, err
+		}
+		items = append(items, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 func (r *PrintManagementRepository) CountPaymentOrdersByOrganization(organizationID string) (int, error) {

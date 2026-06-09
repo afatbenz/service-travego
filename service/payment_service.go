@@ -29,13 +29,15 @@ type PaymentService interface {
 
 type paymentService struct {
 	repo           repository.PaymentRepository
+	orgRepo        *repository.OrganizationRepository
 	midtransConfig *config.MidtransConfig
 }
 
 // NewPaymentService membuat instance baru dari PaymentService
-func NewPaymentService(repo repository.PaymentRepository, midtransConfig *config.MidtransConfig) PaymentService {
+func NewPaymentService(repo repository.PaymentRepository, orgRepo *repository.OrganizationRepository, midtransConfig *config.MidtransConfig) PaymentService {
 	return &paymentService{
 		repo:           repo,
+		orgRepo:        orgRepo,
 		midtransConfig: midtransConfig,
 	}
 }
@@ -84,7 +86,7 @@ func (s *paymentService) ProcessPaymentNotification(req *model.MidtransWebhookRe
 		return fmt.Errorf("failed to insert payment midtrans: %w", err)
 	}
 
-	invoiceNumber, orderTypeFromPaymentOrder, createdBy, err := s.repo.GetPaymentOrderMeta(orderID, orgID)
+	invoiceNumber, orderTypeFromPaymentOrder, paymentTypeFromPaymentOrder, paymentMethodFromPaymentOrder, createdBy, err := s.repo.GetPaymentOrderMeta(orderID, orgID)
 	if err != nil {
 		return fmt.Errorf("failed to get payment order meta: %w", err)
 	}
@@ -102,13 +104,14 @@ func (s *paymentService) ProcessPaymentNotification(req *model.MidtransWebhookRe
 	}
 
 	transactionDate := parseMidtransTransactionTime(req.TransactionTime)
+	formattedPaymentDate := formatPaymentDate(transactionDate)
 
-	transactionType := int(model.TransactionTypeIncomeOtherIncome)
+	transactionCategory := ""
 	switch orderType {
 	case 1:
-		transactionType = int(model.TransactionTypeIncomeRental)
+		transactionCategory = "TRX01"
 	case 2:
-		transactionType = int(model.TransactionTypeIncomeTourPackage)
+		transactionCategory = "TRX02"
 	}
 
 	transactionID, err := uuid.NewV7()
@@ -122,91 +125,121 @@ func (s *paymentService) ProcessPaymentNotification(req *model.MidtransWebhookRe
 		invoiceNumber,
 		"Midtrans - Order ID "+req.OrderID,
 		transactionDate,
-		1004,
+		paymentTypeFromPaymentOrder,
+		paymentMethodFromPaymentOrder,
 		grossAmount,
 		orgID,
-		transactionType,
-		int(model.TransactionItemIncome),
+		transactionCategory,
 		time.Now(),
 		createdBy,
+		orderID,
 	); err != nil {
 		return fmt.Errorf("failed to insert transaction: %w", err)
 	}
 
-	customerName, customerEmail, fleetName, pickupLocation, startDate, endDate, destination, err := s.repo.GetFleetOrderEmailData(req.OrderID, orgID)
-	if err == nil && strings.TrimSpace(customerEmail) != "" {
+	emailCfg := &configs.EmailConfig{
+		From:     os.Getenv("EMAIL_FROM"),
+		Password: os.Getenv("EMAIL_PASSWORD"),
+		SMTPHost: os.Getenv("EMAIL_SMTP_HOST"),
+		SMTPPort: os.Getenv("EMAIL_SMTP_PORT"),
+	}
+	if configs.ValidateEmailConfig(emailCfg) == nil {
+		baseURL := os.Getenv("APP_BASE_URL")
+		baseURL = strings.TrimSuffix(baseURL, "/")
+
 		tokenPayload := model.OrderTokenPayload{
 			OrderID: req.OrderID,
 			PriceID: "",
 		}
 		tokenBytes, _ := json.Marshal(tokenPayload)
 		token, terr := helper.EncryptString(string(tokenBytes))
-		if terr == nil && strings.TrimSpace(token) != "" {
-			emailCfg := &configs.EmailConfig{
-				From:     os.Getenv("EMAIL_FROM"),
-				Password: os.Getenv("EMAIL_PASSWORD"),
-				SMTPHost: os.Getenv("EMAIL_SMTP_HOST"),
-				SMTPPort: os.Getenv("EMAIL_SMTP_PORT"),
+		orderDetailUrl := ""
+		dashboardOrderDetailUrl := ""
+
+		orgEmail, orgName, domainURL, oerr := s.orgRepo.GetOrganizationEmailAndName(orgID)
+		dashboardOrderDetailUrl = fmt.Sprintf("%s/dashboard/partner/orders/fleet/detail/%s", baseURL, req.OrderID)
+		if terr == nil && strings.TrimSpace(token) != "" && strings.TrimSpace(domainURL) != "" {
+			orderDetailUrl = fmt.Sprintf("%s/order/detail/armada/%s", domainURL, token)
+		}
+		if oerr == nil && strings.TrimSpace(orgEmail) != "" {
+			orgEmailData := helper.PaymentSuccessEmailData{
+				OrganizationName:        orgName,
+				TransactionID:           req.TransactionID,
+				OrderID:                 orderID,
+				PaymentMethod:           req.PaymentType,
+				PaymentDate:             formattedPaymentDate,
+				TotalPrice:              helper.FormatRupiah(grossAmount),
+				DashboardOrderDetailUrl: dashboardOrderDetailUrl,
 			}
-			if configs.ValidateEmailConfig(emailCfg) == nil {
-				baseURL := "http://localhost:5174"
-				baseURL = strings.TrimSuffix(baseURL, "/")
 
-				duration := ""
-				if !startDate.IsZero() && !endDate.IsZero() {
-					days := int(endDate.Sub(startDate).Hours()/24) + 1
-					if days < 1 {
-						days = 1
-					}
-					duration = fmt.Sprintf("%d hari", days)
+			go func() {
+				if err := helper.SendPaymentReceivedEmail(emailCfg, orgEmail, orgEmailData); err != nil {
+					fmt.Println("failed to send payment received email to organization:", err)
 				}
+			}()
+		}
 
-				emailData := helper.PaymentSuccessEmailData{
-					CustomerName:   customerName,
-					TransactionID:  req.TransactionID,
-					OrderID:        req.OrderID,
-					PaymentMethod:  req.PaymentType,
-					PaymentDate:    req.TransactionTime,
-					TotalPrice:     helper.FormatRupiah(grossAmount),
-					FleetName:      fleetName,
-					Duration:       duration,
-					PickupLocation: pickupLocation,
-					Destination:    destination,
-					OrderDetailUrl: fmt.Sprintf("%s/order/detail/armada/%s", baseURL, token),
-					ReviewUrl:      fmt.Sprintf("%s/order/review", baseURL),
+		customerName, customerEmail, fleetName, pickupLocation, startDate, endDate, destination, ferr := s.repo.GetFleetOrderEmailData(req.OrderID, orgID)
+		if ferr == nil && strings.TrimSpace(customerEmail) != "" {
+			duration := ""
+			if !startDate.IsZero() && !endDate.IsZero() {
+				days := int(endDate.Sub(startDate).Hours()/24) + 1
+				if days < 1 {
+					days = 1
 				}
-
-				go func() {
-					if err := helper.SendPaymentSuccessEmail(emailCfg, customerEmail, emailData); err != nil {
-						fmt.Println("failed to send payment success email:", err)
-					}
-				}()
+				duration = fmt.Sprintf("%d hari", days)
 			}
+
+			customerEmailData := helper.PaymentSuccessEmailData{
+				CustomerName:   customerName,
+				TransactionID:  req.TransactionID,
+				OrderID:        req.OrderID,
+				PaymentMethod:  req.PaymentType,
+				PaymentDate:    formattedPaymentDate,
+				TotalPrice:     helper.FormatRupiah(grossAmount),
+				FleetName:      fleetName,
+				Duration:       duration,
+				PickupLocation: pickupLocation,
+				Destination:    destination,
+				OrderDetailUrl: orderDetailUrl,
+				ReviewUrl:      fmt.Sprintf("%s/order/review", domainURL),
+			}
+
+			go func() {
+				if err := helper.SendPaymentSuccessEmail(emailCfg, customerEmail, customerEmailData); err != nil {
+					fmt.Println("failed to send payment success email:", err)
+				}
+			}()
 		}
 	}
 
 	return nil
 }
 
-func orderTypeFromOrderID(orderID string) int64 {
-	id := strings.TrimSpace(orderID)
-	if id == "" {
-		return 0
+func formatPaymentDate(t time.Time) string {
+	months := [...]string{
+		"Januari",
+		"Februari",
+		"Maret",
+		"April",
+		"Mei",
+		"Juni",
+		"Juli",
+		"Agustus",
+		"September",
+		"Oktober",
+		"November",
+		"Desember",
 	}
-	id = strings.ToUpper(id)
 
-	prefix := id
-	if i := strings.Index(prefix, "-"); i > 0 {
-		prefix = prefix[:i]
+	local := t.Local()
+	monthName := ""
+	monthIdx := int(local.Month())
+	if monthIdx >= 1 && monthIdx <= 12 {
+		monthName = months[monthIdx-1]
 	}
 
-	if strings.HasPrefix(prefix, "FO") {
-		return 1
-	}
-	if strings.HasPrefix(prefix, "TO") {
-		return 2
-	}
-	return 0
+	return fmt.Sprintf("%02d %s %04d %02d:%02d", local.Day(), monthName, local.Year(), local.Hour(), local.Minute())
 }
 
 func parseMidtransTransactionTime(s string) time.Time {
@@ -253,11 +286,12 @@ func (s *paymentService) CreatePayment(req *model.PaymentRequest) (*model.Paymen
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate invoice number: %w", err)
 	}
+	fmt.Println("invoiceNumber:", invoiceNumber)
 
 	// 6. Insert ke payment_orders
 	paymentID := uuid.New().String()
 	now := time.Now().Format("2006-01-02 15:04:05")
-	fmt.Printf("[DEBUG] Service CreatePayment - calling InsertPaymentOrder with orgID: %s, userID: %s\n", req.OrganizationID, req.UserID)
+
 	err = s.repo.InsertPaymentOrder(paymentID, req.OrderType, req.OrderID, req.OrganizationID, req.PaymentType, 1004, invoiceNumber, now, req.UserID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert payment order: %w", err)
