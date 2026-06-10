@@ -82,3 +82,85 @@ func DeleteOTP(key string) error {
 	}
 	return redisClient.Del(ctx, fmt.Sprintf("otp:%s", key)).Err()
 }
+
+// --- Refresh Token helpers ---
+
+const refreshTokenPrefix = "refresh:"
+
+// SetRefreshToken stores a refresh token in Redis with expiration.
+// Key: "refresh:{userID}", Value: the refresh token string.
+// Each call resets the TTL (sliding expiration for inactivity invalidation).
+func SetRefreshToken(userID, token string, ttl time.Duration) error {
+	if redisClient == nil {
+		return fmt.Errorf("redis client not initialized")
+	}
+	if ttl <= 0 {
+		ttl = 24 * time.Hour // default 24 hours
+	}
+	return redisClient.Set(ctx, refreshTokenPrefix+userID, token, ttl).Err()
+}
+
+// GetRefreshToken retrieves a refresh token from Redis by userID.
+func GetRefreshToken(userID string) (string, error) {
+	if redisClient == nil {
+		return "", fmt.Errorf("redis client not initialized")
+	}
+	result, err := redisClient.Get(ctx, refreshTokenPrefix+userID).Result()
+	if err != nil {
+		return "", err
+	}
+	return result, nil
+}
+
+// DeleteRefreshToken removes a refresh token from Redis by userID.
+func DeleteRefreshToken(userID string) error {
+	if redisClient == nil {
+		return fmt.Errorf("redis client not initialized")
+	}
+	return redisClient.Del(ctx, refreshTokenPrefix+userID).Err()
+}
+
+// ExtendRefreshTokenTTL resets the TTL of an existing refresh token (sliding expiration).
+func ExtendRefreshTokenTTL(userID string, ttl time.Duration) error {
+	if redisClient == nil {
+		return fmt.Errorf("redis client not initialized")
+	}
+	if ttl <= 0 {
+		ttl = 24 * time.Hour
+	}
+	return redisClient.Expire(ctx, refreshTokenPrefix+userID, ttl).Err()
+}
+
+const refreshTokenReversePrefix = "refresh_rev:"
+
+// SetRefreshTokenReverse stores a reverse mapping from refresh token to userID.
+// This allows looking up the userID when only the refresh token is known.
+func SetRefreshTokenReverse(token, userID string, ttl time.Duration) error {
+	if redisClient == nil {
+		return fmt.Errorf("redis client not initialized")
+	}
+	if ttl <= 0 {
+		ttl = 24 * time.Hour
+	}
+	return redisClient.Set(ctx, refreshTokenReversePrefix+token, userID, ttl).Err()
+}
+
+// GetRefreshTokenUserID retrieves the userID associated with a refresh token.
+func GetRefreshTokenUserID(token string) (string, error) {
+	if redisClient == nil {
+		return "", fmt.Errorf("redis client not initialized")
+	}
+	result, err := redisClient.Get(ctx, refreshTokenReversePrefix+token).Result()
+	if err != nil {
+		return "", err
+	}
+	return result, nil
+}
+
+// DeleteRefreshTokenReverse removes the reverse mapping for a refresh token.
+func DeleteRefreshTokenReverse(token string) error {
+	if redisClient == nil {
+		return fmt.Errorf("redis client not initialized")
+	}
+	return redisClient.Del(ctx, refreshTokenReversePrefix+token).Err()
+}

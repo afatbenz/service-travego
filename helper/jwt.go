@@ -1,6 +1,8 @@
 package helper
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"strconv"
@@ -69,5 +71,41 @@ func GetAuthTokenExpiry() int {
 			return expiry
 		}
 	}
-	return 90 // Default to 90 minutes
+	return 60 // Default to 60 minutes
+}
+
+// GenerateRefreshToken generates a cryptographically secure random refresh token (hex string).
+func GenerateRefreshToken() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("failed to generate refresh token: %w", err)
+	}
+	return hex.EncodeToString(b), nil
+}
+
+// ParseAuthTokenClaims parses a JWT token string and extracts AuthTokenClaims.
+// It parses without validating expiry so it can be used for logout even with expired tokens.
+func ParseAuthTokenClaims(tokenString string) (*AuthTokenClaims, error) {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		secret = "your-secret-key-change-in-production"
+	}
+
+	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
+	token, err := parser.ParseWithClaims(tokenString, &AuthTokenClaims{}, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return []byte(secret), nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse token: %w", err)
+	}
+
+	claims, ok := token.Claims.(*AuthTokenClaims)
+	if !ok {
+		return nil, fmt.Errorf("invalid token claims")
+	}
+
+	return claims, nil
 }

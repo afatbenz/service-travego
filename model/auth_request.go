@@ -40,3 +40,8 @@ type UpdatePasswordRequest struct {
 	ConfirmPassword string `json:"confirm_password" validate:"required,min=6"`
 }
 
+// RefreshTokenRequest represents refresh token request payload
+type RefreshTokenRequest struct {
+	RefreshToken string `json:"refresh_token" validate:"required"`
+}
+
