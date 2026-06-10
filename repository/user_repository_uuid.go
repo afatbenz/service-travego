@@ -243,3 +243,14 @@ func (r *UserRepository) Delete(userID string) error {
 
 	return nil
 }
+
+func (r *UserRepository) SetStatusDeleted(userID string) error {
+	query := fmt.Sprintf(`
+		UPDATE users
+		SET status = 1
+		WHERE user_id = %s
+	`, r.getPlaceholder(1))
+
+	_, err := database.Exec(r.db, query, userID)
+	return err
+}

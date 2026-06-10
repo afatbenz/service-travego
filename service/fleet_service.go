@@ -384,10 +384,6 @@ func (s *FleetService) GetPartnerOrderPaymentSummary(orderID, orgID string, tota
 		fmt.Println("GetFleetOrderItemTotals error:", err)
 		return nil, err
 	}
-	fmt.Println("totalAddon:", totalAddon)
-	fmt.Println("totalDiscount:", totalDiscount)
-	fmt.Println("totalCharge:", totalCharge)
-	fmt.Println("totalPayment:", totalPayment)
 
 	row, err := s.repo.GetLatestPaymentOrder(orderID, 1, orgID)
 	if err != nil {
