@@ -123,6 +123,19 @@ func (s *UserService) DeleteUser(id string) error {
 	return nil
 }
 
+func (s *UserService) DeleteProfile(userID string) error {
+	_, err := s.userRepo.FindByID(userID)
+	if err != nil {
+		return NewServiceError(ErrUserNotFound, http.StatusNotFound, "user not found")
+	}
+
+	if err := s.userRepo.SetStatusDeleted(userID); err != nil {
+		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to delete profile")
+	}
+
+	return nil
+}
+
 func (s *UserService) UpdateProfile(user *model.User) (*model.User, error) {
 	existingUser, err := s.userRepo.FindByID(user.UserID)
 	if err != nil {

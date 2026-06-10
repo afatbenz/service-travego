@@ -6,8 +6,10 @@ import (
 	"os"
 	"service-travego/repository"
 	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/limiter"
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -258,4 +260,31 @@ func DualAuthMiddleware(orgRepo *repository.OrganizationRepository) fiber.Handle
 			"transaction_id": GetTransactionID(c),
 		})
 	}
+}
+
+// AuthRateLimiter creates a rate limiting middleware for sensitive auth endpoints (login, register)
+// Default limit: 5 requests per 1 minute per IP
+func AuthRateLimiter() fiber.Handler {
+	return limiter.New(limiter.Config{
+		Max:        5,
+		Expiration: 1 * time.Minute,
+		KeyGenerator: func(c *fiber.Ctx) string {
+			// Try to get real IP if running behind a proxy
+			ip := c.Get("X-Forwarded-For")
+			if ip == "" {
+				ip = c.Get("X-Real-IP")
+			}
+			if ip == "" {
+				ip = c.IP()
+			}
+			// X-Forwarded-For can contain multiple IPs separated by comma
+			if strings.Contains(ip, ",") {
+				ip = strings.Split(ip, ",")[0]
+			}
+			return strings.TrimSpace(ip)
+		},
+		LimitReached: func(c *fiber.Ctx) error {
+			return SendErrorResponse(c, fiber.StatusTooManyRequests, "Too many requests. Please try again after 1 minute.")
+		},
+	})
 }

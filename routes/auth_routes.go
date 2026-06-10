@@ -26,18 +26,13 @@ func SetupAuthRoutes(api fiber.Router, db *sql.DB, driver string, cfg *configs.C
 
 	// Auth routes
 	auth := api.Group("/auth")
-	auth.Post("/register", authHandler.Register)
+	auth.Post("/register", helper.AuthRateLimiter(), authHandler.Register)
 	auth.Post("/verify-otp", authHandler.VerifyOTP)
 	auth.Post("/resend-otp", authHandler.ResendOTP)
-	auth.Post("/login", authHandler.Login)
+	auth.Post("/login", helper.AuthRateLimiter(), authHandler.Login)
 	auth.Post("/reset-password", authHandler.RequestResetPassword)
 	auth.Post("/update-password", authHandler.UpdatePassword)
 
-	auth.Post("/logout", func(c *fiber.Ctx) error {
-		return helper.SuccessResponse(c, fiber.StatusOK, "Auth logout endpoint - to be implemented", nil)
-	})
-
-	auth.Post("/refresh", func(c *fiber.Ctx) error {
-		return helper.SuccessResponse(c, fiber.StatusOK, "Auth refresh token endpoint - to be implemented", nil)
-	})
+	auth.Post("/logout", authHandler.Logout)
+	auth.Post("/refresh", authHandler.RefreshToken)
 }

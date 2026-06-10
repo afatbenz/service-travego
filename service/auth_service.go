@@ -257,10 +257,11 @@ func (s *AuthService) ResendOTP(email, token string) (string, error) {
 
 // LoginResponse represents login response data
 type LoginResponse struct {
-	Token    string `json:"token"`
-	Username string `json:"username"`
-	Fullname string `json:"fullname"`
-	Avatar   string `json:"avatar"`
+	Token        string `json:"token"`
+	RefreshToken string `json:"refresh_token"`
+	Username     string `json:"username"`
+	Fullname     string `json:"fullname"`
+	Avatar       string `json:"avatar"`
 }
 
 // Login authenticates a user with email/phone and password
@@ -366,6 +367,22 @@ func (s *AuthService) Login(email, phone, password string) (*LoginResponse, erro
 		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to generate token")
 	}
 
+	// Generate and store refresh token in Redis (24 hours TTL, sliding expiration)
+	refreshToken, err := helper.GenerateRefreshToken()
+	if err != nil {
+		log.Printf("[ERROR] Failed to generate refresh token - UserID: %s, Error: %v", user.UserID, err)
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to generate refresh token")
+	}
+	refreshTTL := 24 * time.Hour
+	if err := helper.SetRefreshToken(user.UserID, refreshToken, refreshTTL); err != nil {
+		log.Printf("[ERROR] Failed to store refresh token - UserID: %s, Error: %v", user.UserID, err)
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to store refresh token")
+	}
+	if err := helper.SetRefreshTokenReverse(refreshToken, user.UserID, refreshTTL); err != nil {
+		log.Printf("[ERROR] Failed to store refresh token reverse mapping - UserID: %s, Error: %v", user.UserID, err)
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to store refresh token")
+	}
+
 	// Set default avatar based on gender if avatar is empty
 	avatar := user.Avatar
 	if avatar == "" {
@@ -380,10 +397,11 @@ func (s *AuthService) Login(email, phone, password string) (*LoginResponse, erro
 	avatar = helper.GetAssetURL(avatar)
 
 	return &LoginResponse{
-		Token:    token,
-		Username: user.Username,
-		Fullname: user.Name,
-		Avatar:   avatar,
+		Token:        token,
+		RefreshToken: refreshToken,
+		Username:     user.Username,
+		Fullname:     user.Name,
+		Avatar:       avatar,
 	}, nil
 }
 
@@ -519,4 +537,128 @@ func (s *AuthService) UpdatePassword(token, newPassword, confirmPassword string)
 	}
 
 	return nil
+}
+
+// RefreshTokenResponse represents refresh token response data
+type RefreshTokenResponse struct {
+	Token        string `json:"token"`
+	RefreshToken string `json:"refresh_token"`
+}
+
+// RefreshToken validates a refresh token and issues new access + refresh tokens.
+// Implements sliding expiration: each successful refresh resets the 24-hour TTL.
+func (s *AuthService) RefreshToken(refreshToken string) (*RefreshTokenResponse, error) {
+	if refreshToken == "" {
+		return nil, NewServiceError(ErrInvalidCredentials, http.StatusBadRequest, "refresh token is required")
+	}
+
+	// Look up all users' refresh tokens by iterating or by encoding userID in the token.
+	// Since we store refresh tokens as refresh:{userID} -> token, we need the userID.
+	// Strategy: encode the userID inside the refresh token payload.
+	// Alternative: store as refresh:{token} -> userID (reverse mapping).
+	// For efficiency, let's look up by token value using a reverse key.
+	userID, err := helper.GetRefreshTokenUserID(refreshToken)
+	if err != nil {
+		log.Printf("[ERROR] Invalid or expired refresh token - Error: %v", err)
+		return nil, NewServiceError(ErrInvalidCredentials, http.StatusUnauthorized, "invalid or expired refresh token")
+	}
+
+	// Validate the stored token matches
+	storedToken, err := helper.GetRefreshToken(userID)
+	if err != nil || storedToken != refreshToken {
+		log.Printf("[ERROR] Refresh token mismatch or expired - UserID: %s, Error: %v", userID, err)
+		return nil, NewServiceError(ErrInvalidCredentials, http.StatusUnauthorized, "invalid or expired refresh token")
+	}
+
+	// Find user to regenerate access token
+	user, err := s.userRepo.FindByID(userID)
+	if err != nil {
+		log.Printf("[ERROR] User not found for refresh - UserID: %s, Error: %v", userID, err)
+		return nil, NewServiceError(ErrUserNotFound, http.StatusUnauthorized, "user not found")
+	}
+
+	if !user.IsActive || !user.IsVerified {
+		return nil, NewServiceError(ErrInvalidCredentials, http.StatusUnauthorized, "user is inactive or not verified")
+	}
+
+	// Get organization info
+	organizationID := ""
+	organizationRole := 0
+	organizationName := ""
+	if s.orgUserRepo != nil {
+		orgID, role, err := s.orgUserRepo.GetOrganizationAndRoleByUserID(user.UserID)
+		if err == nil {
+			organizationID = orgID
+			organizationRole = role
+		}
+		_, orgName, _, _, _, err := s.orgUserRepo.GetOrganizationWithJoinDateByUserID(user.UserID)
+		if err == nil {
+			organizationName = orgName
+		}
+	}
+
+	// Generate new access token
+	sensitive := helper.AuthSensitiveData{
+		OrganizationID:   organizationID,
+		UserID:           user.UserID,
+		OrganizationRole: organizationRole,
+		IsAdmin:          user.IsAdmin,
+	}
+	encToken, errEnc := helper.EncryptAuthSensitiveData(sensitive)
+	if errEnc != nil {
+		log.Printf("[ERROR] Failed to encrypt auth sensitive data on refresh - UserID: %s, Error: %v", user.UserID, errEnc)
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to generate token")
+	}
+
+	newAccessToken, err := helper.GenerateAuthToken(
+		user.Name,
+		organizationName,
+		organizationID,
+		user.IsAdmin,
+		user.Email,
+		user.Username,
+		encToken,
+		s.authTokenExpiryMinutes,
+	)
+	if err != nil {
+		log.Printf("[ERROR] Failed to generate auth token on refresh - UserID: %s, Error: %v", user.UserID, err)
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to generate token")
+	}
+
+	// Generate new refresh token (rotate) and store with sliding 24h TTL
+	newRefreshToken, err := helper.GenerateRefreshToken()
+	if err != nil {
+		log.Printf("[ERROR] Failed to generate new refresh token - UserID: %s, Error: %v", user.UserID, err)
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to generate refresh token")
+	}
+
+	refreshTTL := 24 * time.Hour
+	// Delete old reverse mapping and forward mapping
+	helper.DeleteRefreshTokenReverse(refreshToken)
+	// Store new refresh token (forward: userID -> token)
+	if err := helper.SetRefreshToken(user.UserID, newRefreshToken, refreshTTL); err != nil {
+		log.Printf("[ERROR] Failed to store new refresh token - UserID: %s, Error: %v", user.UserID, err)
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to store refresh token")
+	}
+	// Store reverse mapping (token -> userID)
+	if err := helper.SetRefreshTokenReverse(newRefreshToken, user.UserID, refreshTTL); err != nil {
+		log.Printf("[ERROR] Failed to store refresh token reverse mapping - UserID: %s, Error: %v", user.UserID, err)
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to store refresh token")
+	}
+
+	return &RefreshTokenResponse{
+		Token:        newAccessToken,
+		RefreshToken: newRefreshToken,
+	}, nil
+}
+
+// Logout invalidates the refresh token for the given user.
+func (s *AuthService) Logout(userID string) error {
+	// Get stored refresh token to delete reverse mapping
+	storedToken, err := helper.GetRefreshToken(userID)
+	if err == nil && storedToken != "" {
+		helper.DeleteRefreshTokenReverse(storedToken)
+	}
+	// Delete forward mapping
+	return helper.DeleteRefreshToken(userID)
 }

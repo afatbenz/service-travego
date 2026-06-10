@@ -158,12 +158,13 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 	// Store token in locals for middleware access
 	c.Locals("auth_token", loginResponse.Token)
 
-	// Create response data with token, username, fullname, and avatar
+	// Create response data with token, refresh_token, username, fullname, and avatar
 	responseData := map[string]interface{}{
-		"token":    loginResponse.Token,
-		"username": loginResponse.Username,
-		"fullname": loginResponse.Fullname,
-		"avatar":   loginResponse.Avatar,
+		"token":         loginResponse.Token,
+		"refresh_token": loginResponse.RefreshToken,
+		"username":      loginResponse.Username,
+		"fullname":      loginResponse.Fullname,
+		"avatar":        loginResponse.Avatar,
 	}
 
 	return helper.SuccessResponse(c, fiber.StatusOK, "Login successful.", responseData)
@@ -228,4 +229,68 @@ func (h *AuthHandler) UpdatePassword(c *fiber.Ctx) error {
 	}
 
 	return helper.SuccessResponse(c, fiber.StatusOK, "Password updated successfully.", nil)
+}
+
+func (h *AuthHandler) RefreshToken(c *fiber.Ctx) error {
+	var req model.RefreshTokenRequest
+
+	if err := c.BodyParser(&req); err != nil {
+		log.Printf("[ERROR] BodyParser failed - Path: %s, Error: %v", c.Path(), err)
+		return helper.BadRequestResponse(c, "Invalid request body")
+	}
+
+	if validationErrors := helper.ValidateStruct(req); len(validationErrors) > 0 {
+		return helper.SendValidationErrorResponse(c, validationErrors)
+	}
+
+	refreshResponse, err := h.authService.RefreshToken(req.RefreshToken)
+	if err != nil {
+		statusCode := service.GetStatusCode(err)
+		log.Printf("[ERROR] RefreshToken failed - Status: %d, Error: %v", statusCode, err)
+		return helper.SendErrorResponse(c, statusCode, err.Error())
+	}
+
+	responseData := map[string]interface{}{
+		"token":         refreshResponse.Token,
+		"refresh_token": refreshResponse.RefreshToken,
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Token refreshed successfully.", responseData)
+}
+
+func (h *AuthHandler) Logout(c *fiber.Ctx) error {
+	// Get user_id from JWT middleware locals
+	userID, ok := c.Locals("user_id").(string)
+	if !ok || userID == "" {
+		// Try to extract from Authorization header directly
+		authHeader := c.Get("Authorization")
+		if authHeader == "" {
+			return helper.BadRequestResponse(c, "Authorization required")
+		}
+		tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
+		tokenStr = strings.TrimSpace(tokenStr)
+
+		// Decode JWT to get user_id from encrypted token claim
+		claims, err := helper.ParseAuthTokenClaims(tokenStr)
+		if err != nil {
+			log.Printf("[ERROR] Failed to parse token for logout - Error: %v", err)
+			return helper.BadRequestResponse(c, "Invalid token")
+		}
+		if claims.Token != "" {
+			data, derr := helper.DecryptAuthSensitiveData(claims.Token)
+			if derr == nil {
+				userID = data.UserID
+			}
+		}
+		if userID == "" {
+			return helper.BadRequestResponse(c, "Unable to identify user")
+		}
+	}
+
+	if err := h.authService.Logout(userID); err != nil {
+		log.Printf("[ERROR] Logout failed - UserID: %s, Error: %v", userID, err)
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to logout")
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Logout successful.", nil)
 }

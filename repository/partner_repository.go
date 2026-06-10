@@ -68,7 +68,7 @@ func (r *PartnerRepository) GetCityLabel(cityID *int) string {
 
 func (r *PartnerRepository) List(orgID, partnerName string) ([]model.OperationPartner, error) {
 	query := `
-		SELECT op.partner_id, op.partner_name, op.partner_address, op.partner_city, op.partner_phone, op.partner_email, op.pic_name, op.created_at, op.created_by, op.updated_at, op.updated_by, op.organization_id, COUNT(fuo.unit_id) as total_unit
+		SELECT op.partner_id, op.partner_name, op.partner_address, op.partner_city, op.partner_phone, op.partner_email, op.pic_name, op.created_at, op.organization_id, COUNT(fuo.unit_id) as total_unit
 		FROM operation_partner op
 		LEFT JOIN fleet_unit_ownership fuo ON fuo.partner_id = op.partner_id
 		WHERE op.organization_id = $1
