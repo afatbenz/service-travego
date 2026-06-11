@@ -14,8 +14,8 @@ func NewPartnerService(repo *repository.PartnerRepository) *PartnerService {
 	return &PartnerService{repo: repo}
 }
 
-func (s *PartnerService) List(orgID, partnerName string) ([]model.OperationPartner, error) {
-	return s.repo.List(orgID, partnerName)
+func (s *PartnerService) List(orgID, partnerName, startDate, endDate string) ([]model.OperationPartner, error) {
+	return s.repo.List(orgID, partnerName, startDate, endDate)
 }
 
 func (s *PartnerService) Create(req model.CreateOperationPartnerRequest, orgID, userID string) (*model.OperationPartner, error) {
@@ -37,6 +37,7 @@ func (s *PartnerService) Detail(req *model.OperationPartnerDetailRequest, orgID 
 	if req == nil || req.PartnerID == "" {
 		return nil, errors.New("partner not found")
 	}
+
 	partner, err := s.repo.GetByID(req.PartnerID, orgID, req)
 	if err != nil {
 		return nil, err
@@ -45,8 +46,17 @@ func (s *PartnerService) Detail(req *model.OperationPartnerDetailRequest, orgID 
 		return nil, errors.New("partner not found")
 	}
 
+	totalRevenue, totalExpenses, totalBooking, err := s.repo.GetDetailMetrics(req.PartnerID, orgID, req)
+	if err != nil {
+		return nil, err
+	}
+	partner.TotalRevenue = totalRevenue
+	partner.TotalExpenses = totalExpenses
+	partner.TotalBooking = totalBooking
+	partner.ProfitEstimate = totalRevenue - totalExpenses
+
 	label := s.repo.GetCityLabel(partner.PartnerCity)
-	fleetUnits, _ := s.repo.GetPartnerFleetUnits(req.PartnerID, orgID)
+	fleetUnits, _ := s.repo.GetPartnerFleetUnits(req.PartnerID, orgID, req)
 	if fleetUnits == nil {
 		fleetUnits = []model.PartnerFleetUnit{}
 	}

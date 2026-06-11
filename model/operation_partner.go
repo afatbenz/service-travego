@@ -20,7 +20,9 @@ type OperationPartner struct {
 	TotalUnits       int64      `json:"total_units,omitempty"`
 	TotalSchedule    int64      `json:"total_schedule,omitempty"`
 	TotalRevenue     float64    `json:"total_revenue"`
-	TotalExpenses    float64    `json:"total_expenses,omitempty"`
+	TotalExpenses    float64    `json:"total_expenses"`
+	ProfitEstimate   float64    `json:"profit_estimate"`
+	TotalBooking     int64      `json:"total_booking"`
 }
 
 type CreateOperationPartnerRequest struct {
@@ -51,10 +53,14 @@ type OperationPartnerDetailRequest struct {
 }
 
 type PartnerFleetUnit struct {
-	FleetName   string `json:"fleet_name"`
-	PlateNumber string `json:"plate_number"`
-	VehicleID   string `json:"vehicle_id"`
-	UnitID      string `json:"unit_id"`
+	FleetName     string  `json:"fleet_name"`
+	FleetType     string  `json:"fleet_type"`
+	PlateNumber   string  `json:"plate_number"`
+	VehicleID     string  `json:"vehicle_id"`
+	UnitID        string  `json:"unit_id"`
+	TotalBooking  int64   `json:"total_booking"`
+	TotalRevenue  float64 `json:"total_revenue"`
+	TotalExpenses float64 `json:"total_expenses"`
 }
 
 type OperationPartnerDetailResponse struct {

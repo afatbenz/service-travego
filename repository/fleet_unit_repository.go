@@ -1106,6 +1106,7 @@ func (r *FleetUnitRepository) GetUnitRevenue(orgID, unitID, startDate, endDate s
 		r.placeholder(8),
 		r.placeholder(9),
 	)
+	fmt.Println(query)
 
 	var revenueAny interface{}
 	var totalBookingAny interface{}
