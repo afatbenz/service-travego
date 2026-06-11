@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"service-travego/database"
 	"service-travego/model"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -66,29 +68,105 @@ func (r *PartnerRepository) GetCityLabel(cityID *int) string {
 	return ""
 }
 
-func (r *PartnerRepository) List(orgID, partnerName string) ([]model.OperationPartner, error) {
-	query := `
-		SELECT op.partner_id, op.partner_name, op.partner_address, op.partner_city, op.partner_phone, op.partner_email, op.pic_name, op.created_at, op.organization_id, COUNT(fuo.unit_id) as total_unit
-		FROM operation_partner op
-		LEFT JOIN fleet_unit_ownership fuo ON fuo.partner_id = op.partner_id
-		WHERE op.organization_id = $1
-		GROUP BY op.partner_id, op.partner_name, op.partner_address, op.partner_city, op.partner_phone, op.partner_email, op.pic_name, op.created_at, op.created_by, op.updated_at, op.updated_by, op.organization_id
-	`
-	args := []interface{}{orgID}
+func (r *PartnerRepository) List(orgID, partnerName, startDate, endDate string) ([]model.OperationPartner, error) {
+	args := make([]interface{}, 0, 4)
+	whereClauses := make([]string, 0, 2)
 
-	if partnerName != "" {
-		query += ` AND op.partner_name ILIKE $2`
+	sfOrderExpr := "sf.order_id::text"
+	transactionReferenceExpr := "reference_id::text"
+	fleetOrderItemExpr := "order_id::text"
+	revenueOrgExpr := "sf.organization_id::text = op.organization_id::text"
+	partnerNameOperator := "ILIKE"
+
+	if r.driver == "mysql" {
+		sfOrderExpr = "sf.order_id"
+		transactionReferenceExpr = "reference_id"
+		fleetOrderItemExpr = "order_id"
+		revenueOrgExpr = "sf.organization_id = op.organization_id"
+		partnerNameOperator = "LIKE"
+	}
+
+	whereClauses = append(whereClauses, fmt.Sprintf("op.organization_id = %s", r.getPlaceholder(len(args)+1)))
+	args = append(args, orgID)
+
+	if partnerName = strings.TrimSpace(partnerName); partnerName != "" {
+		whereClauses = append(whereClauses, fmt.Sprintf("op.partner_name %s %s", partnerNameOperator, r.getPlaceholder(len(args)+1)))
 		args = append(args, "%"+partnerName+"%")
 	}
 
-	query += ` ORDER BY op.created_at DESC`
-
-	// adjust for mysql
-	if r.driver == "mysql" {
-		query = strings.ReplaceAll(query, "$1", "?")
-		query = strings.ReplaceAll(query, "$2", "?")
-		query = strings.ReplaceAll(query, "ILIKE", "LIKE")
+	revenueDateClauses := []string{"transaction_date IS NOT NULL"}
+	if startDate = strings.TrimSpace(startDate); startDate != "" {
+		revenueDateClauses = append(revenueDateClauses, fmt.Sprintf("transaction_date >= %s", r.getPlaceholder(len(args)+1)))
+		args = append(args, startDate)
 	}
+	if endDate = strings.TrimSpace(endDate); endDate != "" {
+		revenueDateClauses = append(revenueDateClauses, fmt.Sprintf("transaction_date < %s", r.getPlaceholder(len(args)+1)))
+		args = append(args, endDate)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT
+			op.partner_id,
+			op.partner_name,
+			op.partner_address,
+			op.partner_city,
+			op.partner_phone,
+			op.partner_email,
+			op.pic_name,
+			op.created_at,
+			op.organization_id,
+			COUNT(fuo.unit_id) AS total_unit,
+			COALESCE(revenue.total_revenue, 0) AS total_revenue
+		FROM operation_partner op
+		LEFT JOIN fleet_unit_ownership fuo ON fuo.partner_id = op.partner_id
+		LEFT JOIN LATERAL (
+			SELECT COALESCE(SUM(COALESCE(t.total_amount / NULLIF(q.total_qty, 0), 0)), 0) AS total_revenue
+			FROM (
+				SELECT DISTINCT %s AS order_id
+				FROM schedule_fleets sf
+				INNER JOIN fleet_unit_ownership fuo2 ON fuo2.unit_id = sf.unit_id
+				WHERE fuo2.partner_id = op.partner_id
+				  AND %s
+			) sf
+			INNER JOIN (
+				SELECT %s AS order_id, SUM(amount) AS total_amount
+				FROM transactions
+				WHERE %s
+				  AND transaction_type = 1
+				GROUP BY %s
+			) t ON t.order_id = sf.order_id
+			INNER JOIN (
+				SELECT %s AS order_id, SUM(quantity) AS total_qty
+				FROM fleet_order_items
+				GROUP BY %s
+			) q ON q.order_id = sf.order_id
+		) revenue ON true
+		WHERE %s
+		GROUP BY
+			op.partner_id,
+			op.partner_name,
+			op.partner_address,
+			op.partner_city,
+			op.partner_phone,
+			op.partner_email,
+			op.pic_name,
+			op.created_at,
+			op.created_by,
+			op.updated_at,
+			op.updated_by,
+			op.organization_id,
+			revenue.total_revenue
+		ORDER BY op.created_at DESC
+	`,
+		sfOrderExpr,
+		revenueOrgExpr,
+		transactionReferenceExpr,
+		strings.Join(revenueDateClauses, "\n\t\t\t\t  AND "),
+		transactionReferenceExpr,
+		fleetOrderItemExpr,
+		fleetOrderItemExpr,
+		strings.Join(whereClauses, "\n\t\t  AND "),
+	)
 
 	rows, err := r.db.Query(query, args...)
 	if err != nil {
@@ -103,7 +181,7 @@ func (r *PartnerRepository) List(orgID, partnerName string) ([]model.OperationPa
 			&p.PartnerID, &p.PartnerName, &p.PartnerAddress, &p.PartnerCity, &p.PartnerPhone, &p.PartnerEmail, &p.PicName,
 			&p.CreatedAt,
 
-			&p.OrganizationID, &p.TotalUnit,
+			&p.OrganizationID, &p.TotalUnit, &p.TotalRevenue,
 		)
 		if err != nil {
 			return nil, err
@@ -175,11 +253,10 @@ func (r *PartnerRepository) Update(req model.UpdateOperationPartnerRequest, orgI
 }
 
 func (r *PartnerRepository) GetByID(partnerID, orgID string, filter *model.OperationPartnerDetailRequest) (*model.OperationPartner, error) {
-	args := make([]interface{}, 0, 6)
+	args := make([]interface{}, 0, 4)
 	args = append(args, partnerID, orgID)
 
 	tripCond := ""
-	transactionCond := ""
 
 	if filter != nil {
 		if v := strings.TrimSpace(filter.TripStartDate); v != "" {
@@ -188,14 +265,6 @@ func (r *PartnerRepository) GetByID(partnerID, orgID string, filter *model.Opera
 		}
 		if v := strings.TrimSpace(filter.TripEndDate); v != "" {
 			tripCond += fmt.Sprintf(" AND fo.start_date <= %s", r.getPlaceholder(len(args)+1))
-			args = append(args, v)
-		}
-		if v := strings.TrimSpace(filter.TransactionStartDate); v != "" {
-			transactionCond += fmt.Sprintf(" AND t.transaction_date >= %s", r.getPlaceholder(len(args)+1))
-			args = append(args, v)
-		}
-		if v := strings.TrimSpace(filter.TransactionEndDate); v != "" {
-			transactionCond += fmt.Sprintf(" AND t.transaction_date <= %s", r.getPlaceholder(len(args)+1))
 			args = append(args, v)
 		}
 	}
@@ -222,35 +291,12 @@ func (r *PartnerRepository) GetByID(partnerID, orgID string, filter *model.Opera
 			 WHERE fuo.partner_id = op.partner_id
 			   AND fuo.organization_id = op.organization_id
 			   AND sf.organization_id = op.organization_id
-			   %s) AS total_schedule, 
-
-			COALESCE(finance.total_revenue, 0) AS total_revenue, 
-			COALESCE(finance.total_expenses, 0) AS total_expenses
+			   %s) AS total_schedule
 		FROM operation_partner op 
-		LEFT JOIN ( 
-			SELECT 
-				fuo.partner_id, 
-				SUM(CASE WHEN t.transaction_type = 1 THEN t.amount ELSE 0 END) AS total_revenue, 
-				SUM(CASE WHEN t.transaction_type = 2 THEN t.amount ELSE 0 END) AS total_expenses 
-			FROM fleet_unit_ownership fuo 
-			INNER JOIN fleet_units fu ON fu.unit_id = fuo.unit_id 
-			INNER JOIN schedule_fleets sf ON sf.unit_id = fu.unit_id 
-			INNER JOIN fleet_orders fo ON fo.order_id = sf.order_id
-			INNER JOIN transactions t ON t.reference_id = sf.schedule_number 
-			WHERE fuo.partner_id = %s
-			  AND fuo.organization_id = %s
-			  AND sf.organization_id = %s
-			  AND t.organization_id = %s
-			  %s
-			  %s
-			GROUP BY fuo.partner_id 
-		) finance ON finance.partner_id = op.partner_id 
 		WHERE op.partner_id = %s AND op.organization_id = %s
 		LIMIT 1
 	`,
 		tripCond,
-		r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(2), r.getPlaceholder(2),
-		tripCond, transactionCond,
 		r.getPlaceholder(1), r.getPlaceholder(2),
 	)
 
@@ -266,8 +312,6 @@ func (r *PartnerRepository) GetByID(partnerID, orgID string, filter *model.Opera
 		&joinDate,
 		&p.TotalUnits,
 		&p.TotalSchedule,
-		&p.TotalRevenue,
-		&p.TotalExpenses,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -283,6 +327,216 @@ func (r *PartnerRepository) GetByID(partnerID, orgID string, filter *model.Opera
 	p.TotalUnit = p.TotalUnits
 	p.PartnerCityLabel = r.GetCityLabel(p.PartnerCity)
 	return &p, nil
+}
+
+func (r *PartnerRepository) GetDetailMetrics(partnerID, orgID string, req *model.OperationPartnerDetailRequest) (float64, float64, int64, error) {
+	transactionStartDate := "0001-01-01"
+	transactionEndDate := "9999-12-31"
+	tripStartDate := "0001-01-01"
+	tripEndDate := "9999-12-31"
+
+	if req != nil {
+		if v := strings.TrimSpace(req.TransactionStartDate); v != "" {
+			transactionStartDate = v
+		}
+		if v := strings.TrimSpace(req.TransactionEndDate); v != "" {
+			transactionEndDate = v
+		}
+		if v := strings.TrimSpace(req.TripStartDate); v != "" {
+			tripStartDate = v
+		}
+		if v := strings.TrimSpace(req.TripEndDate); v != "" {
+			tripEndDate = v
+		}
+	}
+
+	parseFloat64 := func(v interface{}) (float64, bool) {
+		switch vv := v.(type) {
+		case nil:
+			return 0, true
+		case float64:
+			return vv, true
+		case float32:
+			return float64(vv), true
+		case int64:
+			return float64(vv), true
+		case int32:
+			return float64(vv), true
+		case int:
+			return float64(vv), true
+		case []byte:
+			f, err := strconv.ParseFloat(string(vv), 64)
+			return f, err == nil
+		case string:
+			f, err := strconv.ParseFloat(vv, 64)
+			return f, err == nil
+		default:
+			return 0, false
+		}
+	}
+
+	parseInt64 := func(v interface{}) (int64, bool) {
+		switch vv := v.(type) {
+		case nil:
+			return 0, true
+		case int64:
+			return vv, true
+		case int32:
+			return int64(vv), true
+		case int:
+			return int64(vv), true
+		case float64:
+			return int64(vv), true
+		case float32:
+			return int64(vv), true
+		case []byte:
+			i, err := strconv.ParseInt(string(vv), 10, 64)
+			return i, err == nil
+		case string:
+			i, err := strconv.ParseInt(vv, 10, 64)
+			return i, err == nil
+		default:
+			return 0, false
+		}
+	}
+
+	sfOrderExpr := "sf.order_id::text"
+	transactionReferenceExpr := "reference_id::text"
+	fleetOrderItemExpr := "order_id::text"
+	revenuePartnerExpr := "fuo.partner_id::text = " + r.getPlaceholder(1)
+	revenueOrgExpr := "sf.organization_id::text = " + r.getPlaceholder(2)
+	expensesPartnerExpr := "fuo.partner_id::text = " + r.getPlaceholder(5)
+	expensesOrgExpr := "sf.organization_id::text = " + r.getPlaceholder(6)
+	expensesReferenceExpr := "t.reference_id::text = sf.schedule_number::text OR t.reference_id::text = sf.order_id::text"
+	totalBookingPartnerExpr := "fuo.partner_id::text = " + r.getPlaceholder(9)
+	totalBookingOrgExpr := "sf.organization_id::text = " + r.getPlaceholder(10)
+	totalBookingFleetOrderOrgExpr := "fo2.organization_id::text = " + r.getPlaceholder(11)
+
+	if r.driver == "mysql" {
+		sfOrderExpr = "sf.order_id"
+		transactionReferenceExpr = "reference_id"
+		fleetOrderItemExpr = "order_id"
+		revenuePartnerExpr = "fuo.partner_id = " + r.getPlaceholder(1)
+		revenueOrgExpr = "sf.organization_id = " + r.getPlaceholder(2)
+		expensesPartnerExpr = "fuo.partner_id = " + r.getPlaceholder(5)
+		expensesOrgExpr = "sf.organization_id = " + r.getPlaceholder(6)
+		expensesReferenceExpr = "t.reference_id = sf.schedule_number OR t.reference_id = sf.order_id"
+		totalBookingPartnerExpr = "fuo.partner_id = " + r.getPlaceholder(9)
+		totalBookingOrgExpr = "sf.organization_id = " + r.getPlaceholder(10)
+		totalBookingFleetOrderOrgExpr = "fo2.organization_id = " + r.getPlaceholder(11)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT
+			(
+				SELECT COALESCE(SUM(COALESCE(t.total_amount / NULLIF(q.total_qty, 0), 0)), 0)
+				FROM (
+					SELECT DISTINCT %s AS order_id
+					FROM schedule_fleets sf
+					INNER JOIN fleet_unit_ownership fuo ON fuo.unit_id = sf.unit_id
+					WHERE %s
+					  AND %s
+				) sf
+				INNER JOIN (
+					SELECT %s AS order_id, SUM(amount) AS total_amount
+					FROM transactions
+					WHERE transaction_date IS NOT NULL
+					  AND transaction_date >= %s AND transaction_date < %s
+					  AND transaction_type = 1
+					GROUP BY %s
+				) t ON t.order_id = sf.order_id
+				INNER JOIN (
+					SELECT %s AS order_id, SUM(quantity) AS total_qty
+					FROM fleet_order_items
+					GROUP BY %s
+				) q ON q.order_id = sf.order_id
+			) AS revenue,
+			(
+				SELECT COALESCE(SUM(t.amount), 0)
+				FROM schedule_fleets sf
+				INNER JOIN fleet_unit_ownership fuo ON fuo.unit_id = sf.unit_id
+				INNER JOIN transactions t ON (%s)
+				WHERE %s
+				  AND %s
+				  AND t.transaction_type = 2
+				  AND t.transaction_date IS NOT NULL
+				  AND t.transaction_date >= %s AND t.transaction_date < %s
+			) AS expenses,
+			(
+				SELECT COALESCE(COUNT(DISTINCT sf.schedule_number), 0)
+				FROM schedule_fleets sf
+				INNER JOIN fleet_orders fo2 ON fo2.order_id = sf.order_id
+				INNER JOIN fleet_unit_ownership fuo ON fuo.unit_id = sf.unit_id
+				WHERE %s
+				  AND %s
+				  AND %s
+				  AND fo2.status = 1
+				  AND fo2.start_date >= %s
+				  AND fo2.end_date < %s
+			) AS total_booking
+	`,
+		sfOrderExpr,
+		revenuePartnerExpr,
+		revenueOrgExpr,
+		transactionReferenceExpr,
+		r.getPlaceholder(3),
+		r.getPlaceholder(4),
+		transactionReferenceExpr,
+		fleetOrderItemExpr,
+		fleetOrderItemExpr,
+		expensesReferenceExpr,
+		expensesPartnerExpr,
+		expensesOrgExpr,
+		r.getPlaceholder(7),
+		r.getPlaceholder(8),
+		totalBookingPartnerExpr,
+		totalBookingOrgExpr,
+		totalBookingFleetOrderOrgExpr,
+		r.getPlaceholder(12),
+		r.getPlaceholder(13),
+	)
+
+	var totalRevenueAny interface{}
+	var totalExpensesAny interface{}
+	var totalBookingAny interface{}
+
+	err := database.QueryRow(
+		r.db,
+		query,
+		partnerID,
+		orgID,
+		transactionStartDate,
+		transactionEndDate,
+		partnerID,
+		orgID,
+		transactionStartDate,
+		transactionEndDate,
+		partnerID,
+		orgID,
+		orgID,
+		tripStartDate,
+		tripEndDate,
+	).Scan(&totalRevenueAny, &totalExpensesAny, &totalBookingAny)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	totalRevenue, ok := parseFloat64(totalRevenueAny)
+	if !ok {
+		totalRevenue = 0
+	}
+
+	totalExpenses, ok := parseFloat64(totalExpensesAny)
+	if !ok {
+		totalExpenses = 0
+	}
+
+	totalBooking, ok := parseInt64(totalBookingAny)
+	if !ok {
+		totalBooking = 0
+	}
+
+	return totalRevenue, totalExpenses, totalBooking, nil
 }
 
 func (r *PartnerRepository) GetOrCreateByNamePhone(orgID, userID, partnerName, partnerPhone string, partnerEmail *string) (string, error) {
@@ -322,20 +576,176 @@ func (r *PartnerRepository) GetOrCreateByNamePhone(orgID, userID, partnerName, p
 	return partner.PartnerID, nil
 }
 
-func (r *PartnerRepository) GetPartnerFleetUnits(partnerID, orgID string) ([]model.PartnerFleetUnit, error) {
-	query := `
-		SELECT f.fleet_name, fu.plate_number, fu.vehicle_id, fu.unit_id 
-		FROM fleets f 
-		INNER JOIN fleet_units fu ON fu.fleet_id = f.uuid 
-		INNER JOIN fleet_unit_ownership fuo ON fuo.unit_id = fu.unit_id 
-		WHERE fuo.partner_id = $1 AND fuo.organization_id = $2
-	`
-	if r.driver == "mysql" {
-		query = strings.ReplaceAll(query, "$1", "?")
-		query = strings.ReplaceAll(query, "$2", "?")
+func (r *PartnerRepository) GetPartnerFleetUnits(partnerID, orgID string, req *model.OperationPartnerDetailRequest) ([]model.PartnerFleetUnit, error) {
+	transactionStartDate := "0001-01-01"
+	transactionEndDate := "9999-12-31"
+	tripStartDate := "0001-01-01"
+	tripEndDate := "9999-12-31"
+
+	if req != nil {
+		if v := strings.TrimSpace(req.TransactionStartDate); v != "" {
+			transactionStartDate = v
+		}
+		if v := strings.TrimSpace(req.TransactionEndDate); v != "" {
+			transactionEndDate = v
+		}
+		if v := strings.TrimSpace(req.TripStartDate); v != "" {
+			tripStartDate = v
+		}
+		if v := strings.TrimSpace(req.TripEndDate); v != "" {
+			tripEndDate = v
+		}
 	}
 
-	rows, err := r.db.Query(query, partnerID, orgID)
+	parseFloat64 := func(v interface{}) (float64, bool) {
+		switch vv := v.(type) {
+		case nil:
+			return 0, true
+		case float64:
+			return vv, true
+		case float32:
+			return float64(vv), true
+		case int64:
+			return float64(vv), true
+		case int32:
+			return float64(vv), true
+		case int:
+			return float64(vv), true
+		case []byte:
+			f, err := strconv.ParseFloat(string(vv), 64)
+			return f, err == nil
+		case string:
+			f, err := strconv.ParseFloat(vv, 64)
+			return f, err == nil
+		default:
+			return 0, false
+		}
+	}
+
+	parseInt64 := func(v interface{}) (int64, bool) {
+		switch vv := v.(type) {
+		case nil:
+			return 0, true
+		case int64:
+			return vv, true
+		case int32:
+			return int64(vv), true
+		case int:
+			return int64(vv), true
+		case float64:
+			return int64(vv), true
+		case float32:
+			return int64(vv), true
+		case []byte:
+			i, err := strconv.ParseInt(string(vv), 10, 64)
+			return i, err == nil
+		case string:
+			i, err := strconv.ParseInt(vv, 10, 64)
+			return i, err == nil
+		default:
+			return 0, false
+		}
+	}
+
+	fleetOrderOrgExpr := "fo.organization_id::text = fuo.organization_id::text"
+	revenueOrderExpr := "sf.order_id::text"
+	revenueReferenceExpr := "reference_id::text"
+	revenueFleetOrderItemExpr := "order_id::text"
+	expenseReferenceExpr := "t.reference_id::text IN (sf.schedule_number::text, sf.order_id::text)"
+	partnerExpr := "fuo.partner_id = " + r.getPlaceholder(1)
+	orgExpr := "fuo.organization_id = " + r.getPlaceholder(2)
+	bookingStartExpr := r.getPlaceholder(3)
+	bookingEndExpr := r.getPlaceholder(4)
+	revenueStartExpr := r.getPlaceholder(5)
+	revenueEndExpr := r.getPlaceholder(6)
+	expenseStartExpr := r.getPlaceholder(7)
+	expenseEndExpr := r.getPlaceholder(8)
+
+	if r.driver == "mysql" {
+		fleetOrderOrgExpr = "fo.organization_id = fuo.organization_id"
+		revenueOrderExpr = "sf.order_id"
+		revenueReferenceExpr = "reference_id"
+		revenueFleetOrderItemExpr = "order_id"
+		expenseReferenceExpr = "t.reference_id IN (sf.schedule_number, sf.order_id)"
+	}
+
+	query := fmt.Sprintf(`
+		SELECT
+			f.fleet_name,
+			ft.label AS fleet_type,
+			fu.plate_number,
+			fu.vehicle_id,
+			fu.unit_id,
+			COALESCE(booking.total_booking, 0) AS total_booking,
+			COALESCE(revenue.total_revenue, 0) AS total_revenue,
+			COALESCE(expenses.total_expenses, 0) AS total_expenses
+		FROM fleets f
+		INNER JOIN fleet_units fu ON fu.fleet_id = f.uuid
+		INNER JOIN fleet_unit_ownership fuo ON fuo.unit_id = fu.unit_id
+		INNER JOIN fleet_types ft ON ft.id = f.fleet_type
+		LEFT JOIN LATERAL (
+			SELECT COALESCE(COUNT(DISTINCT sf.schedule_number), 0) AS total_booking
+			FROM schedule_fleets sf
+			INNER JOIN fleet_orders fo ON fo.order_id = sf.order_id
+			WHERE sf.unit_id = fu.unit_id
+			  AND sf.organization_id = fuo.organization_id
+			  AND %s
+			  AND fo.status = 1
+			  AND fo.start_date >= %s
+			  AND fo.end_date < %s
+		) booking ON true
+		LEFT JOIN LATERAL (
+			SELECT COALESCE(SUM(COALESCE(t.total_amount / NULLIF(q.total_qty, 0), 0)), 0) AS total_revenue
+			FROM (
+				SELECT DISTINCT %s AS order_id
+				FROM schedule_fleets sf
+				WHERE sf.unit_id = fu.unit_id
+				  AND sf.organization_id = fuo.organization_id
+			) sf
+			INNER JOIN (
+				SELECT %s AS order_id, SUM(amount) AS total_amount
+				FROM transactions
+				WHERE transaction_date IS NOT NULL
+				  AND transaction_date >= %s AND transaction_date < %s
+				  AND transaction_type = 1
+				GROUP BY %s
+			) t ON t.order_id = sf.order_id
+			INNER JOIN (
+				SELECT %s AS order_id, SUM(quantity) AS total_qty
+				FROM fleet_order_items
+				GROUP BY %s
+			) q ON q.order_id = sf.order_id
+		) revenue ON true
+		LEFT JOIN LATERAL (
+			SELECT COALESCE(SUM(t.amount), 0) AS total_expenses
+			FROM schedule_fleets sf
+			INNER JOIN transactions t ON %s
+			WHERE sf.unit_id = fu.unit_id
+			  AND sf.organization_id = fuo.organization_id
+			  AND t.transaction_type = 2
+			  AND t.transaction_date IS NOT NULL
+			  AND t.transaction_date >= %s AND t.transaction_date < %s
+		) expenses ON true
+		WHERE %s AND %s
+	`,
+		fleetOrderOrgExpr,
+		bookingStartExpr,
+		bookingEndExpr,
+		revenueOrderExpr,
+		revenueReferenceExpr,
+		revenueStartExpr,
+		revenueEndExpr,
+		revenueReferenceExpr,
+		revenueFleetOrderItemExpr,
+		revenueFleetOrderItemExpr,
+		expenseReferenceExpr,
+		expenseStartExpr,
+		expenseEndExpr,
+		partnerExpr,
+		orgExpr,
+	)
+
+	rows, err := r.db.Query(query, partnerID, orgID, tripStartDate, tripEndDate, transactionStartDate, transactionEndDate, transactionStartDate, transactionEndDate)
 	if err != nil {
 		return nil, err
 	}
@@ -344,10 +754,28 @@ func (r *PartnerRepository) GetPartnerFleetUnits(partnerID, orgID string) ([]mod
 	var result []model.PartnerFleetUnit
 	for rows.Next() {
 		var fu model.PartnerFleetUnit
-		err := rows.Scan(&fu.FleetName, &fu.PlateNumber, &fu.VehicleID, &fu.UnitID)
+		var totalBookingAny interface{}
+		var totalRevenueAny interface{}
+		var totalExpensesAny interface{}
+		err := rows.Scan(&fu.FleetName, &fu.FleetType, &fu.PlateNumber, &fu.VehicleID, &fu.UnitID, &totalBookingAny, &totalRevenueAny, &totalExpensesAny)
 		if err != nil {
 			return nil, err
 		}
+		totalBooking, ok := parseInt64(totalBookingAny)
+		if !ok {
+			totalBooking = 0
+		}
+		totalRevenue, ok := parseFloat64(totalRevenueAny)
+		if !ok {
+			totalRevenue = 0
+		}
+		totalExpenses, ok := parseFloat64(totalExpensesAny)
+		if !ok {
+			totalExpenses = 0
+		}
+		fu.TotalBooking = totalBooking
+		fu.TotalRevenue = totalRevenue
+		fu.TotalExpenses = totalExpenses
 		result = append(result, fu)
 	}
 	return result, nil

@@ -23,8 +23,10 @@ func (h *PartnerHandler) List(c *fiber.Ctx) error {
 	}
 
 	partnerName := c.Query("partner_name")
+	startDate := c.Query("start_date")
+	endDate := c.Query("end_date")
 
-	partners, err := h.service.List(orgID, partnerName)
+	partners, err := h.service.List(orgID, partnerName, startDate, endDate)
 	if err != nil {
 		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, err.Error())
 	}
