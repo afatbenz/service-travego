@@ -1,11 +1,11 @@
 package waai
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"log"
-	"sync"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -55,10 +55,12 @@ func (h *Handler) HandleWebhookPOST(c *fiber.Ctx) error {
 		})
 	}
 
-	// Read and verify webhook body
-	rawBody, err := ReadAndVerifyWebhook(c.Request().Body, signature, h.config.WagyWebhookSecret)
-	if err != nil {
-		log.Printf("Signature verification failed: %v", err)
+	// Read request body
+	rawBody := c.Body()
+
+	// Verify signature
+	if !VerifySignature(rawBody, signature, h.config.WagyWebhookSecret) {
+		log.Printf("Signature verification failed for phone webhook")
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 			"error": "Invalid signature",
 		})
