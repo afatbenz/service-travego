@@ -9,7 +9,6 @@ import (
 	"service-travego/internal/waai"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/redis/go-redis/v9"
 )
 
 // SetupRoutes configures all routes for the application
