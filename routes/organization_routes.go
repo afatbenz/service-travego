@@ -39,10 +39,16 @@ func SetupOrganizationRoutes(api fiber.Router, db *sql.DB, driver string, cfg *c
 	organization.Post("/update/domain-url", helper.JWTAuthorizationMiddleware(), orgHandler.UpdateDomainURL)
 	organization.Get("/bank-accounts", helper.JWTAuthorizationMiddleware(), orgHandler.GetBankAccounts)
 	organization.Get("/detail", helper.JWTAuthorizationMiddleware(), orgHandler.GetOrganizationDetail)
+	organization.Get("/employee/whatsapp/:employee_id", helper.JWTAuthorizationMiddleware(), orgHandler.EmployeeWhatsApp)
 	organization.Post("/update", helper.JWTAuthorizationMiddleware(), orgHandler.UpdateOrganizationDetail)
 	organization.Post("/update/logo", helper.JWTAuthorizationMiddleware(), orgHandler.UpdateOrganizationLogo)
 	organization.Post("/bank-account/create", helper.JWTAuthorizationMiddleware(), orgHandler.CreateBankAccount)
 	organization.Post("/bank-account/update", helper.JWTAuthorizationMiddleware(), orgHandler.UpdateBankAccount)
 	organization.Post("/bank-account/delete", helper.JWTAuthorizationMiddleware(), orgHandler.DeleteBankAccount)
 	organization.Get("/types", orgHandler.GetOrganizationTypes)
+	// Assistant routes
+	organization.Get("/assistant/list", helper.JWTAuthorizationMiddleware(), orgHandler.AssistantList)
+	organization.Post("/assistant/submit", helper.JWTAuthorizationMiddleware(), orgHandler.AssistantSubmit)
+	organization.Post("/assistant/update", helper.JWTAuthorizationMiddleware(), orgHandler.AssistantUpdate)
+	organization.Post("/assistant/delete", helper.JWTAuthorizationMiddleware(), orgHandler.AssistantDelete)
 }
