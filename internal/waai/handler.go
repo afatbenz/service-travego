@@ -1,7 +1,6 @@
 package waai
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -68,7 +67,7 @@ func (h *Handler) HandleWebhookPOST(c *fiber.Ctx) error {
 
 	// Parse webhook payload
 	var payload WebhookPayload
-	err = json.Unmarshal(rawBody, &payload)
+	err := json.Unmarshal(rawBody, &payload)
 	if err != nil {
 		log.Printf("Failed to parse webhook payload: %v", err)
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
