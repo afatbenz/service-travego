@@ -1,10 +1,12 @@
 package routes
 
 import (
+	"log"
 	"service-travego/config"
 	"service-travego/configs"
 	"service-travego/database"
 	"service-travego/helper"
+	"service-travego/internal/waai"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -35,6 +37,7 @@ func SetupRoutes(app *fiber.App, cfg *configs.Config) {
 
 	// Initialize Midtrans
 	midtransCfg := config.InitMidtrans()
+	rdb := helper.GetRedisClient()
 
 	// Setup route groups
 	SetupNotificationRoutes(app, db, cfg.Database.Driver) // Register public routes first
@@ -62,4 +65,15 @@ func SetupRoutes(app *fiber.App, cfg *configs.Config) {
 	SetupPrintManagementRoutes(api, db, cfg.Database.Driver)
 	SetupPaymentRoutes(api, db, cfg.Database.Driver, midtransCfg)
 	SetupPreferenceCityRoutes(api, db, cfg.Database.Driver)
+	SetupAssistantRoutes(api, db, cfg.Database.Driver, rdb)
+
+	// Setup WhatsApp AI Assistant module (WAAI)
+	if rdb == nil {
+		log.Printf("Warning: Redis client is nil, WAAI may not work properly")
+	} else {
+		waaiCfg := waai.LoadConfig()
+		if err := waai.RegisterRoutes(app, waaiCfg, db, cfg.Database.Driver, rdb); err != nil {
+			log.Printf("Warning: Failed to register WAAI routes: %v", err)
+		}
+	}
 }

@@ -1,15 +1,16 @@
 package model
 
 type AssistantAccountListItem struct {
-	AssistantID   string `json:"assistant_id"`
-	EmployeeID    string `json:"employee_id"`
-	CreatedAt     string `json:"created_at"`
-	Avatar        string `json:"avatar"`
-	Fullname      string `json:"fullname"`
-	RoleName      string `json:"role_name"`
-	DivisionName  string `json:"division_name"`
-	AccountNumber string `json:"account_number"`
-	UserType      int    `json:"user_type"`
+	AssistantID    string `json:"assistant_id"`
+	EmployeeID     string `json:"employee_id"`
+	CreatedAt      string `json:"created_at"`
+	OrganizationID string `json:"organization_id"`
+	Avatar         string `json:"avatar"`
+	Fullname       string `json:"fullname"`
+	RoleName       string `json:"role_name"`
+	DivisionName   string `json:"division_name"`
+	AccountNumber  string `json:"account_number"`
+	UserType       int    `json:"user_type"`
 }
 
 type AssistantSubmitRequest struct {

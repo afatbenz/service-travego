@@ -39,6 +39,11 @@ func InitRedis(cfg *configs.RedisConfig) (*redis.Client, error) {
 	return client, nil
 }
 
+// GetRedisClient returns the initialized Redis client
+func GetRedisClient() *redis.Client {
+	return redisClient
+}
+
 // SetOTP stores OTP in Redis with expiration (configured via OTP_TTL env or default 5 minutes)
 func SetOTP(key, otp string) error {
 	if redisClient == nil {
