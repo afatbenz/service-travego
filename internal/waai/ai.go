@@ -22,6 +22,12 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+type contextKey string
+
+const (
+	phoneKey contextKey = "phone"
+)
+
 // AIClient handles communication with Anthropic API
 type AIClient struct {
 	apiKey                string
@@ -40,10 +46,13 @@ type AIClient struct {
 	scheduleService       *service.ScheduleService
 	orderService          *service.OrderService
 	dashboardService      *service.DashboardService
+	transactionService    *service.TransactionService
+	printService          *service.PrintManagementService
+	wagyClient            *WagyClient
 }
 
 // NewAIClient creates a new AI client
-func NewAIClient(apiKey string, db *sql.DB, dbDriver string, rdb *redis.Client) *AIClient {
+func NewAIClient(apiKey string, db *sql.DB, dbDriver string, rdb *redis.Client, wagyClient *WagyClient) *AIClient {
 	model := os.Getenv("ANTHROPIC_MODEL")
 	if model == "" {
 		model = "claude-sonnet-4-6"
@@ -67,6 +76,8 @@ func NewAIClient(apiKey string, db *sql.DB, dbDriver string, rdb *redis.Client) 
 	scheduleRepo := repository.NewScheduleRepository(db, dbDriver)
 	contentRepo := repository.NewContentRepository(db, dbDriver)
 	dashboardRepo := repository.NewDashboardRepository(db, dbDriver)
+	transactionRepo := repository.NewTransactionRepository(db, dbDriver)
+	printRepo := repository.NewPrintManagementRepository(db, dbDriver)
 
 	// Load minimal email config for OrderService
 	emailCfg := &configs.EmailConfig{
@@ -93,6 +104,9 @@ func NewAIClient(apiKey string, db *sql.DB, dbDriver string, rdb *redis.Client) 
 		scheduleService:       service.NewScheduleService(scheduleRepo),
 		orderService:          service.NewOrderService(fleetRepo, contentRepo, orgRepo, emailCfg),
 		dashboardService:      service.NewDashboardService(dashboardRepo),
+		transactionService:    service.NewTransactionService(transactionRepo),
+		printService:          service.NewPrintManagementService(printRepo),
+		wagyClient:            wagyClient,
 	}
 }
 
@@ -133,21 +147,34 @@ type AnthropicResponse struct {
 func (ac *AIClient) ProcessMessage(ctx context.Context, phone, incomingMessage string) (string, error) {
 	// Get tenant info
 	tenant, err := ac.tenantRepo.GetTenantByPhone(ctx, phone)
-	if err != nil {
-		return "", fmt.Errorf("tenant lookup failed: %w", err)
-	}
-	ctx = withAuthorizedTenantContext(ctx, tenant)
+	var snapshot map[string]interface{}
 
-	// Get business snapshot
-	snapshot, err := ac.tenantRepo.GetOrganizationSnapshot(ctx, tenant.OrganizationID)
-	if err != nil {
-		snapshot = map[string]interface{}{} // Use empty snapshot if error
-	}
-	if tenant.OrganizationName == "" {
-		if name, ok := snapshot["organization_name"].(string); ok && name != "" {
-			tenant.OrganizationName = name
+	if err == nil {
+		// Tenant found - proceed with tenant context
+		ctx = withAuthorizedTenantContext(ctx, tenant)
+
+		// Get business snapshot
+		snapshot, err = ac.tenantRepo.GetOrganizationSnapshot(ctx, tenant.OrganizationID)
+		if err != nil {
+			snapshot = map[string]interface{}{} // Use empty snapshot if error
 		}
+		if tenant.OrganizationName == "" {
+			if name, ok := snapshot["organization_name"].(string); ok && name != "" {
+				tenant.OrganizationName = name
+			}
+		}
+	} else {
+		// Tenant not found - handle as guest
+		log.Printf("[WAAI][AI] Processing message for unregistered phone: %s", phone)
+		tenant = &TenantInfo{
+			Phone: phone,
+			Role:  "Guest",
+		}
+		snapshot = map[string]interface{}{}
 	}
+
+	// Add phone number to context so executeTool can use it
+	ctx = context.WithValue(ctx, phoneKey, phone)
 
 	// Load conversation history
 	history, err := ac.sessionMgr.LoadSession(ctx, phone)
@@ -576,24 +603,38 @@ func (ac *AIClient) buildSystemPrompt(tenant *TenantInfo, snapshot map[string]in
 		}
 	}
 
+	isGuest := tenant.Role == "Guest"
+
 	now := time.Now()
 	currentMonth := now.Format("2006-01")
 	currentDate := now.Format("2006-01-02")
 
-	prompt := fmt.Sprintf(`You are a helpful WhatsApp AI Assistant for %s, an ERP rental bus management system.
+	var userContext string
+	if isGuest {
+		userContext = fmt.Sprintf(`User Information:
+- Status: Unregistered/Guest
+- Phone: %s
 
-User Information:
+You are talking to an unregistered user. They can only ask about your capabilities and how to register.
+If they ask about specific data (orders, fleet, etc.), politely inform them that they need to register and link their WhatsApp number first.`, tenant.Phone)
+	} else {
+		userContext = fmt.Sprintf(`User Information:
 - Name: %s
 - Role: %s
 - Organization: %s
-
-Current Date: %s (current month: %s)
 
 Current Business Status (today only):
 - Business Name: %s
 - Fleet Count: %v
 - Available Units: %v
-- Today's Bookings: %v
+- Today's Bookings: %v`, displayName, tenant.Role, orgName, orgName, snapshot["fleet_count"], snapshot["unit_count"], snapshot["today_bookings"])
+	}
+
+	prompt := fmt.Sprintf(`You are a helpful WhatsApp AI Assistant for Travego, an ERP rental bus management system.
+
+%s
+
+Current Date: %s (current month: %s)
 
 You have access to the following functions to help users:
 1. get_business_snapshot - Get current business metrics
@@ -621,9 +662,15 @@ You have access to the following functions to help users:
 23. get_top_fleets - Get unit armada paling banyak orderan (top fleets by number of orders)
 24. get_top_destinations - Get kota tujuan paling populer (top destinations)
 25. get_top_customers - Get customer paling loyal (top customers by number of orders)
+26. get_spj_total_biaya - Get total biaya operasional (total amount) for a specific Surat Jalan / SPJ (schedule_number)
+27. tambah_pengeluaran_spj - Tambah pengeluaran untuk Surat Jalan / SPJ (schedule_number)
+28. get_spj_pengeluaran - Dapatkan daftar pengeluaran untuk Surat Jalan / SPJ tertentu
+29. get_spj_ringkasan_pembayaran - Dapatkan ringkasan total pengeluaran SPJ berdasarkan jenis pembayaran (biaya operasional dan reimburse)
+30. print_surat_jalan - Mencetak dan mengirim surat jalan / SPJ (Surat Pertanggungjawaban) dalam format PDF ke WhatsApp
 
 Tool usage rules:
 - [CRITICAL] Data dalam database dapat BERUBAH sewaktu-waktu. JANGAN PERCAYA jawaban Anda dari riwayat percakapan sebelumnya. Selalu PANGGIL TOOL setiap kali user menanyakan data (pesanan, pelanggan, jadwal, armada, dll.) untuk mendapatkan data TERBARU dari database.
+- GUESTS CANNOT USE TOOLS THAT REQUIRE ORGANIZATION CONTEXT. If a guest asks for data, explain how to register.
 - When the user asks about their business or organization name, answer using Business Name from context above. For full organization details (address, phone, NPWP, etc.), call get_organization_info.
 - When the user asks for customer contact or details by name (not customer_id), you MUST:
   1. Call get_customer_list with customer_name set to the name provided
@@ -634,16 +681,27 @@ Tool usage rules:
 - For order detail by order_id, call get_order_detail — JANGAN PERCAYA jawaban sebelumnya, selalu panggil tool untuk data terbaru.
 - For itinerary of order detail by order_id, call get_order_detail, get orders.itinerary[].
 - Order payment status mapping (field payment_status / payment_status_label):
-  1 = Lunas, 2 = Belum bayar, 3 = Belum dikonfirmasi, 4 = Belum lunas.
+  0 = Dibatalkan, 1 = Lunas, 2 = Menunggu Verifikasi, 3 = Belum Lunasi, 10 = Menunggu Persetujuan.
   When telling the user payment status, ALWAYS use payment_status_label from get_order_list/get_order_detail. NEVER use latest_payment_status or latest_payment_type as status pembayaran — those are jenis pembayaran (DP, Cicilan, Pelunasan), not order payment status.
-  Summary fields: paid = lunas, unpaid = belum bayar, pending = belum dikonfirmasi atau belum lunas.
+  Summary fields: paid = lunas, pending = menunggu verifikasi atau belum lunasi.
   Untuk menjawab apakah order sudah dijadwalkan atau belum, baca dari orders[].schedule_id. Jika schedule_id = "" berarti belum terjadwal. Field scheduled/is_scheduled mengikuti aturan yang sama.
+- Untuk pertanyaan terkait biaya operasional, Surat Jalan, atau SPJ (Surat Pertanggungjawaban):
+  1. Selalu panggil get_spj_total_biaya atau get_spj_ringkasan_pembayaran dengan schedule_number (Surat Jalan) yang dimaksud.
+  2. Jika user ingin melihat rincian biaya, panggil get_spj_pengeluaran.
+  3. Jika user ingin menambah biaya, panggil tambah_pengeluaran_spj:
+     - transaction_item bisa berupa teks bebas (misal "tol", "bahan bakar", "parkir"), sistem akan otomatis memetakannya ke kode yang benar.
+     - Gunakan description untuk menambahkan catatan rinci (misal "Tol MBZ Bekasi-Karawang").
+     - Contoh: untuk "bayar tol 36.000", set transaction_item="tol", amount=36000, description="Tol MBZ Bekasi-Karawang".
+  4. Jika user ingin mencetak / mengirim surat jalan dalam format PDF, panggil print_surat_jalan dengan schedule_number.
+  5. Identifikasi schedule_number dari input user atau dari hasil get_order_detail / get_schedule_list.
 
 Please respond in Indonesian (Bahasa Indonesia) unless the user asks otherwise.
 Help the user with their inquiries related to the bus rental business.
-If the user asks who you are, what your name is, or what assistant they are talking to, identify yourself as "Trave AI Assistant Travego".
+If the user asks who you are, what your name is, or what assistant they are talking to, identify yourself as "Trave". Trave is AI Assistant by TraveGO.
 If the user asks who developed, created, or made you, answer that you were created by Afatbenz Tech and that they can contact 6281335884729 or visit mafatichulfuadi.com for further discussion.
 If the user asks how to register for or enjoy the AI Assistant service, answer that they should register on https://www.travego.id and add their WhatsApp number in the Pengaturan > AI Assistant menu.
+If the user asks what you can do (capabilities), explain your features like checking fleet availability, managing orders, viewing customer data, revenue summaries, and employee schedules. Mention that these features are available after registration.
+If the user asks where are you from, explain that you are from TraveGO, you dont have physical location, but if need discussion the travego team can visit or visisted in Yogyakarta. Just create the appontment for further discussion.
 Do not say you are Kiro, Claude, Anthropic, or mention the provider/model name unless explicitly asked about technical backend details.
 Be professional and concise in your responses.
 
@@ -652,16 +710,9 @@ WhatsApp reply formatting:
 - Use bold sparingly — only for key values such as names, amounts, or dates. Do not bold whole sentences.
 - Prefer plain, short sentences. Use line breaks between list items instead of Markdown bullets or headers.
 - Do not use # headings, **bold**, __underline__, or [link](url) Markdown syntax.`,
-		orgName,
-		displayName,
-		tenant.Role,
-		orgName,
+		userContext,
 		currentDate,
 		currentMonth,
-		orgName,
-		snapshot["fleet_count"],
-		snapshot["unit_count"],
-		snapshot["today_bookings"],
 		currentMonth,
 	)
 
@@ -678,6 +729,10 @@ func (ac *AIClient) executeTool(ctx context.Context, toolName string, input json
 	if err != nil {
 		return map[string]interface{}{"error": err.Error()}
 	}
+
+	// Get user ID from context
+	userID, _ := ctx.Value(contextUserID).(string)
+	userID = strings.TrimSpace(userID)
 
 	switch toolName {
 	case "get_business_snapshot":
@@ -1031,6 +1086,164 @@ func (ac *AIClient) executeTool(ctx context.Context, toolName string, input json
 		}
 		return topCustomers
 
+	case "get_spj_total_biaya":
+		scheduleNumber := getStringParam(params, "schedule_number")
+		if scheduleNumber == "" {
+			return map[string]interface{}{"error": "schedule_number is required"}
+		}
+		totalAmount, err := ac.transactionService.GetFleetTripTotalAmount(scheduleNumber)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		totalExpenses, totalReimburse, err := ac.transactionService.GetFleetTripAmountSummaryByPaymentMethod(scheduleNumber)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		return map[string]interface{}{
+			"schedule_number":            scheduleNumber,
+			"total_jatah_uang":           totalAmount,
+			"biaya_operasional":          totalAmount,
+			"biaya_operasional_terpakai": totalExpenses,
+			"total_reimburse":            totalReimburse,
+			"total_pengeluaran":          totalExpenses + totalReimburse,
+			"saldo_sisa":                 totalAmount - (totalExpenses + totalReimburse),
+		}
+
+	case "tambah_pengeluaran_spj":
+		scheduleNumber := getStringParam(params, "schedule_number")
+		transactionItemInput := getStringParam(params, "transaction_item")
+		amount := getFloatParam(params, "amount")
+		paymentMethod := getIntParam(params, "payment_method")
+		description := getStringParam(params, "description")
+
+		if scheduleNumber == "" || transactionItemInput == "" || amount <= 0 {
+			return map[string]interface{}{"error": "schedule_number, transaction_item, and amount are required"}
+		}
+
+		// Load transaction items from common.json to get valid codes
+		type TransactionItem struct {
+			ID    string `json:"id"`
+			Label string `json:"label"`
+		}
+		var validTransactionItems []TransactionItem
+		var transactionItemCode string = "TRX-I00" // Default
+
+		f, err := os.Open("config/common.json")
+		if err == nil {
+			defer f.Close()
+			var cfg struct {
+				TransactionItems []TransactionItem `json:"transaction-items"`
+			}
+			if err := json.NewDecoder(f).Decode(&cfg); err == nil {
+				validTransactionItems = cfg.TransactionItems
+
+				// Check if input is already a valid code
+				inputUpper := strings.ToUpper(strings.TrimSpace(transactionItemInput))
+				found := false
+				for _, item := range validTransactionItems {
+					if strings.ToUpper(item.ID) == inputUpper {
+						transactionItemCode = item.ID
+						found = true
+						break
+					}
+				}
+
+				// If not a valid code, try to match by label
+				if !found {
+					inputLower := strings.ToLower(transactionItemInput)
+					for _, item := range validTransactionItems {
+						if strings.Contains(strings.ToLower(item.Label), inputLower) {
+							transactionItemCode = item.ID
+							// If description is empty, use the original input as description
+							if description == "" {
+								description = transactionItemInput
+							}
+							break
+						}
+					}
+				}
+			}
+		}
+
+		if paymentMethod == 0 {
+			paymentMethod = 1 // Default to Biaya Operasional
+		}
+
+		err = ac.transactionService.SubmitFleetTripExpense(orgID, userID, transactionItemCode, scheduleNumber, paymentMethod, amount, description)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		return map[string]interface{}{
+			"status":  "success",
+			"message": "Pengeluaran SPJ berhasil ditambahkan",
+		}
+
+	case "get_spj_pengeluaran":
+		scheduleNumber := getStringParam(params, "schedule_number")
+		if scheduleNumber == "" {
+			return map[string]interface{}{"error": "schedule_number is required"}
+		}
+		expenses, err := ac.transactionService.ListFleetTripExpenses(scheduleNumber, orgID)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		return expenses
+
+	case "get_spj_ringkasan_pembayaran":
+		scheduleNumber := getStringParam(params, "schedule_number")
+		if scheduleNumber == "" {
+			return map[string]interface{}{"error": "schedule_number is required"}
+		}
+		totalAmount, err := ac.transactionService.GetFleetTripTotalAmount(scheduleNumber)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		totalExpenses, totalReimburse, err := ac.transactionService.GetFleetTripAmountSummaryByPaymentMethod(scheduleNumber)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		return map[string]interface{}{
+			"schedule_number":            scheduleNumber,
+			"total_jatah_uang":           totalAmount,
+			"biaya_operasional":          totalAmount,
+			"biaya_operasional_terpakai": totalExpenses,
+			"reimburse":                  totalReimburse,
+			"total_pengeluaran":          totalExpenses + totalReimburse,
+			"saldo_sisa":                 totalAmount - (totalExpenses + totalReimburse),
+		}
+
+	case "print_surat_jalan":
+		scheduleNumber := getStringParam(params, "schedule_number")
+		if scheduleNumber == "" {
+			return map[string]interface{}{"error": "schedule_number is required"}
+		}
+
+		// Generate PDF
+		pdfData, err := ac.printService.GenerateFleetTripsPDF(orgID, scheduleNumber)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+
+		// Get phone number from context
+		phone, _ := ctx.Value(phoneKey).(string)
+		if phone == "" {
+			return map[string]interface{}{"error": "phone number missing in context"}
+		}
+
+		// Send PDF via WhatsApp
+		filename := fmt.Sprintf("surat-jalan-%s.pdf", scheduleNumber)
+		caption := fmt.Sprintf("Berikut surat jalan untuk *%s*", scheduleNumber)
+		_, err = ac.wagyClient.SendDocument(phone, filename, pdfData, caption)
+		if err != nil {
+			log.Printf("[WAAI][AI] Failed to send PDF: %v", err)
+			return map[string]interface{}{"error": "Gagal mengirim surat jalan: " + err.Error()}
+		}
+
+		return map[string]interface{}{
+			"status":  "success",
+			"message": "Surat jalan berhasil dikirim",
+		}
+
 	default:
 		return map[string]interface{}{
 			"error": "Unknown tool: " + toolName,
@@ -1125,6 +1338,26 @@ func getIntParam(params map[string]interface{}, key string) int {
 	case string:
 		n, _ := strconv.Atoi(strings.TrimSpace(v))
 		return n
+	default:
+		return 0
+	}
+}
+
+func getFloatParam(params map[string]interface{}, key string) float64 {
+	raw, ok := params[key]
+	if !ok || raw == nil {
+		return 0
+	}
+	switch v := raw.(type) {
+	case float64:
+		return v
+	case int:
+		return float64(v)
+	case int64:
+		return float64(v)
+	case string:
+		f, _ := strconv.ParseFloat(strings.TrimSpace(v), 64)
+		return f
 	default:
 		return 0
 	}
@@ -1234,7 +1467,6 @@ func enrichOrderListForAI(res *model.PartnerOrderListResponse) map[string]interf
 	seenOrderIDs := make(map[string]struct{}, len(res.Orders))
 	totalOrders := 0
 	paid := 0
-	unpaid := 0
 	pending := 0
 	revenue := 0.0
 	for _, o := range res.Orders {
@@ -1251,16 +1483,16 @@ func enrichOrderListForAI(res *model.PartnerOrderListResponse) map[string]interf
 		paymentStatus := int(o.PaymentStatus)
 		paymentStatusLabel := paymentStatusLabelForAI(paymentStatus, o.PaymentStatusLabel)
 		switch paymentStatus {
-		case 1:
+		case 1: // Paid
 			paid++
 			revenue += o.TotalAmount
-		case 2:
-			unpaid++
-		case 3, 4:
+		case 2, 3, 10: // Pending verification, partial paid, waiting approval
 			pending++
-			if paymentStatus == 4 {
+			if paymentStatus == 3 { // Partial paid should still count as some revenue?
 				revenue += o.TotalAmount
 			}
+		case 0: // Cancelled
+			// Do nothing for cancelled orders
 		}
 
 		scheduled := strings.TrimSpace(o.ScheduleID) != ""
@@ -1286,36 +1518,37 @@ func enrichOrderListForAI(res *model.PartnerOrderListResponse) map[string]interf
 
 	return map[string]interface{}{
 		"summary": map[string]interface{}{
-			"total_orders":                        totalOrders,
-			"paid":                                paid,
-			"unpaid":                              unpaid,
-			"pending":                             pending,
-			"lunas":                               paid,
-			"belum_bayar":                         unpaid,
-			"belum_dikonfirmasi_atau_belum_lunas": pending,
-			"revenue":                             revenue,
-			"ongoing":                             res.Summary.Ongoing,
+			"total_orders":                         totalOrders,
+			"paid":                                 paid,
+			"pending":                              pending,
+			"lunas":                                paid,
+			"menunggu_verifikasi_atau_belum_lunas": pending,
+			"revenue":                              revenue,
+			"ongoing":                              res.Summary.Ongoing,
 		},
 		"orders": orders,
 		"payment_status_legend": map[string]string{
-			"1": "Lunas",
-			"2": "Belum bayar",
-			"3": "Belum dikonfirmasi",
-			"4": "Belum lunas",
+			"0":  "Dibatalkan",
+			"1":  "Lunas",
+			"2":  "Menunggu Verifikasi",
+			"3":  "Belum Lunasi",
+			"10": "Menunggu Persetujuan",
 		},
 	}
 }
 
 func paymentStatusLabelForAI(paymentStatus int, currentLabel string) string {
 	switch paymentStatus {
+	case 0:
+		return "Dibatalkan"
 	case 1:
 		return "Lunas"
 	case 2:
-		return "Belum bayar"
+		return "Menunggu Verifikasi"
 	case 3:
-		return "Belum dikonfirmasi"
-	case 4:
-		return "Belum lunas"
+		return "Belum Lunasi"
+	case 10:
+		return "Menunggu Persetujuan"
 	default:
 		return strings.TrimSpace(currentLabel)
 	}

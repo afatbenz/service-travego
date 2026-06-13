@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"fmt"
 	"service-travego/database"
-	"strings"
 	"time"
 )
 
@@ -65,8 +64,9 @@ func GenerateOrderID(orderType int, orgCode string, count int) string {
 	return fmt.Sprintf("%s-%s%d-%s", prefix, timePart, count+1, truncatedCode)
 }
 
-func GenerateTripID(orderID string) string {
-	return strings.ReplaceAll(orderID, "FO", "SJL")
+func GenerateTripID(orgCode string, seq int, now time.Time) string {
+	timePart := now.Format("060102150405")
+	return fmt.Sprintf("SJL-%s%04d-%s", timePart, seq, orgCode)
 }
 
 func placeholder(driver string, pos int) string {

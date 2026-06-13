@@ -25,10 +25,11 @@ type Handler struct {
 // NewHandler creates a new webhook handler
 func NewHandler(cfg *Config, db *sql.DB, dbDriver string, rdb *redis.Client) *Handler {
 	authMgr := NewAuthManager(rdb)
+	wagyClient := NewWagyClient(cfg.WagyDeviceID, cfg.WagyToken)
 	return &Handler{
 		config:     cfg,
-		wagyClient: NewWagyClient(cfg.WagyDeviceID, cfg.WagyToken),
-		aiClient:   NewAIClient(cfg.AnthropicAPIKey, db, dbDriver, rdb),
+		wagyClient: wagyClient,
+		aiClient:   NewAIClient(cfg.AnthropicAPIKey, db, dbDriver, rdb, wagyClient),
 		tenantRepo: NewTenantRepository(db, dbDriver, authMgr),
 		sessionMgr: NewSessionManager(rdb),
 	}
@@ -98,6 +99,16 @@ func (h *Handler) HandleWebhookPOST(c *fiber.Ctx) error {
 
 	_, err = h.tenantRepo.GetTenantByPhone(ctxTenant, phone)
 	if err != nil {
+		// If tenant not found, check if it's a "public" question that AI can answer without tenant context
+		// This includes questions about capabilities, identity, or registration
+		if isCapabilitiesQuestion(messageText) || isIdentityOrDeveloperQuestion(messageText) || isRegistrationQuestion(messageText) {
+			log.Printf("[WAAI] Tenant not found for phone %s, but message is a public question. Processing with AI.", phone)
+			go h.processMessageAsync(phone, messageText)
+			return c.Status(fiber.StatusOK).JSON(fiber.Map{
+				"status": "received",
+			})
+		}
+
 		// Tenant not found - send error message and return
 		log.Printf("[WAAI] Tenant not found for phone: %s", phone)
 		replyText := buildUnregisteredReply(messageText)
@@ -275,6 +286,38 @@ func isRegistrationQuestion(messageText string) bool {
 		"cara menggunakan ai assistant",
 		"daftar ai assistant",
 		"register ai assistant",
+	}
+
+	for _, keyword := range keywords {
+		if strings.Contains(text, keyword) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isCapabilitiesQuestion(messageText string) bool {
+	text := strings.ToLower(strings.TrimSpace(messageText))
+	if text == "" {
+		return false
+	}
+
+	keywords := []string{
+		"bisa apa",
+		"apa yang bisa",
+		"apa saja yang bisa",
+		"kemampuan kamu",
+		"fitur apa",
+		"fitur asisten",
+		"bantuan",
+		"help",
+		"layanan apa",
+		"fungsi kamu",
+		"apa kegunaan",
+		"manfaat kamu",
+		"tugas kamu",
+		"ngapain aja",
 	}
 
 	for _, keyword := range keywords {

@@ -739,3 +739,38 @@ func (h *TransactionHandler) SubmitFleetTripExpenseForm(c *fiber.Ctx) error {
 		"total_reimburse": totalReimburse,
 	})
 }
+
+func (h *TransactionHandler) DeleteFleetTripExpenseForm(c *fiber.Ctx) error {
+	var req struct {
+		ScheduleNumber    string `json:"schedule_number"`
+		TransactionTripID string `json:"transaction_trip_id"`
+	}
+
+	if err := c.BodyParser(&req); err != nil {
+		return helper.BadRequestResponse(c, "Invalid request body")
+	}
+
+	req.ScheduleNumber = strings.TrimSpace(req.ScheduleNumber)
+	req.TransactionTripID = strings.TrimSpace(req.TransactionTripID)
+
+	if req.ScheduleNumber == "" || req.TransactionTripID == "" {
+		return helper.BadRequestResponse(c, "Missing required fields: schedule_number, transaction_trip_id")
+	}
+
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || strings.TrimSpace(orgID) == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Organization not found")
+	}
+	userID, ok := c.Locals("user_id").(string)
+	if !ok || strings.TrimSpace(userID) == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "User not found")
+	}
+
+	err := h.service.DeleteFleetTripExpense(orgID, userID, req.ScheduleNumber, req.TransactionTripID)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet trip expense deleted successfully", nil)
+}

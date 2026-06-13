@@ -451,9 +451,9 @@ func GetToolDefinitions() []ToolDefinition {
 				Name:        "get_top_fleets",
 				Description: "Get unit armada paling banyak orderan (top fleets by number of orders)",
 				Parameters: map[string]interface{}{
-					"type": "object",
+					"type":       "object",
 					"properties": map[string]interface{}{},
-					"required": []string{},
+					"required":   []string{},
 				},
 			},
 		},
@@ -464,9 +464,9 @@ func GetToolDefinitions() []ToolDefinition {
 				Name:        "get_top_destinations",
 				Description: "Get kota tujuan paling populer (top destinations)",
 				Parameters: map[string]interface{}{
-					"type": "object",
+					"type":       "object",
 					"properties": map[string]interface{}{},
-					"required": []string{},
+					"required":   []string{},
 				},
 			},
 		},
@@ -477,9 +477,9 @@ func GetToolDefinitions() []ToolDefinition {
 				Name:        "get_top_customers",
 				Description: "Get customer paling loyal (top customers by number of orders)",
 				Parameters: map[string]interface{}{
-					"type": "object",
+					"type":       "object",
 					"properties": map[string]interface{}{},
-					"required": []string{},
+					"required":   []string{},
 				},
 			},
 		},
@@ -536,7 +536,114 @@ func GetToolDefinitions() []ToolDefinition {
 					"properties": map[string]interface{}{
 						"schedule_number": map[string]interface{}{
 							"type":        "string",
-							"description": "Schedule number",
+							"description": "Schedule number (Surat Jalan / SPJ)",
+						},
+					},
+					"required": []string{"schedule_number"},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Name: "get_spj_total_biaya",
+			Function: FunctionDefinition{
+				Name:        "get_spj_total_biaya",
+				Description: "Get total biaya operasional (total amount) for a specific Surat Jalan / SPJ (schedule_number)",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"schedule_number": map[string]interface{}{
+							"type":        "string",
+							"description": "Surat Jalan / SPJ (schedule number)",
+						},
+					},
+					"required": []string{"schedule_number"},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Name: "tambah_pengeluaran_spj",
+			Function: FunctionDefinition{
+				Name:        "tambah_pengeluaran_spj",
+				Description: "Tambah pengeluaran untuk Surat Jalan / SPJ (schedule_number). Untuk biaya operasional, gunakan transaction_item = TRX-I00 dan payment_method = 1. Jenis pengeluaran (transaction_item) bisa diambil dari daftar transaction-items di config/common.json.",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"schedule_number": map[string]interface{}{
+							"type":        "string",
+							"description": "Surat Jalan / SPJ (schedule number)",
+						},
+						"transaction_item": map[string]interface{}{
+							"type":        "string",
+							"description": "Jenis pengeluaran (transaction item ID, contoh: TRX-I00 = Biaya Operasional Perjalanan, TRX-I01 = Biaya Bahan Bakar, dll)",
+						},
+						"payment_method": map[string]interface{}{
+							"type":        "integer",
+							"description": "Jenis pembayaran (1 = Biaya Operasional / Kas, 2 = Reimburse)",
+							"default":     1,
+						},
+						"amount": map[string]interface{}{
+							"type":        "number",
+							"description": "Jumlah pengeluaran (dalam rupiah, tanpa titik koma atau simbol)",
+						},
+						"description": map[string]interface{}{
+							"type":        "string",
+							"description": "Deskripsi pengeluaran (opsional)",
+						},
+					},
+					"required": []string{"schedule_number", "transaction_item", "amount"},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Name: "get_spj_pengeluaran",
+			Function: FunctionDefinition{
+				Name:        "get_spj_pengeluaran",
+				Description: "Dapatkan daftar pengeluaran untuk Surat Jalan / SPJ tertentu",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"schedule_number": map[string]interface{}{
+							"type":        "string",
+							"description": "Surat Jalan / SPJ (schedule number)",
+						},
+					},
+					"required": []string{"schedule_number"},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Name: "get_spj_ringkasan_pembayaran",
+			Function: FunctionDefinition{
+				Name:        "get_spj_ringkasan_pembayaran",
+				Description: "Dapatkan ringkasan total pengeluaran SPJ berdasarkan jenis pembayaran (biaya operasional dan reimburse)",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"schedule_number": map[string]interface{}{
+							"type":        "string",
+							"description": "Surat Jalan / SPJ (schedule number)",
+						},
+					},
+					"required": []string{"schedule_number"},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Name: "print_surat_jalan",
+			Function: FunctionDefinition{
+				Name:        "print_surat_jalan",
+				Description: "Mencetak dan mengirimkan surat jalan / SPJ (Surat Pertanggungjawaban) dalam format PDF ke WhatsApp. Gunakan tool ini ketika pengguna meminta untuk mencetak, print, atau kirim surat jalan.",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"schedule_number": map[string]interface{}{
+							"type":        "string",
+							"description": "Nomor surat jalan / SPJ (schedule number)",
 						},
 					},
 					"required": []string{"schedule_number"},

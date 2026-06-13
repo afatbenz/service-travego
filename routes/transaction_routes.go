@@ -33,4 +33,5 @@ func SetupTransactionRoutes(api fiber.Router, db *sql.DB, driver string) {
 
 	apiTransactions := api.Group("/transactions")
 	apiTransactions.Post("/fleet-trip/expenses/submit", helper.JWTAuthorizationMiddleware(), h.SubmitFleetTripExpenseForm)
+	apiTransactions.Post("/fleet-trip/expenses/delete", helper.JWTAuthorizationMiddleware(), h.DeleteFleetTripExpenseForm)
 }

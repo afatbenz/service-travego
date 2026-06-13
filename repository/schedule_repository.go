@@ -100,14 +100,34 @@ func (r *ScheduleRepository) CreateSchedule(input model.ScheduleCreateRepository
 		return "", err
 	}
 
+	var orgCode string
+	orgQuery := "SELECT organization_code FROM organizations WHERE organization_id = " + r.placeholder(1)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		orgQuery = "SELECT organization_code FROM organizations WHERE organization_id::text = " + r.placeholder(1)
+	}
+	if err = database.TxQueryRow(tx, orgQuery, input.OrganizationID).Scan(&orgCode); err != nil {
+		return "", err
+	}
+
+	var count int
+	countQuery := "SELECT COUNT(schedule_number) FROM schedule_fleets WHERE organization_id = " + r.placeholder(1)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		countQuery = "SELECT COUNT(schedule_number) FROM schedule_fleets WHERE organization_id::text = " + r.placeholder(1)
+	}
+	if err = database.TxQueryRow(tx, countQuery, input.OrganizationID).Scan(&count); err != nil {
+		return "", err
+	}
+
 	scheduleFleetIDByUnit := map[string]string{}
 	for _, fleet := range input.Fleets {
+		count++
 		scheduleFleetID := uuid.New().String()
+		tripID := utils.GenerateTripID(orgCode, count, input.CreatedAt)
 		insertScheduleFleet := `
 			INSERT INTO schedule_fleets (uuid, schedule_id, order_id, fleet_id, unit_id, departure_time, created_at, created_by, status, organization_id, schedule_number)
 			VALUES (` + r.placeholder(1) + `, ` + r.placeholder(2) + `, ` + r.placeholder(3) + `, ` + r.placeholder(4) + `, ` + r.placeholder(5) + `, ` + r.placeholder(6) + `, ` + r.placeholder(7) + `, ` + r.placeholder(8) + `, 1, ` + r.placeholder(9) + `, ` + r.placeholder(10) + `)
 		`
-		if _, err = database.TxExec(tx, insertScheduleFleet, scheduleFleetID, scheduleID, input.OrderID, fleet.FleetID, fleet.UnitID, input.DepartureTime, input.CreatedAt, input.UserID, input.OrganizationID, utils.GenerateTripID(input.OrderID)); err != nil {
+		if _, err = database.TxExec(tx, insertScheduleFleet, scheduleFleetID, scheduleID, input.OrderID, fleet.FleetID, fleet.UnitID, input.DepartureTime, input.CreatedAt, input.UserID, input.OrganizationID, tripID); err != nil {
 			return "", err
 		}
 		unitID := strings.TrimSpace(fleet.UnitID)
@@ -265,6 +285,24 @@ func (r *ScheduleRepository) UpdateSchedule(input model.ScheduleUpdateRepository
 		return err
 	}
 
+	var orgCode string
+	orgQuery := "SELECT organization_code FROM organizations WHERE organization_id = " + r.placeholder(1)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		orgQuery = "SELECT organization_code FROM organizations WHERE organization_id::text = " + r.placeholder(1)
+	}
+	if err = database.TxQueryRow(tx, orgQuery, input.OrganizationID).Scan(&orgCode); err != nil {
+		return err
+	}
+
+	var count int
+	countQuery := "SELECT COUNT(schedule_number) FROM schedule_fleets WHERE organization_id = " + r.placeholder(1)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		countQuery = "SELECT COUNT(schedule_number) FROM schedule_fleets WHERE organization_id::text = " + r.placeholder(1)
+	}
+	if err = database.TxQueryRow(tx, countQuery, input.OrganizationID).Scan(&count); err != nil {
+		return err
+	}
+
 	scheduleFleetIDByUnit := map[string]string{}
 	for _, fleet := range input.Fleets {
 		unitID := strings.TrimSpace(fleet.UnitID)
@@ -274,12 +312,14 @@ func (r *ScheduleRepository) UpdateSchedule(input model.ScheduleUpdateRepository
 
 		scheduleFleetID := existingByUnit[unitID]
 		if scheduleFleetID == "" {
+			count++
 			scheduleFleetID = uuid.New().String()
+			tripID := utils.GenerateTripID(orgCode, count, input.UpdatedAt)
 			insertScheduleFleet := `
 				INSERT INTO schedule_fleets (uuid, schedule_id, order_id, fleet_id, unit_id, departure_time, created_at, created_by, status, organization_id, schedule_number)
 				VALUES (` + r.placeholder(1) + `, ` + r.placeholder(2) + `, ` + r.placeholder(3) + `, ` + r.placeholder(4) + `, ` + r.placeholder(5) + `, ` + r.placeholder(6) + `, ` + r.placeholder(7) + `, ` + r.placeholder(8) + `, 1, ` + r.placeholder(9) + `, ` + r.placeholder(10) + `)
 			`
-			if _, err = database.TxExec(tx, insertScheduleFleet, scheduleFleetID, input.ScheduleID, input.OrderID, fleet.FleetID, unitID, input.DepartureTime, input.UpdatedAt, input.UserID, input.OrganizationID, utils.GenerateTripID(input.OrderID)); err != nil {
+			if _, err = database.TxExec(tx, insertScheduleFleet, scheduleFleetID, input.ScheduleID, input.OrderID, fleet.FleetID, unitID, input.DepartureTime, input.UpdatedAt, input.UserID, input.OrganizationID, tripID); err != nil {
 				return err
 			}
 		} else {
