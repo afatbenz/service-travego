@@ -9,12 +9,6 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// ConversationMessage represents a message in the conversation history
-type ConversationMessage struct {
-	Role    string      `json:"role"`
-	Content interface{} `json:"content"`
-}
-
 // SessionManager handles conversation history storage in Redis
 type SessionManager struct {
 	client *redis.Client

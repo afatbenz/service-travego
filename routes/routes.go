@@ -37,6 +37,7 @@ func SetupRoutes(app *fiber.App, cfg *configs.Config) {
 
 	// Initialize Midtrans
 	midtransCfg := config.InitMidtrans()
+	rdb := helper.GetRedisClient()
 
 	// Setup route groups
 	SetupNotificationRoutes(app, db, cfg.Database.Driver) // Register public routes first
@@ -64,9 +65,9 @@ func SetupRoutes(app *fiber.App, cfg *configs.Config) {
 	SetupPrintManagementRoutes(api, db, cfg.Database.Driver)
 	SetupPaymentRoutes(api, db, cfg.Database.Driver, midtransCfg)
 	SetupPreferenceCityRoutes(api, db, cfg.Database.Driver)
+	SetupAssistantRoutes(api, db, cfg.Database.Driver, rdb)
 
 	// Setup WhatsApp AI Assistant module (WAAI)
-	rdb := helper.GetRedisClient()
 	if rdb == nil {
 		log.Printf("Warning: Redis client is nil, WAAI may not work properly")
 	} else {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 )
 
 // WagyClient handles communication with Wagy API
@@ -20,32 +21,14 @@ func NewWagyClient(deviceID, token string) *WagyClient {
 	return &WagyClient{
 		deviceID: deviceID,
 		token:    token,
-		baseURL:  "https://api.wagy.web.id",
+		baseURL:  "https://api.wagy.web.id/api/v1",
 	}
-}
-
-// SendMessageRequest represents the request body for sending a message
-type SendMessageRequest struct {
-	Phone   string `json:"phone"`
-	Message string `json:"message"`
-}
-
-// SendMessageResponse represents the response from Wagy
-type SendMessageResponse struct {
-	Status string `json:"status"`
-	Data   struct {
-		MessageID int64  `json:"message_id"`
-		Timestamp string `json:"timestamp"`
-	} `json:"data"`
-	Error *struct {
-		Code    string `json:"code"`
-		Message string `json:"message"`
-	} `json:"error"`
 }
 
 // SendMessage sends a message via Wagy API
 func (wc *WagyClient) SendMessage(phone, message string) (int64, error) {
 	url := fmt.Sprintf("%s/%s/send", wc.baseURL, wc.deviceID)
+	fmt.Println("URL:", url)
 
 	payload := SendMessageRequest{
 		Phone:   phone,
@@ -77,10 +60,21 @@ func (wc *WagyClient) SendMessage(phone, message string) (int64, error) {
 		return 0, fmt.Errorf("failed to read response: %w", err)
 	}
 
+	trimmedBody := strings.TrimSpace(string(respBody))
+	if trimmedBody == "" {
+		if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("wagy returned status %d with empty response body", resp.StatusCode)
+	}
+
 	var result SendMessageResponse
 	err = json.Unmarshal(respBody, &result)
 	if err != nil {
-		return 0, fmt.Errorf("failed to unmarshal response: %w", err)
+		if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("failed to parse wagy response (status %d): %s", resp.StatusCode, truncateForError(trimmedBody))
 	}
 
 	if result.Status != "success" {
@@ -91,4 +85,12 @@ func (wc *WagyClient) SendMessage(phone, message string) (int64, error) {
 	}
 
 	return result.Data.MessageID, nil
+}
+
+func truncateForError(body string) string {
+	const maxLen = 200
+	if len(body) <= maxLen {
+		return body
+	}
+	return body[:maxLen] + "..."
 }

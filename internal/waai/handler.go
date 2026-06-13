@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -13,20 +15,21 @@ import (
 
 // Handler handles WhatsApp AI webhook requests
 type Handler struct {
-	config      *Config
-	wagyClient  *WagyClient
-	aiClient    *AIClient
-	tenantRepo  *TenantRepository
-	sessionMgr  *SessionManager
+	config     *Config
+	wagyClient *WagyClient
+	aiClient   *AIClient
+	tenantRepo *TenantRepository
+	sessionMgr *SessionManager
 }
 
 // NewHandler creates a new webhook handler
 func NewHandler(cfg *Config, db *sql.DB, dbDriver string, rdb *redis.Client) *Handler {
+	authMgr := NewAuthManager(rdb)
 	return &Handler{
 		config:     cfg,
 		wagyClient: NewWagyClient(cfg.WagyDeviceID, cfg.WagyToken),
 		aiClient:   NewAIClient(cfg.AnthropicAPIKey, db, dbDriver, rdb),
-		tenantRepo: NewTenantRepository(db, dbDriver),
+		tenantRepo: NewTenantRepository(db, dbDriver, authMgr),
 		sessionMgr: NewSessionManager(rdb),
 	}
 }
@@ -90,11 +93,14 @@ func (h *Handler) HandleWebhookPOST(c *fiber.Ctx) error {
 	log.Printf("[WAAI] Incoming message from %s: %s", phone, messageText)
 
 	// Check if tenant exists (quick check)
-	_, err = h.tenantRepo.GetTenantByPhone(phone)
+	ctxTenant, cancelTenant := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelTenant()
+
+	_, err = h.tenantRepo.GetTenantByPhone(ctxTenant, phone)
 	if err != nil {
 		// Tenant not found - send error message and return
 		log.Printf("[WAAI] Tenant not found for phone: %s", phone)
-		replyText := "Maaf, nomor Anda belum terdaftar dalam sistem. Hubungi administrator untuk pendaftaran."
+		replyText := buildUnregisteredReply(messageText)
 		_ = h.sendMessage(phone, replyText)
 		return c.Status(fiber.StatusOK).JSON(fiber.Map{
 			"status": "tenant_not_found",
@@ -132,6 +138,7 @@ func (h *Handler) processMessageAsync(phone, messageText string) {
 func (h *Handler) sendMessage(phone, message string) error {
 	_, err := h.wagyClient.SendMessage(phone, message)
 	if err != nil {
+		fmt.Printf("Error sending message to %s: %v", phone, err)
 		return err
 	}
 	log.Printf("[WAAI] Message sent to %s", phone)
@@ -182,16 +189,99 @@ func RegisterRoutes(app *fiber.App, cfg *Config, db *sql.DB, dbDriver string, rd
 	// Create handler
 	handler := NewHandler(cfg, db, dbDriver, rdb)
 
-	// Webhook routes (public, no auth required)
-	waaiGroup := app.Group("/waai")
-	waaiGroup.Get("/webhook", handler.HandleWebhookGET)
-	waaiGroup.Post("/webhook", handler.HandleWebhookPOST)
+	// Register both legacy and API-prefixed routes to avoid breaking existing integrations.
+	for _, basePath := range []string{"/waai", "/api/waai"} {
+		waaiGroup := app.Group(basePath)
+		waaiGroup.Get("/webhook", handler.HandleWebhookGET)
+		waaiGroup.Post("/webhook", handler.HandleWebhookPOST)
 
-	// Admin routes (should be protected in production)
-	adminGroup := waaiGroup.Group("/admin")
-	adminGroup.Delete("/session/:phone", handler.ClearSessionHandler)
-	adminGroup.Get("/health", handler.HealthCheck)
+		// Admin routes (should be protected in production)
+		adminGroup := waaiGroup.Group("/admin")
+		adminGroup.Delete("/session/:phone", handler.ClearSessionHandler)
+		adminGroup.Get("/health", handler.HealthCheck)
+	}
 
 	log.Println("[WAAI] Routes registered successfully")
 	return nil
+}
+
+func buildUnregisteredReply(messageText string) string {
+	if isIdentityOrDeveloperQuestion(messageText) {
+		return "Halo! Saya Trave AI Assistant Travego.\n\n" +
+			"Trave AI Assistant Travego diciptakan oleh Afatbenz Tech.\n" +
+			"Untuk diskusi lebih lanjut, Anda bisa hubungi 6281335884729 atau kunjungi mafatichulfuadi.com.\n\n" +
+			"Jika Anda ingin mengetahui lebih lanjut tentang layanan Travego, saya siap membantu."
+	}
+	if isRegistrationQuestion(messageText) {
+		return "Untuk mendaftar dan menikmati layanan AI Assistant, silakan register di platform https://www.travego.id lalu tambahkan nomor WhatsApp Anda di menu Pengaturan > AI Assistant."
+	}
+
+	return "Halo! \nMaaf, sepertinya nomor Anda belum terdaftar di sistem kami.\n\n" +
+		"Ingin mengoptimalkan operasional bisnis transportasi Anda dengan bantuan AI Assistant dan sistem ERP Travego? " +
+		"Segera daftar dan nikmati kemudahannya.\n\n" +
+		"Informasi lebih lanjut, silakan kunjungi:\n" +
+		"Website: http://www.travego.id\n" +
+		"Whatsapp: 6281335884729\n\n" +
+		"Terimakasih"
+}
+
+func isIdentityOrDeveloperQuestion(messageText string) bool {
+	text := strings.ToLower(strings.TrimSpace(messageText))
+	if text == "" {
+		return false
+	}
+
+	keywords := []string{
+		"kamu siapa",
+		"siapa kamu",
+		"siapa anda",
+		"nama kamu",
+		"nama anda",
+		"asisten apa",
+		"assistant apa",
+		"siapa developer",
+		"siapa pencipta",
+		"siapa pembuat",
+		"dibuat oleh siapa",
+		"diciptakan oleh siapa",
+		"developer kamu",
+		"pencipta kamu",
+		"pembuat kamu",
+	}
+
+	for _, keyword := range keywords {
+		if strings.Contains(text, keyword) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isRegistrationQuestion(messageText string) bool {
+	text := strings.ToLower(strings.TrimSpace(messageText))
+	if text == "" {
+		return false
+	}
+
+	keywords := []string{
+		"cara daftar",
+		"bagaimana daftar",
+		"cara register",
+		"bagaimana register",
+		"cara menikmati layanan",
+		"menikmati layanan ai assistant",
+		"cara pakai ai assistant",
+		"cara menggunakan ai assistant",
+		"daftar ai assistant",
+		"register ai assistant",
+	}
+
+	for _, keyword := range keywords {
+		if strings.Contains(text, keyword) {
+			return true
+		}
+	}
+
+	return false
 }

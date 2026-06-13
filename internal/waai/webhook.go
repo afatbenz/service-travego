@@ -4,35 +4,55 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
-	"io"
+	"encoding/json"
 	"strings"
 )
 
 // VerifySignature verifies the HMAC-SHA256 signature from Wagy
 func VerifySignature(rawBody []byte, signature string, secret string) bool {
+	normalizedSignature := normalizeSignature(signature)
+	if normalizedSignature == "" || secret == "" {
+		return false
+	}
+
+	if verifyHMAC(rawBody, normalizedSignature, secret) {
+		return true
+	}
+
+	normalizedBody, ok := normalizeJSONBody(rawBody)
+	if !ok {
+		return false
+	}
+
+	return verifyHMAC(normalizedBody, normalizedSignature, secret)
+}
+
+func verifyHMAC(body []byte, signature string, secret string) bool {
 	hash := hmac.New(sha256.New, []byte(secret))
-	hash.Write(rawBody)
+	hash.Write(body)
 	expectedSignature := hex.EncodeToString(hash.Sum(nil))
 
 	return hmac.Equal([]byte(signature), []byte(expectedSignature))
 }
 
-// WebhookPayload represents the structure of a Wagy webhook event
-type WebhookPayload struct {
-	Event  string `json:"event"`
-	Source string `json:"source"`
-	Data   struct {
-		ID       int64  `json:"id"`
-		DeviceID string `json:"device_id"`
-		OwnerJID string `json:"owner_jid"`
-		Content  struct {
-			PhoneJID  string `json:"pn_jid"`
-			Message   string `json:"content"`
-			MessageID string `json:"message_id"`
-			Timestamp string `json:"timestamp"`
-		} `json:"content"`
-	} `json:"data"`
+func normalizeSignature(signature string) string {
+	signature = strings.TrimSpace(strings.ToLower(signature))
+	signature = strings.TrimPrefix(signature, "sha256=")
+	return signature
+}
+
+func normalizeJSONBody(rawBody []byte) ([]byte, bool) {
+	var payload any
+	if err := json.Unmarshal(rawBody, &payload); err != nil {
+		return nil, false
+	}
+
+	normalizedBody, err := json.Marshal(payload)
+	if err != nil {
+		return nil, false
+	}
+
+	return normalizedBody, true
 }
 
 // ExtractPhoneNumber extracts the clean phone number from WhatsApp JID format
@@ -40,18 +60,4 @@ func ExtractPhoneNumber(jid string) string {
 	// Format: "628123456789@s.whatsapp.net"
 	phone := strings.TrimSuffix(jid, "@s.whatsapp.net")
 	return strings.TrimPrefix(phone, "+")
-}
-
-// ReadAndVerifyWebhook reads the request body and verifies the signature
-func ReadAndVerifyWebhook(body io.ReadCloser, signature string, secret string) ([]byte, error) {
-	rawBody, err := io.ReadAll(body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read body: %w", err)
-	}
-
-	if !VerifySignature(rawBody, signature, secret) {
-		return nil, fmt.Errorf("invalid signature")
-	}
-
-	return rawBody, nil
 }
