@@ -50,6 +50,13 @@ func (h *OrganizationHandler) AssistantSubmit(c *fiber.Ctx) error {
 		return helper.SendErrorResponse(c, code, err.Error())
 	}
 
+	// Send WhatsApp notification
+	if h.wagyClient != nil && req.AccountNumber != "" {
+		normalized := service.NormalizeAssistantAccountNumber(req.AccountNumber)
+		message := "Halo! Anda sudah bisa menikmati AI Assistant untuk memudahkan pekerjaan. Jika ada kendala harap informasikan ke administrator."
+		go h.wagyClient.SendMessage(normalized, message)
+	}
+
 	return helper.SuccessResponse(c, fiber.StatusOK, "Assistant account created", res)
 }
 
@@ -67,9 +74,21 @@ func (h *OrganizationHandler) AssistantUpdate(c *fiber.Ctx) error {
 		return helper.SendValidationErrorResponse(c, validationErrors)
 	}
 
+	// Fetch old data to check if account_number changed
+	oldData, _ := h.orgService.GetAssistantAccountByID(orgID, req.AssistantID)
+
 	if err := h.orgService.AssistantUpdate(orgID, &req); err != nil {
 		code := service.GetStatusCode(err)
 		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	// Send WhatsApp notification if account_number changed
+	if h.wagyClient != nil && req.AccountNumber != nil && *req.AccountNumber != "" {
+		normalized := service.NormalizeAssistantAccountNumber(*req.AccountNumber)
+		if oldData == nil || oldData.AccountNumber != normalized {
+			message := "Halo! Anda sudah bisa menikmati AI Assistant untuk memudahkan pekerjaan. Jika ada kendala harap informasikan ke administrator."
+			go h.wagyClient.SendMessage(normalized, message)
+		}
 	}
 
 	return helper.SuccessResponse(c, fiber.StatusOK, "Assistant account updated", nil)

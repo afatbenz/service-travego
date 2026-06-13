@@ -3216,11 +3216,31 @@ func (r *FleetRepository) ListServiceOrderFleet(orgID, processType string) ([]mo
 }
 
 func (r *FleetRepository) GetPartnerOrderList(orgID string, filter *model.PartnerOrderListFilter) ([]model.PartnerOrderListItem, error) {
-	base := `
+	orgExpr := r.getPlaceholder(1)
+	scheduleIDExpr := "s.schedule_id"
+	if r.driver == "postgres" || r.driver == "pgx" {
+		scheduleIDExpr = "s.schedule_id::text"
+	}
+
+	base := fmt.Sprintf(`
         SELECT 
 			fo.order_id, f.fleet_name, f.thumbnail,
-			COALESCE(c.customer_name, '') as customer_name,
-			COALESCE(c.customer_phone, '') as customer_phone,
+			COALESCE((
+				SELECT c.customer_name
+				FROM customer_orders co
+				INNER JOIN customers c ON c.customer_id = co.customer_id AND c.organization_id = f.organization_id
+				WHERE co.order_id = fo.order_id
+				ORDER BY co.created_at DESC
+				LIMIT 1
+			), '') as customer_name,
+			COALESCE((
+				SELECT c.customer_phone
+				FROM customer_orders co
+				INNER JOIN customers c ON c.customer_id = co.customer_id AND c.organization_id = f.organization_id
+				WHERE co.order_id = fo.order_id
+				ORDER BY co.created_at DESC
+				LIMIT 1
+			), '') as customer_phone,
 			fo.start_date, fo.end_date, fo.unit_qty, fo.payment_status, fo.status,
 			p.duration, p.uom, fo.total_amount, p.rent_type, fo.created_at as order_date,
 			COALESCE((
@@ -3233,15 +3253,18 @@ func (r *FleetRepository) GetPartnerOrderList(orgID string, filter *model.Partne
 				ORDER BY po.created_at DESC
 				LIMIT 1
 			), 0) as latest_payment_type,
-			s.schedule_id
+			COALESCE((
+				SELECT %s
+				FROM schedules s
+				WHERE s.order_id = fo.order_id
+				ORDER BY s.created_at DESC
+				LIMIT 1
+			), '') as schedule_id
         FROM fleet_orders fo 
         INNER JOIN fleets f ON fo.fleet_id = f.uuid 
         INNER JOIN fleet_prices p ON p.uuid = fo.price_id 
-		LEFT JOIN customer_orders co ON co.order_id = fo.order_id
-		LEFT JOIN customers c ON c.customer_id = co.customer_id AND c.organization_id = f.organization_id
-		LEFT JOIN schedules s ON s.order_id = fo.order_id
-        WHERE f.organization_id = %[1]s
-    `
+        WHERE f.organization_id = %s
+    `, scheduleIDExpr, orgExpr)
 	args := make([]interface{}, 0, 6)
 	args = append(args, orgID)
 	cond := ""
@@ -3259,7 +3282,7 @@ func (r *FleetRepository) GetPartnerOrderList(orgID string, filter *model.Partne
 			args = append(args, filter.OrderDateFrom)
 		}
 		if strings.TrimSpace(filter.OrderDateTo) != "" {
-			cond += fmt.Sprintf(" AND fo.created_at <= %s", r.getPlaceholder(len(args)+1))
+			cond += fmt.Sprintf(" AND fo.created_at < %s", r.getPlaceholder(len(args)+1))
 			args = append(args, filter.OrderDateTo)
 		}
 		if filter.HasPaymentStatus {
@@ -3274,7 +3297,7 @@ func (r *FleetRepository) GetPartnerOrderList(orgID string, filter *model.Partne
 			like := "%" + v + "%"
 			pos := len(args) + 1
 			cond += fmt.Sprintf(
-				" AND (fo.order_id %s %s OR COALESCE(c.customer_name, '') %s %s OR COALESCE(f.fleet_name, '') %s %s)",
+				" AND (fo.order_id %s %s OR f.fleet_name %s %s OR EXISTS (SELECT 1 FROM customer_orders co INNER JOIN customers c ON c.customer_id = co.customer_id AND c.organization_id = f.organization_id WHERE co.order_id = fo.order_id AND c.customer_name %s %s))",
 				op, r.getPlaceholder(pos),
 				op, r.getPlaceholder(pos+1),
 				op, r.getPlaceholder(pos+2),
@@ -3282,7 +3305,7 @@ func (r *FleetRepository) GetPartnerOrderList(orgID string, filter *model.Partne
 			args = append(args, like, like, like)
 		}
 	}
-	query := fmt.Sprintf(base, r.getPlaceholder(1)) + cond + " ORDER BY fo.created_at DESC"
+	query := base + cond + " ORDER BY fo.created_at DESC"
 
 	rows, err := r.db.Query(query, args...)
 	if err != nil {
@@ -3334,21 +3357,19 @@ func (r *FleetRepository) GetPartnerOrderList(orgID string, filter *model.Partne
 }
 
 func (r *FleetRepository) GetPartnerOrderSummary(orgID string, filter *model.PartnerOrderListFilter) (*model.PartnerOrderSummary, error) {
-	base := `
+	orgExpr := r.getPlaceholder(1)
+	base := fmt.Sprintf(`
         SELECT 
-            COUNT(*) AS total_orders,
-            COALESCE(SUM(CASE WHEN fo.payment_status = 1 THEN 1 ELSE 0 END), 0) AS paid,
-            COALESCE(SUM(CASE WHEN fo.payment_status = 2 THEN 1 ELSE 0 END), 0) AS unpaid,
-            COALESCE(SUM(CASE WHEN fo.payment_status IN (3,4) THEN 1 ELSE 0 END), 0) AS pending,
-            COALESCE(SUM(CASE WHEN fo.payment_status IN (1,4) THEN t.amount ELSE 0 END), 0) AS revenue,
-            COALESCE(SUM(CASE WHEN fo.start_date <= CURRENT_DATE AND fo.end_date >= CURRENT_DATE THEN 1 ELSE 0 END), 0) AS ongoing
+            COUNT(DISTINCT fo.order_id) AS total_orders,
+            COUNT(DISTINCT CASE WHEN fo.payment_status = 1 THEN fo.order_id END) AS paid,
+            COUNT(DISTINCT CASE WHEN fo.payment_status = 2 THEN fo.order_id END) AS unpaid,
+            COUNT(DISTINCT CASE WHEN fo.payment_status IN (3,4) THEN fo.order_id END) AS pending,
+            COALESCE(SUM(CASE WHEN fo.payment_status IN (1,4) THEN fo.total_amount ELSE 0 END), 0) AS revenue,
+            COUNT(DISTINCT CASE WHEN fo.start_date <= CURRENT_DATE AND fo.end_date >= CURRENT_DATE THEN fo.order_id END) AS ongoing
         FROM fleet_orders fo
-		INNER JOIN transactions t ON t.reference_id = fo.order_id
         INNER JOIN fleets f ON fo.fleet_id = f.uuid
-		LEFT JOIN customer_orders co ON co.order_id = fo.order_id
-		LEFT JOIN customers c ON c.customer_id = co.customer_id AND c.organization_id = f.organization_id
-        WHERE f.organization_id = %[1]s
-    `
+        WHERE f.organization_id = %s
+    `, orgExpr)
 	args := make([]interface{}, 0, 6)
 	args = append(args, orgID)
 	cond := ""
@@ -3366,7 +3387,7 @@ func (r *FleetRepository) GetPartnerOrderSummary(orgID string, filter *model.Par
 			args = append(args, filter.OrderDateFrom)
 		}
 		if strings.TrimSpace(filter.OrderDateTo) != "" {
-			cond += fmt.Sprintf(" AND fo.created_at <= %s", r.getPlaceholder(len(args)+1))
+			cond += fmt.Sprintf(" AND fo.created_at < %s", r.getPlaceholder(len(args)+1))
 			args = append(args, filter.OrderDateTo)
 		}
 		if filter.HasPaymentStatus {
@@ -3381,7 +3402,7 @@ func (r *FleetRepository) GetPartnerOrderSummary(orgID string, filter *model.Par
 			like := "%" + v + "%"
 			pos := len(args) + 1
 			cond += fmt.Sprintf(
-				" AND (fo.order_id %s %s OR COALESCE(c.customer_name, '') %s %s OR COALESCE(f.fleet_name, '') %s %s)",
+				" AND (fo.order_id %s %s OR f.fleet_name %s %s OR EXISTS (SELECT 1 FROM customer_orders co INNER JOIN customers c ON c.customer_id = co.customer_id AND c.organization_id = f.organization_id WHERE co.order_id = fo.order_id AND c.customer_name %s %s))",
 				op, r.getPlaceholder(pos),
 				op, r.getPlaceholder(pos+1),
 				op, r.getPlaceholder(pos+2),
@@ -3389,7 +3410,7 @@ func (r *FleetRepository) GetPartnerOrderSummary(orgID string, filter *model.Par
 			args = append(args, like, like, like)
 		}
 	}
-	query := fmt.Sprintf(base, r.getPlaceholder(1)) + cond
+	query := base + cond
 	row := r.db.QueryRow(query, args...)
 	var s model.PartnerOrderSummary
 	if err := row.Scan(&s.TotalOrders, &s.Paid, &s.Unpaid, &s.Pending, &s.Revenue, &s.Ongoing); err != nil {

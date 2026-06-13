@@ -176,11 +176,12 @@ func (tr *TenantRepository) GetTenantByPhone(ctx context.Context, phone string) 
 // GetOrganizationSnapshot retrieves business snapshot for an organization
 func (tr *TenantRepository) GetOrganizationSnapshot(ctx context.Context, orgID string) (map[string]interface{}, error) {
 	// Query organization basic info
-	orgQuery := fmt.Sprintf("SELECT id, name FROM organizations WHERE %s", tr.textCompareExpr("id", 1))
+	orgQuery := fmt.Sprintf("SELECT organization_id as id, organization_name as name FROM organizations WHERE %s", tr.textCompareExpr("organization_id", 1))
 	var org struct {
 		ID   string
 		Name string
 	}
+	fmt.Println("orgQuery:", orgQuery)
 
 	err := tr.db.QueryRowContext(ctx, orgQuery, orgID).Scan(&org.ID, &org.Name)
 	if err != nil {
@@ -202,7 +203,7 @@ func (tr *TenantRepository) GetOrganizationSnapshot(ctx context.Context, orgID s
 
 	// Query today's bookings count
 	bookingQuery := `
-		SELECT COUNT(*) FROM bookings
+		SELECT COUNT(*) FROM fleet_orders
 		WHERE ` + tr.textCompareExpr("organization_id", 1) + `
 		AND DATE(created_at) = CURRENT_DATE
 	`

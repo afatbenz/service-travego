@@ -102,33 +102,34 @@ type OrderListItem struct {
 }
 
 type OrderDetailResponse struct {
-	OrderID           string                    `json:"order_id"`
-	FleetID           string                    `json:"fleet_id"`
-	OrderDate         string                    `json:"order_date"`
-	FleetName         string                    `json:"fleet_name"`
-	RentType          int                       `json:"rent_type"`
-	RentTypeLabel     string                    `json:"rent_type_label"`
-	Duration          string                    `json:"duration"`
-	Price             float64                   `json:"price"`
-	Quantity          int                       `json:"quantity"`
-	TotalAmount       float64                   `json:"total_amount"`
-	AdditionalAmount  float64                   `json:"additional_amount"`
-	Pickup            OrderDetailPickup         `json:"pickup"`
-	Destination       []OrderDetailDest         `json:"destination"`
-	Itinerary         []FleetOrderItineraryItem `json:"itinerary"`
-	Addon             []OrderDetailAddon        `json:"addon"`
-	Customer          OrderDetailCustomer       `json:"customer"`
-	Payment           []PaymentDetail           `json:"payment"`
-	PaymentStatus     int                       `json:"payment_status"`
-	Status            int                       `json:"status"`
-	StatusLabel       string                    `json:"status_label"`
-	AdditionalRequest string                    `json:"additional_request"`
-	Token             string                    `json:"token"`
-	PriceID           string                    `json:"-"`
-	StartDate         string                    `json:"start_date"`
-	EndDate           string                    `json:"end_date"`
-	Fleets            []OrderDetailFleetItem    `json:"fleets"`
-	Scheduled         bool                      `json:"scheduled"`
+	OrderID            string                    `json:"order_id"`
+	FleetID            string                    `json:"fleet_id"`
+	OrderDate          string                    `json:"order_date"`
+	FleetName          string                    `json:"fleet_name"`
+	RentType           int                       `json:"rent_type"`
+	RentTypeLabel      string                    `json:"rent_type_label"`
+	Duration           string                    `json:"duration"`
+	Price              float64                   `json:"price"`
+	Quantity           int                       `json:"quantity"`
+	TotalAmount        float64                   `json:"total_amount"`
+	AdditionalAmount   float64                   `json:"additional_amount"`
+	Pickup             OrderDetailPickup         `json:"pickup"`
+	Destination        []OrderDetailDest         `json:"destination"`
+	Itinerary          []FleetOrderItineraryItem `json:"itinerary"`
+	Addon              []OrderDetailAddon        `json:"addon"`
+	Customer           OrderDetailCustomer       `json:"customer"`
+	Payment            []PaymentDetail           `json:"payment"`
+	PaymentStatus      int                       `json:"payment_status"`
+	PaymentStatusLabel string                    `json:"payment_status_label"`
+	Status             int                       `json:"status"`
+	StatusLabel        string                    `json:"status_label"`
+	AdditionalRequest  string                    `json:"additional_request"`
+	Token              string                    `json:"token"`
+	PriceID            string                    `json:"-"`
+	StartDate          string                    `json:"start_date"`
+	EndDate            string                    `json:"end_date"`
+	Fleets             []OrderDetailFleetItem    `json:"fleets"`
+	Scheduled          bool                      `json:"scheduled"`
 }
 
 type OrderReviewItem struct {
@@ -171,6 +172,7 @@ type PartnerOrderListItem struct {
 	EndDate             string                    `json:"end_date"`
 	UnitQty             int                       `json:"unit_qty"`
 	PaymentStatus       PaymentStatus             `json:"payment_status"`
+	PaymentStatusLabel  string                    `json:"payment_status_label"`
 	Status              int                       `json:"status"`
 	Itinerary           []FleetOrderItineraryItem `json:"itinerary"`
 	LatestPaymentStatus string                    `json:"latest_payment_status"`
@@ -180,6 +182,7 @@ type PartnerOrderListItem struct {
 	RentType            string                    `json:"rent_type"`
 	LatestPaymentType   int                       `json:"-"`
 	ScheduleID          string                    `json:"schedule_id"`
+	Scheduled           bool                      `json:"scheduled"`
 	CreatedAt           string                    `json:"created_at"`
 }
 

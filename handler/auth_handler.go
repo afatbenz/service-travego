@@ -51,6 +51,14 @@ func (h *AuthHandler) Register(c *fiber.Ctx) error {
 		return helper.SendErrorResponse(c, statusCode, err.Error())
 	}
 
+	// Insert into subscription table after successful registration and obtaining organization_id
+	if user.OrganizationID != "" {
+		if err := h.authService.CreateSubscription(user.OrganizationID); err != nil {
+			log.Printf("[ERROR] Failed to create subscription - OrgID: %s, Error: %v", user.OrganizationID, err)
+			return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to create subscription")
+		}
+	}
+
 	// Create profile data
 	profile := map[string]interface{}{
 		"email":    user.Email,

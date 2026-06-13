@@ -168,6 +168,24 @@ func (s PaymentStatus) String() string {
 	}
 }
 
+// FleetOrderPaymentStatusLabel returns the Indonesian label for fleet_orders.payment_status.
+func FleetOrderPaymentStatusLabel(status int) string {
+	switch PaymentStatus(status) {
+	case PaymentStatusPaid:
+		return "Lunas"
+	case PaymentStatusWaitingPayment:
+		return "Belum bayar"
+	case PaymentStatusWaitingApproval:
+		return "Belum dikonfirmasi"
+	case PaymentStatusPartiallyPaid:
+		return "Belum lunas"
+	case PaymentStatusCancelled:
+		return "Dibatalkan"
+	default:
+		return "Tidak diketahui"
+	}
+}
+
 const (
 	RentTypeCityTour       RentType = 1
 	RentTypeOverland       RentType = 2

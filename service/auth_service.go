@@ -33,6 +33,14 @@ func (s *AuthService) SetOrganizationUserRepository(orgUserRepo *repository.Orga
 	s.orgUserRepo = orgUserRepo
 }
 
+// CreateSubscription calls the repository to create a subscription for an organization
+func (s *AuthService) CreateSubscription(organizationID string) error {
+	if s.orgUserRepo == nil {
+		return fmt.Errorf("organization user repository not initialized")
+	}
+	return s.orgUserRepo.CreateSubscription(organizationID)
+}
+
 func (s *AuthService) Register(username, fullname, email, password, phone string) (*model.User, string, error) {
 	// Normalize email to lowercase for consistent checking
 	email = strings.ToLower(strings.TrimSpace(email))

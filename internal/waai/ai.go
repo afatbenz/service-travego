@@ -10,6 +10,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
+	"service-travego/configs"
 	"service-travego/model"
 	"service-travego/repository"
 	"service-travego/service"
@@ -34,6 +36,10 @@ type AIClient struct {
 	generalService        *service.GeneralService
 	preferenceCityService *service.PreferenceCityService
 	customersService      *service.CustomersService
+	organizationService   *service.OrganizationService
+	scheduleService       *service.ScheduleService
+	orderService          *service.OrderService
+	dashboardService      *service.DashboardService
 }
 
 // NewAIClient creates a new AI client
@@ -57,6 +63,18 @@ func NewAIClient(apiKey string, db *sql.DB, dbDriver string, rdb *redis.Client) 
 	customersRepo := repository.NewCustomersRepository(db, dbDriver)
 	partnerRepo := repository.NewPartnerRepository(db, dbDriver)
 	orgRepo := repository.NewOrganizationRepository(db, dbDriver)
+	userRepo := repository.NewUserRepository(db, dbDriver)
+	scheduleRepo := repository.NewScheduleRepository(db, dbDriver)
+	contentRepo := repository.NewContentRepository(db, dbDriver)
+	dashboardRepo := repository.NewDashboardRepository(db, dbDriver)
+
+	// Load minimal email config for OrderService
+	emailCfg := &configs.EmailConfig{
+		From:     os.Getenv("EMAIL_FROM"),
+		Password: os.Getenv("EMAIL_PASSWORD"),
+		SMTPHost: os.Getenv("EMAIL_SMTP_HOST"),
+		SMTPPort: os.Getenv("EMAIL_SMTP_PORT"),
+	}
 
 	return &AIClient{
 		apiKey:                apiKey,
@@ -71,6 +89,10 @@ func NewAIClient(apiKey string, db *sql.DB, dbDriver string, rdb *redis.Client) 
 		generalService:        service.NewGeneralService("config/general-config.json", "config/web-menu.json", "config/location.json", generalRepo),
 		preferenceCityService: service.NewPreferenceCityService(preferenceCityRepo, "config/location.json"),
 		customersService:      service.NewCustomersService(customersRepo),
+		organizationService:   service.NewOrganizationService(orgRepo, userRepo),
+		scheduleService:       service.NewScheduleService(scheduleRepo),
+		orderService:          service.NewOrderService(fleetRepo, contentRepo, orgRepo, emailCfg),
+		dashboardService:      service.NewDashboardService(dashboardRepo),
 	}
 }
 
@@ -121,11 +143,21 @@ func (ac *AIClient) ProcessMessage(ctx context.Context, phone, incomingMessage s
 	if err != nil {
 		snapshot = map[string]interface{}{} // Use empty snapshot if error
 	}
+	if tenant.OrganizationName == "" {
+		if name, ok := snapshot["organization_name"].(string); ok && name != "" {
+			tenant.OrganizationName = name
+		}
+	}
 
 	// Load conversation history
 	history, err := ac.sessionMgr.LoadSession(ctx, phone)
 	if err != nil {
 		return "", fmt.Errorf("failed to load session: %w", err)
+	}
+
+	// Limit history to last 20 messages to balance context while avoiding outdated data
+	if len(history) > 20 {
+		history = history[len(history)-20:]
 	}
 
 	// Add user message to history
@@ -143,6 +175,7 @@ func (ac *AIClient) ProcessMessage(ctx context.Context, phone, incomingMessage s
 	if err != nil {
 		return "", fmt.Errorf("anthropic call failed: %w", err)
 	}
+	finalResponse = formatWhatsAppReply(finalResponse)
 
 	// Save updated history
 	assistantMsg := ConversationMessage{
@@ -536,6 +569,17 @@ func (ac *AIClient) buildSystemPrompt(tenant *TenantInfo, snapshot map[string]in
 		displayName = tenant.Name
 	}
 
+	orgName := tenant.OrganizationName
+	if orgName == "" {
+		if name, ok := snapshot["organization_name"].(string); ok && name != "" {
+			orgName = name
+		}
+	}
+
+	now := time.Now()
+	currentMonth := now.Format("2006-01")
+	currentDate := now.Format("2006-01-02")
+
 	prompt := fmt.Sprintf(`You are a helpful WhatsApp AI Assistant for %s, an ERP rental bus management system.
 
 User Information:
@@ -543,7 +587,10 @@ User Information:
 - Role: %s
 - Organization: %s
 
-Current Business Status:
+Current Date: %s (current month: %s)
+
+Current Business Status (today only):
+- Business Name: %s
 - Fleet Count: %v
 - Available Units: %v
 - Today's Bookings: %v
@@ -551,15 +598,46 @@ Current Business Status:
 You have access to the following functions to help users:
 1. get_business_snapshot - Get current business metrics
 2. get_fleet_availability - Check vehicle availability
-3. get_fleet_list - View owned fleets
+3. get_fleet_list - View owned fleets (armada)
 4. get_fleet_detail - View fleet detail
 5. get_fleet_units - View owned fleet units
 6. get_city_list - View city list
 7. get_preference_cities - View served cities
-8. get_customer_list - View customer list
-9. get_customer_detail - View customer detail
-10. get_booking_list - View bookings
+8. get_customer_list - Search customers by name (returns customer_id)
+9. get_customer_detail - View customer detail by customer_id
+10. get_booking_list - View bookings (legacy, prefer get_order_list for pesanan)
 11. get_revenue_summary - Get revenue data
+12. get_organization_info - Get business / organization information
+13. get_order_list - View pesanan/order list with summary, filter by period (YYYY-MM)
+14. get_order_detail - View order detail by order_id, including itinerary and payment summary (sisa pembayaran)
+15. get_schedule_list - View schedule list, filtered by period (YYYY-MM)
+16. get_schedule_detail - View schedule detail by schedule_number
+17. get_order_payment_history - Get riwayat pembayaran for a specific order_id
+18. approve_order - Setujui (approve) an order by order_id
+19. reject_order - Tolak (reject) an order by order_id
+20. get_employee_shift_schedule - Get jadwal tim (employee shift schedule) including total off days
+21. add_employee_off_day - Tambah hari off (add off day) for an employee
+22. get_monthly_revenue - Get pendapatan bulan ini including total revenue, total expenses, and estimated profit
+23. get_top_fleets - Get unit armada paling banyak orderan (top fleets by number of orders)
+24. get_top_destinations - Get kota tujuan paling populer (top destinations)
+25. get_top_customers - Get customer paling loyal (top customers by number of orders)
+
+Tool usage rules:
+- [CRITICAL] Data dalam database dapat BERUBAH sewaktu-waktu. JANGAN PERCAYA jawaban Anda dari riwayat percakapan sebelumnya. Selalu PANGGIL TOOL setiap kali user menanyakan data (pesanan, pelanggan, jadwal, armada, dll.) untuk mendapatkan data TERBARU dari database.
+- When the user asks about their business or organization name, answer using Business Name from context above. For full organization details (address, phone, NPWP, etc.), call get_organization_info.
+- When the user asks for customer contact or details by name (not customer_id), you MUST:
+  1. Call get_customer_list with customer_name set to the name provided
+  2. If one match is found, call get_customer_detail with that customer_id and share the contact info
+  3. If multiple matches are found, list them and ask the user to clarify
+  4. If no match is found, tell the user the customer was not found
+- When the user asks about pesanan/order (e.g. "ada pesanan bulan ini?", "berapa order bulan Juni?"), you MUST call get_order_list with period set to the relevant YYYY-MM (use %s for "bulan ini"). Answer ONLY from the tool result summary (total_orders, paid, unpaid, revenue). Never guess from Today's Bookings — that number is for today only.
+- For order detail by order_id, call get_order_detail — JANGAN PERCAYA jawaban sebelumnya, selalu panggil tool untuk data terbaru.
+- For itinerary of order detail by order_id, call get_order_detail, get orders.itinerary[].
+- Order payment status mapping (field payment_status / payment_status_label):
+  1 = Lunas, 2 = Belum bayar, 3 = Belum dikonfirmasi, 4 = Belum lunas.
+  When telling the user payment status, ALWAYS use payment_status_label from get_order_list/get_order_detail. NEVER use latest_payment_status or latest_payment_type as status pembayaran — those are jenis pembayaran (DP, Cicilan, Pelunasan), not order payment status.
+  Summary fields: paid = lunas, unpaid = belum bayar, pending = belum dikonfirmasi atau belum lunas.
+  Untuk menjawab apakah order sudah dijadwalkan atau belum, baca dari orders[].schedule_id. Jika schedule_id = "" berarti belum terjadwal. Field scheduled/is_scheduled mengikuti aturan yang sama.
 
 Please respond in Indonesian (Bahasa Indonesia) unless the user asks otherwise.
 Help the user with their inquiries related to the bus rental business.
@@ -567,14 +645,24 @@ If the user asks who you are, what your name is, or what assistant they are talk
 If the user asks who developed, created, or made you, answer that you were created by Afatbenz Tech and that they can contact 6281335884729 or visit mafatichulfuadi.com for further discussion.
 If the user asks how to register for or enjoy the AI Assistant service, answer that they should register on https://www.travego.id and add their WhatsApp number in the Pengaturan > AI Assistant menu.
 Do not say you are Kiro, Claude, Anthropic, or mention the provider/model name unless explicitly asked about technical backend details.
-Be professional and concise in your responses.`,
-		tenant.OrganizationName,
+Be professional and concise in your responses.
+
+WhatsApp reply formatting:
+- This is WhatsApp, NOT Markdown. For bold use a single asterisk on each side: *teks tebal*. Never use **double asterisks**.
+- Use bold sparingly — only for key values such as names, amounts, or dates. Do not bold whole sentences.
+- Prefer plain, short sentences. Use line breaks between list items instead of Markdown bullets or headers.
+- Do not use # headings, **bold**, __underline__, or [link](url) Markdown syntax.`,
+		orgName,
 		displayName,
 		tenant.Role,
-		tenant.OrganizationName,
+		orgName,
+		currentDate,
+		currentMonth,
+		orgName,
 		snapshot["fleet_count"],
 		snapshot["unit_count"],
 		snapshot["today_bookings"],
+		currentMonth,
 	)
 
 	return prompt
@@ -724,6 +812,224 @@ func (ac *AIClient) executeTool(ctx context.Context, toolName string, input json
 			return map[string]interface{}{"error": "period is required"}
 		}
 		return ac.toolExec.ExecuteGetRevenueSummary(ctx, orgID, period)
+
+	case "get_organization_info":
+		res, err := ac.organizationService.GetOrganizationDetail(orgID)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		return res
+
+	case "get_order_list":
+		fmt.Println("------ get order list")
+		req := &model.PartnerOrderListFilter{
+			StartDateFrom: getStringParam(params, "start_date"),
+			StartDateTo:   getStringParam(params, "end_date"),
+			Search:        getStringParam(params, "search"),
+		}
+		if ps := getStringParam(params, "payment_status"); ps != "" {
+			if n, err := strconv.Atoi(ps); err == nil {
+				req.PaymentStatus = n
+				req.HasPaymentStatus = true
+			}
+		} else if n := getIntParam(params, "payment_status"); n > 0 {
+			req.PaymentStatus = n
+			req.HasPaymentStatus = true
+		}
+		req.OrderDateFrom, req.OrderDateTo = resolveOrderDateRange(params)
+		res, err := ac.fleetService.GetPartnerOrdersWithSummary(orgID, req)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		return enrichOrderListForAI(res)
+
+	case "get_order_detail":
+		fmt.Println("------ get order detail")
+		orderID := getStringParam(params, "order_id")
+		fmt.Println("params:", params)
+		fmt.Println("orderID:", orderID)
+		if orderID == "" {
+			return map[string]interface{}{"error": "order_id is required"}
+		}
+		res, err := ac.fleetService.GetPartnerOrderDetail(orderID, orgID)
+		if err != nil {
+			fmt.Println("error get order detail:", err)
+			return map[string]interface{}{"error": err.Error()}
+		}
+		fmt.Println("payment status", res.PaymentStatus)
+		fmt.Println("payment status label", res.PaymentStatusLabel)
+		return enrichOrderDetailForAI(res)
+	case "get_schedule_list":
+		items, err := ac.scheduleService.GetScheduleFleetList(model.ScheduleFleetListServiceInput{
+			OrganizationID: orgID,
+			Query: model.ScheduleFleetListQuery{
+				Period:         getStringParam(params, "period"),
+				OrderID:        getStringParam(params, "order_id"),
+				FleetID:        getStringParam(params, "fleet_id"),
+				Search:         getStringParam(params, "search"),
+				FleetName:      getStringParam(params, "fleet_name"),
+				PlateNumber:    getStringParam(params, "plate"),
+				ProductionYear: getStringParam(params, "production_year"),
+			},
+		})
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		return items
+
+	case "get_schedule_detail":
+		scheduleNumber := getStringParam(params, "schedule_number")
+		if scheduleNumber == "" {
+			return map[string]interface{}{"error": "schedule_number is required"}
+		}
+		res, err := ac.scheduleService.GetFleetTripDetail(model.ScheduleFleetTripDetailServiceInput{
+			OrganizationID: orgID,
+			ScheduleNumber: scheduleNumber,
+		})
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		return res
+
+	case "get_order_payment_history":
+		orderID := getStringParam(params, "order_id")
+		if orderID == "" {
+			return map[string]interface{}{"error": "order_id is required"}
+		}
+		history, err := ac.orderService.GetServiceOrderPaymentHistory(orgID, &model.ServiceOrderPaymentHistoryRequest{
+			OrderID:   orderID,
+			OrderType: 1, // Fleet order type
+		})
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		return history
+
+	case "approve_order":
+		orderID := getStringParam(params, "order_id")
+		if orderID == "" {
+			return map[string]interface{}{"error": "order_id is required"}
+		}
+		// Get user ID from context
+		userID, _ := ctx.Value(contextUserID).(string)
+		err := ac.fleetService.ProcessFleetOrder(orgID, userID, orderID, 1) // 1 = approve
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		return map[string]interface{}{
+			"status":   "success",
+			"message":  "Order approved successfully",
+			"order_id": orderID,
+		}
+
+	case "reject_order":
+		orderID := getStringParam(params, "order_id")
+		if orderID == "" {
+			return map[string]interface{}{"error": "order_id is required"}
+		}
+		// Get user ID from context
+		userID, _ := ctx.Value(contextUserID).(string)
+		err := ac.fleetService.ProcessFleetOrder(orgID, userID, orderID, 0) // 0 = reject
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		return map[string]interface{}{
+			"status":   "success",
+			"message":  "Order rejected successfully",
+			"order_id": orderID,
+		}
+
+	case "get_employee_shift_schedule":
+		req := &model.EmployeeShiftScheduleRequest{
+			StartDate:  getStringParam(params, "start_date"),
+			EndDate:    getStringParam(params, "end_date"),
+			RoleID:     getStringParam(params, "role_id"),
+			DivisionID: getStringParam(params, "division_id"),
+		}
+		schedule, err := ac.organizationService.EmployeeShiftSchedule(orgID, req)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		return schedule
+
+	case "add_employee_off_day":
+		employeeID := getStringParam(params, "employee_id")
+		shiftDate := getStringParam(params, "shift_date")
+		if employeeID == "" || shiftDate == "" {
+			return map[string]interface{}{"error": "employee_id and shift_date are required"}
+		}
+		// Get user ID from context
+		userID, _ := ctx.Value(contextUserID).(string)
+		// Get shift type from params, default to a reasonable value
+		shiftType := 1
+		if st := getIntParam(params, "shift_type"); st > 0 {
+			shiftType = st
+		}
+		req := &model.EmployeeShiftSetScheduleRequest{
+			Type:       "submit",
+			EmployeeID: employeeID,
+			ShiftDate:  shiftDate,
+			ShiftType:  shiftType,
+		}
+		result, err := ac.organizationService.EmployeeShiftSetSchedule(orgID, userID, req)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		return map[string]interface{}{
+			"status":  "success",
+			"message": "Off day added successfully",
+			"result":  result,
+		}
+
+	case "get_monthly_revenue":
+		monthStr := getStringParam(params, "month")
+		// If no month provided, use current month
+		now := time.Now()
+		if monthStr == "" {
+			monthStr = now.Format("2006-01")
+		}
+		// Parse month to get start and end dates
+		monthTime, err := time.Parse("2006-01", monthStr)
+		if err != nil {
+			monthTime = now
+		}
+		startDate := time.Date(monthTime.Year(), monthTime.Month(), 1, 0, 0, 0, 0, time.Local)
+		endDate := startDate.AddDate(0, 1, -1)
+		// Get finance data
+		finance, err := ac.dashboardService.GetFinance(orgID, startDate, endDate)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		// Calculate profit
+		profit := finance.Summary.TotalRevenue - finance.Summary.TotalExpenses
+		return map[string]interface{}{
+			"month":          monthStr,
+			"total_revenue":  finance.Summary.TotalRevenue,
+			"total_expenses": finance.Summary.TotalExpenses,
+			"profit":         profit,
+			"finance_data":   finance,
+		}
+
+	case "get_top_fleets":
+		topFleets, err := ac.dashboardService.GetTopFleets(orgID)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		return topFleets
+
+	case "get_top_destinations":
+		topDestinations, err := ac.dashboardService.GetTopDestinations(orgID)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		return topDestinations
+
+	case "get_top_customers":
+		topCustomers, err := ac.dashboardService.GetTopCustomers(orgID)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		return topCustomers
 
 	default:
 		return map[string]interface{}{
@@ -878,4 +1184,176 @@ func parseFleetAvailabilityDates(startStr, endStr string) (time.Time, time.Time,
 		return time.Time{}, time.Time{}, fmt.Errorf("invalid end_date")
 	}
 	return startDate, endDate, nil
+}
+
+var (
+	markdownBoldTriple = regexp.MustCompile(`\*\*\*([^*\n]+?)\*\*\*`)
+	markdownBoldDouble = regexp.MustCompile(`\*\*([^*\n]+?)\*\*`)
+	markdownUnderline  = regexp.MustCompile(`__([^_\n]+?)__`)
+	markdownHeader     = regexp.MustCompile(`(?m)^#{1,6}\s+`)
+)
+
+// formatWhatsAppReply normalizes model output to WhatsApp-friendly formatting.
+func formatWhatsAppReply(text string) string {
+	if text == "" {
+		return text
+	}
+
+	text = markdownBoldTriple.ReplaceAllString(text, "*$1*")
+	for strings.Contains(text, "**") {
+		next := markdownBoldDouble.ReplaceAllString(text, "*$1*")
+		if next == text {
+			break
+		}
+		text = next
+	}
+	text = markdownUnderline.ReplaceAllString(text, "*$1*")
+	text = markdownHeader.ReplaceAllString(text, "")
+
+	return strings.TrimSpace(text)
+}
+
+func resolveOrderDateRange(params map[string]interface{}) (string, string) {
+	if period := strings.TrimSpace(getStringParam(params, "period")); period != "" {
+		if from, to, ok := monthPeriodToOrderDateRange(period); ok {
+			return from, to
+		}
+	}
+
+	from := getStringParam(params, "order_date_from", "order_date_start")
+	to := getStringParam(params, "order_date_to", "order_date_end")
+	return from, to
+}
+
+func enrichOrderListForAI(res *model.PartnerOrderListResponse) map[string]interface{} {
+	if res == nil {
+		return map[string]interface{}{"orders": []map[string]interface{}{}}
+	}
+
+	orders := make([]map[string]interface{}, 0, len(res.Orders))
+	seenOrderIDs := make(map[string]struct{}, len(res.Orders))
+	totalOrders := 0
+	paid := 0
+	unpaid := 0
+	pending := 0
+	revenue := 0.0
+	for _, o := range res.Orders {
+		orderID := strings.TrimSpace(o.OrderID)
+		if orderID == "" {
+			continue
+		}
+		if _, exists := seenOrderIDs[orderID]; exists {
+			continue
+		}
+		seenOrderIDs[orderID] = struct{}{}
+		totalOrders++
+
+		paymentStatus := int(o.PaymentStatus)
+		paymentStatusLabel := paymentStatusLabelForAI(paymentStatus, o.PaymentStatusLabel)
+		switch paymentStatus {
+		case 1:
+			paid++
+			revenue += o.TotalAmount
+		case 2:
+			unpaid++
+		case 3, 4:
+			pending++
+			if paymentStatus == 4 {
+				revenue += o.TotalAmount
+			}
+		}
+
+		scheduled := strings.TrimSpace(o.ScheduleID) != ""
+		item := map[string]interface{}{
+			"order_id":             orderID,
+			"customer_name":        o.CustomerName,
+			"customer_phone":       o.CustomerPhone,
+			"fleet_name":           o.FleetName,
+			"start_date":           o.StartDate,
+			"end_date":             o.EndDate,
+			"total_amount":         o.TotalAmount,
+			"payment_status":       paymentStatus,
+			"payment_status_label": paymentStatusLabel,
+			"scheduled":            scheduled,
+			"schedule_id":          o.ScheduleID,
+			"is_scheduled":         scheduled,
+		}
+		if o.LatestPaymentStatus != "" {
+			item["latest_payment_type"] = o.LatestPaymentStatus
+		}
+		orders = append(orders, item)
+	}
+
+	return map[string]interface{}{
+		"summary": map[string]interface{}{
+			"total_orders":                        totalOrders,
+			"paid":                                paid,
+			"unpaid":                              unpaid,
+			"pending":                             pending,
+			"lunas":                               paid,
+			"belum_bayar":                         unpaid,
+			"belum_dikonfirmasi_atau_belum_lunas": pending,
+			"revenue":                             revenue,
+			"ongoing":                             res.Summary.Ongoing,
+		},
+		"orders": orders,
+		"payment_status_legend": map[string]string{
+			"1": "Lunas",
+			"2": "Belum bayar",
+			"3": "Belum dikonfirmasi",
+			"4": "Belum lunas",
+		},
+	}
+}
+
+func paymentStatusLabelForAI(paymentStatus int, currentLabel string) string {
+	switch paymentStatus {
+	case 1:
+		return "Lunas"
+	case 2:
+		return "Belum bayar"
+	case 3:
+		return "Belum dikonfirmasi"
+	case 4:
+		return "Belum lunas"
+	default:
+		return strings.TrimSpace(currentLabel)
+	}
+}
+
+func enrichOrderDetailForAI(res *model.OrderDetailResponse) map[string]interface{} {
+	if res == nil {
+		return map[string]interface{}{}
+	}
+
+	raw, _ := json.Marshal(res)
+	out := map[string]interface{}{}
+	_ = json.Unmarshal(raw, &out)
+
+	paymentStatus := res.PaymentStatus
+	out["payment_status"] = paymentStatus
+	out["payment_status_label"] = paymentStatusLabelForAI(paymentStatus, "")
+	out["scheduled"] = res.Scheduled
+	out["is_scheduled"] = res.Scheduled
+
+	// Calculate payment summary (sisa pembayaran)
+	totalAmount := res.TotalAmount
+	// For now, we'll need to get payment history to calculate remaining
+	// But let's add a placeholder - we'll update this when we have the order service
+	out["payment_summary"] = map[string]interface{}{
+		"total_amount":      totalAmount,
+		"payment_remaining": totalAmount, // Default to total if no payments yet
+	}
+
+	return out
+}
+
+func monthPeriodToOrderDateRange(period string) (string, string, bool) {
+	t, err := time.ParseInLocation("2006-01", period, time.Local)
+	if err != nil {
+		return "", "", false
+	}
+	start := time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.Local)
+	end := start.AddDate(0, 1, 0).Add(-time.Second)
+	return start.Format("2006-01-02") + " 00:00:00", end.Format("2006-01-02") + " 23:59:59", true
 }
