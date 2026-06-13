@@ -244,6 +244,32 @@ func (s *TransactionService) ListFleetTripExpenses(scheduleNumber, orgID string)
 	return s.repo.ListFleetTripExpensesByScheduleNumber(scheduleNumber, orgID)
 }
 
+func (s *TransactionService) DeleteFleetTripExpense(orgID, userID, scheduleNumber, transactionTripID string) error {
+	orgID = strings.TrimSpace(orgID)
+	userID = strings.TrimSpace(userID)
+	scheduleNumber = strings.TrimSpace(scheduleNumber)
+	transactionTripID = strings.TrimSpace(transactionTripID)
+
+	if orgID == "" {
+		return NewServiceError(ErrUnauthorized, http.StatusUnauthorized, "Organization not found")
+	}
+	if userID == "" {
+		return NewServiceError(ErrUnauthorized, http.StatusUnauthorized, "User not found")
+	}
+	if scheduleNumber == "" {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "schedule_number is required")
+	}
+	if transactionTripID == "" {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "transaction_trip_id is required")
+	}
+
+	err := s.repo.DeleteFleetTripExpense(orgID, scheduleNumber, transactionTripID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return NewServiceError(ErrNotFound, http.StatusNotFound, "fleet trip expense not found")
+	}
+	return err
+}
+
 func (s *TransactionService) SubmitExpenseTransaction(orgID, userID string, req *model.SubmitExpenseTransactionRequest) error {
 	orgID = strings.TrimSpace(orgID)
 	userID = strings.TrimSpace(userID)

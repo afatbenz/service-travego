@@ -275,6 +275,20 @@ func (s *FleetService) GetPartnerOrderList(orgID string, filter *model.PartnerOr
 		if token, err := helper.EncryptString(items[i].OrderID); err == nil {
 			items[i].TransactionID = token
 		}
+		PaymentStatusLabel := "Belum dibayar"
+		if items[i].PaymentStatus == 1 {
+			PaymentStatusLabel = "Lunas"
+		}
+		if items[i].PaymentStatus == 2 {
+			PaymentStatusLabel = "Belum Dibayar"
+		}
+		if items[i].PaymentStatus == 3 {
+			PaymentStatusLabel = "Menunggi verifikasi"
+		}
+		if items[i].PaymentStatus == 4 {
+			PaymentStatusLabel = "Belum Lunas"
+		}
+		items[i].PaymentStatusLabel = PaymentStatusLabel
 		if items[i].PaymentStatus == 3 || items[i].PaymentStatus == 4 {
 			items[i].LatestPaymentStatus = s.paymentTypeLabels[items[i].LatestPaymentType]
 		} else {
@@ -285,7 +299,9 @@ func (s *FleetService) GetPartnerOrderList(orgID string, filter *model.PartnerOr
 }
 
 func (s *FleetService) GetPartnerOrdersWithSummary(orgID string, filter *model.PartnerOrderListFilter) (*model.PartnerOrderListResponse, error) {
-	items, err := s.repo.GetPartnerOrderList(orgID, filter)
+	normalizedFilter := normalizePartnerOrderListFilter(filter)
+
+	items, err := s.repo.GetPartnerOrderList(orgID, normalizedFilter)
 	if err != nil {
 		msg := "failed to get order list"
 		if env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV"))); env != "production" && env != "prod" {
@@ -298,13 +314,27 @@ func (s *FleetService) GetPartnerOrdersWithSummary(orgID string, filter *model.P
 		if token, err := helper.EncryptString(items[i].OrderID); err == nil {
 			items[i].TransactionID = token
 		}
+		PaymentStatusLabel := "Belum dibayar"
+		if items[i].PaymentStatus == 1 {
+			PaymentStatusLabel = "Lunas"
+		}
+		if items[i].PaymentStatus == 2 {
+			PaymentStatusLabel = "Belum Dibayar"
+		}
+		if items[i].PaymentStatus == 3 {
+			PaymentStatusLabel = "Menunggi verifikasi"
+		}
+		if items[i].PaymentStatus == 4 {
+			PaymentStatusLabel = "Belum Lunas"
+		}
+		items[i].PaymentStatusLabel = PaymentStatusLabel
 		if items[i].PaymentStatus == 3 || items[i].PaymentStatus == 4 {
 			items[i].LatestPaymentStatus = s.paymentTypeLabels[items[i].LatestPaymentType]
 		} else {
 			items[i].LatestPaymentStatus = ""
 		}
 	}
-	summary, err := s.repo.GetPartnerOrderSummary(orgID, filter)
+	summary, err := s.repo.GetPartnerOrderSummary(orgID, normalizedFilter)
 	if err != nil {
 		msg := "failed to get order summary"
 		if env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV"))); env != "production" && env != "prod" {
@@ -318,6 +348,25 @@ func (s *FleetService) GetPartnerOrdersWithSummary(orgID string, filter *model.P
 	}, nil
 }
 
+func normalizePartnerOrderListFilter(filter *model.PartnerOrderListFilter) *model.PartnerOrderListFilter {
+	if filter == nil {
+		return nil
+	}
+
+	normalized := *filter
+	orderDateTo := strings.TrimSpace(normalized.OrderDateTo)
+	if orderDateTo == "" {
+		return &normalized
+	}
+
+	// Treat date-only upper bounds as exclusive by shifting to the next day.
+	if t, err := time.Parse("2006-01-02", orderDateTo); err == nil {
+		normalized.OrderDateTo = t.AddDate(0, 0, 1).Format("2006-01-02")
+	}
+
+	return &normalized
+}
+
 func (s *FleetService) GetPartnerOrderDetail(orderID, orgID string) (*model.OrderDetailResponse, error) {
 	res, err := s.repo.GetPartnerOrderDetail(orderID, orgID)
 	if err != nil {
@@ -326,6 +375,20 @@ func (s *FleetService) GetPartnerOrderDetail(orderID, orgID string) (*model.Orde
 	res.RentTypeLabel = configs.RentType(res.RentType).String()
 	res.Duration = calculateDurationString(res.StartDate, res.EndDate)
 	s.ensureCitiesLoaded()
+
+	PaymentStatusLabel := "Belum dibayar"
+	if res.PaymentStatus == 1 {
+		PaymentStatusLabel = "Lunas"
+	}
+	if res.PaymentStatus == 2 {
+		PaymentStatusLabel = "Belum Dibayar"
+	}
+	if res.PaymentStatus == 3 {
+		PaymentStatusLabel = "Menunggi verifikasi"
+	}
+	if res.PaymentStatus == 4 {
+		PaymentStatusLabel = "Belum Lunas"
+	}
 
 	// Map Customer City
 	if res.Customer.CustomerCity != 0 {
@@ -368,6 +431,7 @@ func (s *FleetService) GetPartnerOrderDetail(orderID, orgID string) (*model.Orde
 
 	// Get schedule info
 	res.Scheduled = false
+	res.PaymentStatusLabel = PaymentStatusLabel
 	schedule, err := s.repo.GetScheduleByOrderID(orderID)
 	if err != nil && err != sql.ErrNoRows {
 		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to get schedule")

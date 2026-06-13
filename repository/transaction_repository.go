@@ -130,6 +130,38 @@ func (r *TransactionRepository) listTransactions(orgID string, TransactionItem i
 	return out, nil
 }
 
+func (r *TransactionRepository) DeleteFleetTripExpense(orgID, scheduleNumber, transactionTripID string) error {
+	placeholder := r.getPlaceholder
+
+	transactionTripIDExpr := "transaction_trip_id = " + placeholder(1)
+	scheduleNumberExpr := "schedule_number = " + placeholder(2)
+	orgExpr := "organization_id = " + placeholder(3)
+
+	if r.driver == "postgres" || r.driver == "pgx" {
+		transactionTripIDExpr = "transaction_trip_id::text = " + placeholder(1)
+		orgExpr = "organization_id::text = " + placeholder(3)
+	}
+
+	query := fmt.Sprintf(`
+		DELETE FROM transaction_fleet_trips
+		WHERE %s AND %s AND %s
+	`, transactionTripIDExpr, scheduleNumberExpr, orgExpr)
+
+	result, err := r.db.Exec(query, transactionTripID, scheduleNumber, orgID)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 type CreateManualTransactionRequest struct {
 	OrderType       int
 	OrderID         string

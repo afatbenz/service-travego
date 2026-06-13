@@ -276,6 +276,48 @@ func (r *OrganizationRepository) CreateAssistantAccount(organizationID, createdB
 	return assistantID, nil
 }
 
+func (r *OrganizationRepository) GetAssistantAccountByID(organizationID, assistantID string) (*model.AssistantAccountListItem, error) {
+	query := fmt.Sprintf(`
+		SELECT
+			COALESCE(%s, ''),
+			COALESCE(user_id, ''),
+			created_at,
+			'' AS avatar,
+			COALESCE(account_name, '') AS fullname,
+			'' AS role_name,
+			'' AS division_name,
+			COALESCE(account_number, '') AS account_number,
+			user_type
+		FROM assistant_accounts
+		WHERE %s
+		  AND %s
+		  AND status = 1
+		LIMIT 1
+	`, r.assistantIDColumn(), r.assistantIDWhere(1), r.assistantOrgWhere("", 2))
+
+	var item model.AssistantAccountListItem
+	var createdAt sql.NullTime
+	if err := database.QueryRow(r.db, query, assistantID, organizationID).Scan(
+		&item.AssistantID,
+		&item.EmployeeID,
+		&createdAt,
+		&item.Avatar,
+		&item.Fullname,
+		&item.RoleName,
+		&item.DivisionName,
+		&item.AccountNumber,
+		&item.UserType,
+	); err != nil {
+		return nil, err
+	}
+
+	if createdAt.Valid {
+		item.CreatedAt = createdAt.Time.Format("2006-01-02 15:04:05")
+	}
+
+	return &item, nil
+}
+
 func (r *OrganizationRepository) UpdateAssistantAccount(organizationID, assistantID string, accountName, accountNumber *string) error {
 	setParts := make([]string, 0, 2)
 	args := make([]interface{}, 0, 4)

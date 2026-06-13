@@ -6,6 +6,8 @@ import (
 	"service-travego/database"
 	"service-travego/model"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type OrganizationUserRepository struct {
@@ -99,7 +101,40 @@ func (r *OrganizationUserRepository) CreateOrganizationUser(orgUser *model.Organ
 		orgUser.UserID,
 		orgUser.OrganizationID,
 	)
+	return err
+}
 
+// CreateSubscription inserts a new subscription record
+func (r *OrganizationUserRepository) CreateSubscription(orgID string) error {
+	subscriptionID := uuid.New().String()
+	now := time.Now()
+	activateDate := now.Format("2006-01-02")
+	expiryDate := now.AddDate(0, 0, 30).Format("2006-01-02")
+	packageID := "trave01"
+	subscriptionType := 1
+	status := 1
+
+	query := fmt.Sprintf(`
+		INSERT INTO _subscription (
+			subscription_id, organization_id, package_id, activate_date, expiry_date, created_at, subscription_type, status
+		) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+	`,
+		r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
+		r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8),
+	)
+
+	_, err := database.Exec(
+		r.db,
+		query,
+		subscriptionID,
+		orgID,
+		packageID,
+		activateDate,
+		expiryDate,
+		now,
+		subscriptionType,
+		status,
+	)
 	return err
 }
 

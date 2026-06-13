@@ -271,6 +271,7 @@ type ScheduleFleetListQuery struct {
 	Engine         string `query:"engine"`
 	Capacity       string `query:"capacity"`
 	ProductionYear string `query:"production_year"`
+	Search         string `query:"search"`
 }
 
 type ScheduleFleetListServiceInput struct {

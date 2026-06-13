@@ -47,6 +47,15 @@ type SendMessageRequest struct {
 	Message string `json:"message"`
 }
 
+// SendDocumentRequest represents the request body for sending a document
+type SendDocumentRequest struct {
+	Phone     string `json:"phone"`
+	Document  string `json:"document"` // base64 encoded file
+	Filename  string `json:"filename"`
+	Caption   string `json:"caption"`
+	MediaType string `json:"media_type"`
+}
+
 // SendMessageResponse represents the response from Wagy
 type SendMessageResponse struct {
 	Status string `json:"status"`

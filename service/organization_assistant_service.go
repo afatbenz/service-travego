@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-func normalizeAssistantAccountNumber(accountNumber string) string {
+func NormalizeAssistantAccountNumber(accountNumber string) string {
 	accountNumber = strings.TrimSpace(accountNumber)
 	if strings.HasPrefix(accountNumber, "0") {
 		return "62" + accountNumber[1:]
@@ -78,7 +78,7 @@ func (s *OrganizationService) AssistantSubmit(organizationID, userID string, req
 		}
 	}
 
-	accountNumber := normalizeAssistantAccountNumber(req.AccountNumber)
+	accountNumber := NormalizeAssistantAccountNumber(req.AccountNumber)
 	accountName := strings.TrimSpace(req.AccountName)
 
 	var employee *model.AssistantEmployeeTarget
@@ -130,6 +130,17 @@ func (s *OrganizationService) AssistantSubmit(organizationID, userID string, req
 	return response, nil
 }
 
+func (s *OrganizationService) GetAssistantAccountByID(organizationID, assistantID string) (*model.AssistantAccountListItem, error) {
+	item, err := s.orgRepo.GetAssistantAccountByID(organizationID, assistantID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, NewServiceError(ErrNotFound, 404, "assistant account not found")
+		}
+		return nil, NewServiceError(ErrInternalServer, 500, "failed to get assistant account")
+	}
+	return item, nil
+}
+
 func (s *OrganizationService) AssistantUpdate(organizationID string, req *model.AssistantUpdateRequest) error {
 	if req.AccountName == nil && req.AccountNumber == nil {
 		return NewServiceError(ErrInvalidInput, 400, "account_name atau account_number wajib diisi")
@@ -137,7 +148,7 @@ func (s *OrganizationService) AssistantUpdate(organizationID string, req *model.
 
 	var accountNumber *string
 	if req.AccountNumber != nil {
-		normalized := normalizeAssistantAccountNumber(*req.AccountNumber)
+		normalized := NormalizeAssistantAccountNumber(*req.AccountNumber)
 		accountNumber = &normalized
 	}
 
