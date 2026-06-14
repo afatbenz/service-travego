@@ -767,6 +767,7 @@ func (s *OrderService) CreateServiceOrderPayment(req *model.CreateServiceOrderPa
 	if remaining < 0 && math.Abs(remaining) < 0.0001 {
 		remaining = 0
 	}
+	fmt.Println("remaining:", remaining)
 	if remaining < 0 {
 		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "remaining_amount tidak valid")
 	}

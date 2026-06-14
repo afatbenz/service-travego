@@ -66,7 +66,8 @@ func GenerateOrderID(orderType int, orgCode string, count int) string {
 
 func GenerateTripID(orgCode string, seq int, now time.Time) string {
 	timePart := now.Format("060102150405")
-	return fmt.Sprintf("SJL-%s%04d-%s", timePart, seq, orgCode)
+	finalTime := timePart[len(timePart)-4:]
+	return fmt.Sprintf("SJL-%s%04d-%s", finalTime, seq, orgCode)
 }
 
 func placeholder(driver string, pos int) string {

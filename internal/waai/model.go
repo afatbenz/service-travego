@@ -50,11 +50,15 @@ type SendMessageRequest struct {
 // SendDocumentRequest represents the request body for sending a document
 type SendDocumentRequest struct {
 	Phone     string `json:"phone"`
-	Document  string `json:"document"` // base64 encoded file
-	Filename  string `json:"filename"`
-	Caption   string `json:"caption"`
-	MediaType string `json:"media_type"`
+	Document  string `json:"document,omitempty"`  // base64 encoded file
+	Filename  string `json:"filename,omitempty"`  // filename for document
+	Caption   string `json:"caption,omitempty"`   // optional caption
+	MediaType string `json:"media_type"`          // "document" or "image"
+	MediaURL  string `json:"media_url,omitempty"` // URL to the media file
 }
+
+// SendImageRequest represents the request body for sending an image (optional, alias for SendDocumentRequest)
+type SendImageRequest = SendDocumentRequest
 
 // SendMessageResponse represents the response from Wagy
 type SendMessageResponse struct {

@@ -577,25 +577,19 @@ func (r *PrintManagementRepository) GetFleetTripTotals(scheduleNumber, organizat
 }
 
 func (r *PrintManagementRepository) GetFleetTripOperationalFee(scheduleNumber, organizationID string) (float64, error) {
-	refExpr := "reference_id = " + r.placeholder(1)
-	orgExpr := "organization_id = " + r.placeholder(2)
-	if r.driver == "postgres" || r.driver == "pgx" {
-		refExpr = "reference_id::text = " + r.placeholder(1)
-		orgExpr = "organization_id::text = " + r.placeholder(2)
+	scheduleNumber = strings.TrimSpace(scheduleNumber)
+	if scheduleNumber == "" {
+		return 0, nil
 	}
 
 	query := fmt.Sprintf(`
-		SELECT SUM(amount) as operational_fee
+		SELECT COALESCE(SUM(amount), 0) AS operational_fee
 		FROM transactions
-		WHERE transaction_type = 2
-			AND transaction_item = 'TRX-I00'
-			AND %s
-			AND status = 1
-			AND %s
-	`, refExpr, orgExpr)
+		WHERE reference_id = %s
+	`, r.placeholder(1))
 
 	var operationalFee sql.NullFloat64
-	if err := database.QueryRow(r.db, query, strings.TrimSpace(scheduleNumber), strings.TrimSpace(organizationID)).Scan(&operationalFee); err != nil {
+	if err := database.QueryRow(r.db, query, scheduleNumber).Scan(&operationalFee); err != nil {
 		return 0, err
 	}
 	if operationalFee.Valid {

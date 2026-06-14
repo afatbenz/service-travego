@@ -165,17 +165,20 @@ func (s *TransactionService) SubmitFleetTripExpense(orgID, userID, transactionIt
 	}
 
 	totalAmount, err := s.repo.SumTransactionsAmountByReferenceID(scheduleNumber)
+	fmt.Println(" ---- totalAmount:", totalAmount)
 	if err != nil {
 		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to get total amount")
 	}
 	totalExpenses, err := s.repo.SumFleetTripAmountByScheduleNumber(scheduleNumber)
+	fmt.Println(" ---- totalExpenses:", totalExpenses)
 	if err != nil {
 		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to get total expenses")
 	}
 
 	remaining := totalAmount - totalExpenses
+	fmt.Println(" ---- remaining:", remaining)
 	if remaining <= 0 {
-		return s.repo.CreateFleetTripExpenseTransaction(orgID, userID, orderID, scheduleNumber, transactionItem, 2, amount, description)
+		return s.repo.CreateFleetTripExpenseTransaction(orgID, userID, orderID, scheduleNumber, transactionItem, 3, amount, "reimbursement - "+description)
 	}
 	if totalExpenses+amount <= totalAmount {
 		return s.repo.CreateFleetTripExpenseTransaction(orgID, userID, orderID, scheduleNumber, transactionItem, 1, amount, description)
@@ -183,6 +186,8 @@ func (s *TransactionService) SubmitFleetTripExpense(orgID, userID, transactionIt
 
 	firstAmount := remaining
 	secondAmount := amount - remaining
+	fmt.Println(" ---- firstAmount:", firstAmount)
+	fmt.Println(" ---- secondAmount:", secondAmount)
 
 	if firstAmount > 0 {
 		if err := s.repo.CreateFleetTripExpenseTransaction(orgID, userID, orderID, scheduleNumber, transactionItem, 1, firstAmount, description); err != nil {
@@ -190,7 +195,7 @@ func (s *TransactionService) SubmitFleetTripExpense(orgID, userID, transactionIt
 		}
 	}
 	if secondAmount > 0 {
-		if err := s.repo.CreateFleetTripExpenseTransaction(orgID, userID, orderID, scheduleNumber, transactionItem, 2, secondAmount, description); err != nil {
+		if err := s.repo.CreateFleetTripExpenseTransaction(orgID, userID, orderID, scheduleNumber, transactionItem, 2, secondAmount, "reimbursement - "+description); err != nil {
 			return err
 		}
 	}
