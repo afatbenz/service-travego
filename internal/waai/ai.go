@@ -667,6 +667,7 @@ You have access to the following functions to help users:
 28. get_spj_pengeluaran - Dapatkan daftar pengeluaran untuk Surat Jalan / SPJ tertentu
 29. get_spj_ringkasan_pembayaran - Dapatkan ringkasan total pengeluaran SPJ berdasarkan jenis pembayaran (biaya operasional dan reimburse)
 30. print_surat_jalan - Mencetak dan mengirim surat jalan / SPJ (Surat Pertanggungjawaban) dalam format PDF ke WhatsApp
+31. get_fleet_availibility_by_daterange - Get vehicle availability by date range, filter (YYYY-MM-DD)
 
 Tool usage rules:
 - [CRITICAL] Data dalam database dapat BERUBAH sewaktu-waktu. JANGAN PERCAYA jawaban Anda dari riwayat percakapan sebelumnya. Selalu PANGGIL TOOL setiap kali user menanyakan data (pesanan, pelanggan, jadwal, armada, dll.) untuk mendapatkan data TERBARU dari database.
@@ -692,7 +693,11 @@ Tool usage rules:
      - transaction_item bisa berupa teks bebas (misal "tol", "bahan bakar", "parkir"), sistem akan otomatis memetakannya ke kode yang benar.
      - Gunakan description untuk menambahkan catatan rinci (misal "Tol MBZ Bekasi-Karawang").
      - Contoh: untuk "bayar tol 36.000", set transaction_item="tol", amount=36000, description="Tol MBZ Bekasi-Karawang".
-  4. Jika user ingin mencetak / mengirim surat jalan dalam format PDF, panggil print_surat_jalan dengan schedule_number.
+  4. JIKA USER INGIN MENGIRIM SURAT JALAN PDF:
+     - Anda WAJIB menyertakan schedule_number di parameter tool print_surat_jalan.
+     - JANGAN PERNAH memanggil print_surat_jalan dengan input kosong {}.
+     - Contoh: Jika nomornya SJL-260706163-CLS70, Anda harus tulis input: {"schedule_number": "SJL-260706163-CLS70"}.
+     - Jika Anda belum tahu nomornya, cari dulu menggunakan get_order_detail atau get_schedule_list.
   5. Identifikasi schedule_number dari input user atau dari hasil get_order_detail / get_schedule_list.
 
 Please respond in Indonesian (Bahasa Indonesia) unless the user asks otherwise.
@@ -1218,10 +1223,14 @@ func (ac *AIClient) executeTool(ctx context.Context, toolName string, input json
 			return map[string]interface{}{"error": "schedule_number is required"}
 		}
 
+		// Log the parameter received
+		log.Printf("[WAAI][AI] print_surat_jalan called with schedule_number: '%s'", scheduleNumber)
+
 		// Generate PDF
 		pdfData, err := ac.printService.GenerateFleetTripsPDF(orgID, scheduleNumber)
 		if err != nil {
-			return map[string]interface{}{"error": err.Error()}
+			log.Printf("[WAAI][AI] Failed to generate PDF for %s: %v", scheduleNumber, err)
+			return map[string]interface{}{"error": "Gagal membuat file PDF: " + err.Error()}
 		}
 
 		// Get phone number from context
@@ -1230,19 +1239,41 @@ func (ac *AIClient) executeTool(ctx context.Context, toolName string, input json
 			return map[string]interface{}{"error": "phone number missing in context"}
 		}
 
-		// Send PDF via WhatsApp
-		filename := fmt.Sprintf("surat-jalan-%s.pdf", scheduleNumber)
+		// Sanitize filename
+		filename := fmt.Sprintf("surat-jalan-%s.pdf", strings.ReplaceAll(scheduleNumber, "/", "-"))
 		caption := fmt.Sprintf("Berikut surat jalan untuk *%s*", scheduleNumber)
+
+		log.Printf("[WAAI][AI] Attempting to send PDF %s to %s via base64", filename, phone)
+
+		// Send PDF via WhatsApp directly using base64 (more reliable)
 		_, err = ac.wagyClient.SendDocument(phone, filename, pdfData, caption)
 		if err != nil {
 			log.Printf("[WAAI][AI] Failed to send PDF: %v", err)
-			return map[string]interface{}{"error": "Gagal mengirim surat jalan: " + err.Error()}
+			return map[string]interface{}{"error": "Gagal mengirim surat jalan ke WhatsApp: " + err.Error()}
 		}
 
+		log.Printf("[WAAI][AI] PDF successfully queued for sending")
 		return map[string]interface{}{
 			"status":  "success",
-			"message": "Surat jalan berhasil dikirim",
+			"message": "Surat jalan " + scheduleNumber + " berhasil dikirim ke WhatsApp Anda",
 		}
+
+	case "get_fleet_availibility_by_daterange":
+		layout := "2006-01-02 15:04"
+		startDate, err := time.ParseInLocation(layout, getStringParam(params, "start_date"), time.Local)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		endDate, err := time.ParseInLocation(layout, getStringParam(params, "end_date"), time.Local)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		fleetID := getStringParam(params, "fleet_id")
+		availibility, _, err := ac.fleetService.GetFleetAvailibility(orgID, startDate, endDate, fleetID)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		return availibility
 
 	default:
 		return map[string]interface{}{
