@@ -267,13 +267,26 @@ func (s *FleetUnitService) Update(orgID, userID string, req *model.FleetUnitUpda
 
 	var partnerID *string
 	if req.PartnerID == nil && req.PartnerName != nil && req.PartnerPhone != nil {
-		partnerIDStr, err := s.partnerRepo.GetOrCreateByNamePhone(orgID, userID, *req.PartnerName, *req.PartnerPhone, req.PartnerEmail)
+		partnerIDStr, err := s.partnerRepo.GetOrCreateByNamePhone(orgID, userID, *req.PartnerName, *req.PartnerPhone, req.PartnerPic)
 		if err != nil {
 			return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to handle partner")
 		}
 		partnerID = &partnerIDStr
 	} else if req.PartnerID != nil {
 		partnerID = req.PartnerID
+	}
+
+	if req.OwnershipType != nil && *req.OwnershipType == 0 {
+		if err := s.repo.DeleteUnitOwnership(orgID, req.UnitID); err != nil {
+			return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to delete unit ownership")
+		}
+	}
+
+	if req.PartnerID != nil && req.PartnerName != nil && req.PartnerPhone != nil {
+		fmt.Println("---- masuk kondisi ini")
+		if errUpdatePartner := s.repo.UpdateOwnerInformation(orgID, req.UnitID, *partnerID, *req.PartnerName, *req.PartnerPhone, *req.PartnerPic); errUpdatePartner != nil {
+			return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to update partner information")
+		}
 	}
 
 	if err := s.repo.Update(req); err != nil {

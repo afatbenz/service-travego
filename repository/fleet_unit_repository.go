@@ -697,24 +697,21 @@ func (r *FleetUnitRepository) Detail(orgID, id string) (*model.FleetUnitDetailRe
 
 func (r *FleetUnitRepository) GetOwnershipInformation(orgID, unitID string) (*model.FleetUnitOwnershipInformation, error) {
 	query := `
-		SELECT op.partner_id, op.partner_name, op.partner_phone, op.partner_email
+		SELECT op.partner_id, op.partner_name, op.partner_phone, op.partner_email, op.pic_name as partner_pic
 		FROM operation_partner op
 		INNER JOIN fleet_unit_ownership fuo ON fuo.partner_id = op.partner_id
 		INNER JOIN fleet_units fu ON fu.unit_id = fuo.unit_id
-		WHERE fuo.organization_id = $1 AND fu.unit_id = $2
-	`
-	if r.driver == "mysql" {
-		query = strings.ReplaceAll(query, "$1", "?")
-		query = strings.ReplaceAll(query, "$2", "?")
-	}
+		WHERE fuo.organization_id = $1 AND fu.unit_id = $2`
 
 	var info model.FleetUnitOwnershipInformation
 	var partnerEmail sql.NullString
+	var partnerPic sql.NullString
 	err := r.db.QueryRow(query, orgID, unitID).Scan(
 		&info.PartnerID,
 		&info.PartnerName,
 		&info.PartnerPhone,
 		&partnerEmail,
+		&partnerPic,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -724,6 +721,9 @@ func (r *FleetUnitRepository) GetOwnershipInformation(orgID, unitID string) (*mo
 	}
 	if partnerEmail.Valid {
 		info.PartnerEmail = &partnerEmail.String
+	}
+	if partnerPic.Valid {
+		info.PartnerPic = partnerPic.String
 	}
 	return &info, nil
 }
@@ -1114,7 +1114,6 @@ func (r *FleetUnitRepository) GetUnitRevenue(orgID, unitID, startDate, endDate s
 		r.placeholder(8),
 		r.placeholder(9),
 	)
-	fmt.Println(query)
 
 	var revenueAny interface{}
 	var totalBookingAny interface{}
@@ -1344,25 +1343,9 @@ func (r *FleetUnitRepository) ListUnitExpenses(orgID, unitID string, startDate, 
 		}
 	}
 
-	joinExpr := "tf.transaction_id = t.transaction_id"
-	unitExpr := "tf.fleet_unit_id = " + r.placeholder(1)
-	orgExpr := "t.organization_id = " + r.placeholder(2)
-
+	unitExpr := "sf.unit_id::text = " + r.placeholder(1)
+	orgExpr := "t.organization_id::text = " + r.placeholder(2)
 	selectExpr := `
-		COALESCE(tf.transaction_fleet_id, '') AS transaction_fleet_id,
-		COALESCE(t.transaction_category, '') AS transaction_category,
-		COALESCE(t.transaction_item, '') AS transaction_item,
-		COALESCE(t.description, '') AS description,
-		t.transaction_date,
-		COALESCE(t.payment_type, 0) AS payment_type,
-		COALESCE(t.amount, 0) AS amount
-	`
-	if r.driver == "postgres" || r.driver == "pgx" {
-		joinExpr = "tf.transaction_id::text = t.transaction_id::text"
-		unitExpr = "tf.fleet_unit_id::text = " + r.placeholder(1)
-		orgExpr = "t.organization_id::text = " + r.placeholder(2)
-		selectExpr = `
-			COALESCE(tf.transaction_fleet_id::text, '') AS transaction_fleet_id,
 			COALESCE(t.transaction_category, '') AS transaction_category,
 			COALESCE(t.transaction_item, '') AS transaction_item,
 			COALESCE(t.description, '') AS description,
@@ -1370,12 +1353,11 @@ func (r *FleetUnitRepository) ListUnitExpenses(orgID, unitID string, startDate, 
 			COALESCE(t.payment_type, 0) AS payment_type,
 			COALESCE(t.amount, 0) AS amount
 		`
-	}
 
 	query := fmt.Sprintf(`
 		SELECT %s
-		FROM transaction_fleets tf
-		INNER JOIN transactions t ON %s
+		FROM transactions t
+		LEFT JOIN schedule_fleets sf ON sf.schedule_number::text = t.reference_id::text
 		WHERE %s
 			AND %s
 			AND COALESCE(t.status, 0) = 1
@@ -1383,7 +1365,7 @@ func (r *FleetUnitRepository) ListUnitExpenses(orgID, unitID string, startDate, 
 			AND t.transaction_date >= %s
 			AND t.transaction_date < %s
 		ORDER BY t.transaction_date DESC
-	`, selectExpr, joinExpr, unitExpr, orgExpr, r.placeholder(3), r.placeholder(4))
+	`, selectExpr, unitExpr, orgExpr, r.placeholder(3), r.placeholder(4))
 
 	rows, err := database.Query(r.db, query, unitID, orgID, startDate, endDate)
 	if err != nil {
@@ -1399,7 +1381,6 @@ func (r *FleetUnitRepository) ListUnitExpenses(orgID, unitID string, startDate, 
 		var amountAny interface{}
 
 		if err := rows.Scan(
-			&it.TransactionFleetID,
 			&it.TransactionCategory,
 			&it.TransactionItem,
 			&it.Description,
@@ -1426,4 +1407,40 @@ func (r *FleetUnitRepository) ListUnitExpenses(orgID, unitID string, startDate, 
 		return nil, err
 	}
 	return out, nil
+}
+
+func (r *FleetUnitRepository) UpdateOwnerInformation(orgID, unitID string, partnerID, partnerName string, partnerPhone, partnerPic string) error {
+	if partnerID != "" && partnerName != "" && partnerPhone != "" {
+		query := fmt.Sprintf(`
+			UPDATE operation_partner
+			SET partner_name = %s, partner_phone = %s, pic_name = %s
+			WHERE partner_id = %s AND organization_id = %s
+		`, r.placeholder(1), r.placeholder(2), r.placeholder(3), r.placeholder(4), r.placeholder(5))
+		if _, err := database.Exec(r.db, query, partnerName, partnerPhone, partnerPic, partnerID, orgID); err != nil {
+			fmt.Println("UpdateOwnerInformation: Update partner information failed")
+			fmt.Println(err)
+			return err
+		}
+
+		updataQuery := fmt.Sprintf(`
+			UPDATE fleet_unit_ownership
+			SET partner_id = %s
+			WHERE unit_id = %s AND organization_id = %s
+		`, r.placeholder(1), r.placeholder(2), r.placeholder(3))
+		if _, err := database.Exec(r.db, updataQuery, partnerID, unitID, orgID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *FleetUnitRepository) DeleteUnitOwnership(orgID, unitID string) error {
+	query := fmt.Sprintf(`
+		DELETE FROM fleet_unit_ownership
+		WHERE unit_id = %s AND organization_id = %s
+	`, r.placeholder(1), r.placeholder(2))
+	if _, err := database.Exec(r.db, query, unitID, orgID); err != nil {
+		return err
+	}
+	return nil
 }

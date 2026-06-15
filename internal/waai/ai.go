@@ -671,6 +671,9 @@ You have access to the following functions to help users:
 31. get_fleet_availibility_by_daterange - Get vehicle availability by date range, filter (YYYY-MM-DD)
 32. get_fleet_unit_detail - Get fleet unit detail by fleet_id and unit_id
 33. get_fleet_unit_by_partner - Get fleet unit detail by fleet_id and ownership_type = 1 partner
+34. get_upcoming_unit_schedule - Get upcoming schedule for a fleet unit by unit_id
+35. get_latest_unit_schedule - Get latest schedule for a fleet unit by unit_id
+36. get_unit_trip_history - Get trip history for a fleet unit by unit_id, start_date, end_date (YYYY-MM-DD)
 
 Tool usage rules:
 - [CRITICAL] Data dalam database dapat BERUBAH sewaktu-waktu. JANGAN PERCAYA jawaban Anda dari riwayat percakapan sebelumnya. Selalu PANGGIL TOOL setiap kali user menanyakan data (pesanan, pelanggan, jadwal, armada, dll.) untuk mendapatkan data TERBARU dari database.
@@ -685,6 +688,7 @@ Tool usage rules:
 - For order detail by order_id, call get_order_detail — JANGAN PERCAYA jawaban sebelumnya, selalu panggil tool untuk data terbaru.
 - For itinerary of order detail by order_id, call get_order_detail, get orders.itinerary[].
 - When user asks for fleet's partner, get data from get_fleet_units and mapping the ownership_type. ownership_type = 1 fleet's partner, ownership_type = 0 own ownership.
+- When user asks for coverage area of a fleet unit, get data from get_fleet_unit_detail > pickup_point. You can explain if pickup area from other city so the customer need to pay charge.
 - Order payment status mapping (field payment_status / payment_status_label):
   0 = Dibatalkan, 1 = Lunas, 2 = Menunggu Verifikasi, 3 = Belum Lunasi, 10 = Menunggu Persetujuan.
   When telling the user payment status, ALWAYS use payment_status_label from get_order_list/get_order_detail. NEVER use latest_payment_status or latest_payment_type as status pembayaran — those are jenis pembayaran (DP, Cicilan, Pelunasan), not order payment status.
@@ -1299,6 +1303,42 @@ func (ac *AIClient) executeTool(ctx context.Context, toolName string, input json
 			return map[string]interface{}{"error": err.Error()}
 		}
 		return items
+
+	case "get_upcoming_unit_schedule":
+		unitID := getStringParam(params, "unit_id")
+		_, _, upcoming, err := ac.fleetUnitService.UnitScheduleStats(orgID, unitID)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		return upcoming
+
+	case "get_latest_unit_schedule":
+		unitID := getStringParam(params, "unit_id")
+		_, latest, _, err := ac.fleetUnitService.UnitScheduleStats(orgID, unitID)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		return latest
+
+	case "get_unit_trip_history":
+		unitID := getStringParam(params, "unit_id")
+		startDateStr := getStringParam(params, "start_date")
+		endDateStr := getStringParam(params, "end_date")
+		layout := "2006-01-02"
+		startDate, err := time.ParseInLocation(layout, startDateStr, time.Local)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		endDate, err := time.ParseInLocation(layout, endDateStr, time.Local)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		trips, err := ac.fleetUnitService.UnitOrderHistory(orgID, unitID, startDate.Format(layout), endDate.Format(layout))
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		return trips
+
 	default:
 		return map[string]interface{}{
 			"error": "Unknown tool: " + toolName,

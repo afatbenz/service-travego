@@ -70,7 +70,7 @@ type FleetUnitUpdateRequest struct {
 	PartnerID      *string `json:"partner_id"`
 	PartnerName    *string `json:"partner_name"`
 	PartnerPhone   *string `json:"partner_phone"`
-	PartnerEmail   *string `json:"partner_email"`
+	PartnerPic     *string `json:"partner_pic"`
 
 	OrganizationID string `json:"-"`
 	UpdatedBy      string `json:"-"`
@@ -107,6 +107,7 @@ type FleetUnitOwnershipInformation struct {
 	PartnerName  string  `json:"partner_name"`
 	PartnerPhone string  `json:"partner_phone"`
 	PartnerEmail *string `json:"partner_email"`
+	PartnerPic   string  `json:"partner_pic"`
 }
 
 type FleetUnitRevenueRequest struct {
