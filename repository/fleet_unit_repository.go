@@ -333,12 +333,14 @@ SELECT
 	fu.created_at,
 	COALESCE(uu.fullname, uu.username, '') AS updated_by,
 	fu.updated_at,
-	fu.ownership_type
+	fu.ownership_type,
+	fuo.partner_id
 FROM fleet_units fu
 LEFT JOIN fleets f ON f.uuid::text = fu.fleet_id::text
 LEFT JOIN fleet_types ft ON f.fleet_type = ft.id
 LEFT JOIN users uc ON fu.created_by = uc.user_id
 LEFT JOIN users uu ON fu.updated_by = uu.user_id
+LEFT JOIN fleet_unit_ownership fuo ON fuo.unit_id = fu.unit_id
 WHERE fu.unit_id = $1 AND fu.organization_id::text = $2
 `
 
@@ -652,6 +654,8 @@ func (r *FleetUnitRepository) Detail(orgID, id string) (*model.FleetUnitDetailRe
 	var res model.FleetUnitDetailResponse
 	var createdAt time.Time
 	var updatedAt sql.NullTime
+	var partnerID sql.NullString
+
 	var ownershipType sql.NullInt32
 	err := database.QueryRow(r.db, query, id, orgID).Scan(
 		&res.UnitID,
@@ -672,6 +676,7 @@ func (r *FleetUnitRepository) Detail(orgID, id string) (*model.FleetUnitDetailRe
 		&res.UpdatedBy,
 		&updatedAt,
 		&ownershipType,
+		&partnerID,
 	)
 	if err != nil {
 		return nil, err
@@ -683,6 +688,9 @@ func (r *FleetUnitRepository) Detail(orgID, id string) (*model.FleetUnitDetailRe
 	if ownershipType.Valid {
 		ot := int(ownershipType.Int32)
 		res.OwnershipType = &ot
+	}
+	if partnerID.Valid {
+		res.PartnerID = partnerID.String
 	}
 	return &res, nil
 }
