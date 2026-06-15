@@ -39,6 +39,7 @@ type AIClient struct {
 	toolExec              *ToolExecutor
 	fleetService          *service.FleetService
 	fleetUnitService      *service.FleetUnitService
+	partnerService        *service.PartnerService
 	generalService        *service.GeneralService
 	preferenceCityService *service.PreferenceCityService
 	customersService      *service.CustomersService
@@ -668,6 +669,8 @@ You have access to the following functions to help users:
 29. get_spj_ringkasan_pembayaran - Dapatkan ringkasan total pengeluaran SPJ berdasarkan jenis pembayaran (biaya operasional dan reimburse)
 30. print_surat_jalan - Mencetak dan mengirim surat jalan / SPJ (Surat Pertanggungjawaban) dalam format PDF ke WhatsApp
 31. get_fleet_availibility_by_daterange - Get vehicle availability by date range, filter (YYYY-MM-DD)
+32. get_fleet_unit_detail - Get fleet unit detail by fleet_id and unit_id
+33. get_fleet_unit_by_partner - Get fleet unit detail by fleet_id and ownership_type = 1 partner
 
 Tool usage rules:
 - [CRITICAL] Data dalam database dapat BERUBAH sewaktu-waktu. JANGAN PERCAYA jawaban Anda dari riwayat percakapan sebelumnya. Selalu PANGGIL TOOL setiap kali user menanyakan data (pesanan, pelanggan, jadwal, armada, dll.) untuk mendapatkan data TERBARU dari database.
@@ -681,6 +684,7 @@ Tool usage rules:
 - When the user asks about pesanan/order (e.g. "ada pesanan bulan ini?", "berapa order bulan Juni?"), you MUST call get_order_list with period set to the relevant YYYY-MM (use %s for "bulan ini"). Answer ONLY from the tool result summary (total_orders, paid, unpaid, revenue). Never guess from Today's Bookings — that number is for today only.
 - For order detail by order_id, call get_order_detail — JANGAN PERCAYA jawaban sebelumnya, selalu panggil tool untuk data terbaru.
 - For itinerary of order detail by order_id, call get_order_detail, get orders.itinerary[].
+- When user asks for fleet's partner, get data from get_fleet_units and mapping the ownership_type. ownership_type = 1 fleet's partner, ownership_type = 0 own ownership.
 - Order payment status mapping (field payment_status / payment_status_label):
   0 = Dibatalkan, 1 = Lunas, 2 = Menunggu Verifikasi, 3 = Belum Lunasi, 10 = Menunggu Persetujuan.
   When telling the user payment status, ALWAYS use payment_status_label from get_order_list/get_order_detail. NEVER use latest_payment_status or latest_payment_type as status pembayaran — those are jenis pembayaran (DP, Cicilan, Pelunasan), not order payment status.
@@ -1275,6 +1279,26 @@ func (ac *AIClient) executeTool(ctx context.Context, toolName string, input json
 		}
 		return availibility
 
+	case "get_fleet_unit_detail":
+		unitID := getStringParam(params, "unit_id")
+		unit, err := ac.fleetUnitService.Detail(orgID, unitID)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		return unit
+
+	case "get_fleet_unit_by_partner":
+		fleetID := getStringParam(params, "fleet_id")
+		items, err := ac.partnerService.Detail(
+			&model.OperationPartnerDetailRequest{
+				PartnerID: fleetID,
+			},
+			orgID,
+		)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		return items
 	default:
 		return map[string]interface{}{
 			"error": "Unknown tool: " + toolName,

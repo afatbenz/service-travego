@@ -99,6 +99,7 @@ type FleetUnitDetailResponse struct {
 	UpdatedDate          string                         `json:"updated_date"`
 	OwnershipType        *int                           `json:"ownership_type"`
 	OwnershipInformation *FleetUnitOwnershipInformation `json:"ownership_information"`
+	PartnerID            string                         `json:"partner_id"`
 }
 
 type FleetUnitOwnershipInformation struct {
