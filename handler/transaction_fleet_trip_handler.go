@@ -29,7 +29,7 @@ func (h *TransactionHandler) GetFleetTripSummary(c *fiber.Ctx) error {
 		return helper.SendErrorResponse(c, code, err.Error())
 	}
 
-	totalExpenses, totalReimburse, err := h.service.GetFleetTripAmountSummaryByPaymentMethod(scheduleNumber)
+	summary, err := h.service.GetFleetTripAmountSummaryByPaymentMethod(scheduleNumber, orgID)
 	if err != nil {
 		fmt.Println("failed to get fleet trip amount summary by payment method: ", err)
 		code := service.GetStatusCode(err)
@@ -91,6 +91,8 @@ func (h *TransactionHandler) GetFleetTripSummary(c *fiber.Ctx) error {
 			TransactionItem:          transactionItemKey,
 			TransactionItemLabel:     transactionItemLabel,
 			Amount:                   row.Amount,
+			Status:                   row.Status,
+			RemainingClaim:           summary.RemainingClaim,
 			PaymentMethod:            row.PaymentMethod,
 			PaymentMethodLabel:       paymentMethodLabel,
 			Description:              row.Description,
@@ -99,13 +101,16 @@ func (h *TransactionHandler) GetFleetTripSummary(c *fiber.Ctx) error {
 		})
 	}
 
-	balance := totalAmount - totalExpenses
+	balance := totalAmount - summary.TotalExpenses
 
 	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet trip summary retrieved", map[string]interface{}{
-		"total_amount":    totalAmount,
-		"total_expenses":  totalExpenses,
-		"total_reimburse": totalReimburse,
-		"balance":         balance,
-		"expenses":        expenses,
+		"total_amount":         totalAmount,
+		"total_expenses":       summary.TotalExpenses,
+		"total_claimed":        summary.TotalClaimed,
+		"total_reimburse":      summary.TotalReimburse,
+		"total_item_reimburse": summary.TotalItemReimburse,
+		"remaining_claim":      summary.RemainingClaim,
+		"balance":              balance,
+		"expenses":             expenses,
 	})
 }

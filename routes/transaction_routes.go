@@ -10,9 +10,9 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-func SetupTransactionRoutes(api fiber.Router, db *sql.DB, driver string) {
+func SetupTransactionRoutes(api fiber.Router, db *sql.DB, driver string, notificationSvc *service.NotificationService) {
 	repo := repository.NewTransactionRepository(db, driver)
-	srv := service.NewTransactionService(repo)
+	srv := service.NewTransactionService(repo, notificationSvc)
 	h := handler.NewTransactionHandler(srv)
 
 	services := api.Group("/services")
@@ -34,4 +34,5 @@ func SetupTransactionRoutes(api fiber.Router, db *sql.DB, driver string) {
 	apiTransactions := api.Group("/transactions")
 	apiTransactions.Post("/fleet-trip/expenses/submit", helper.JWTAuthorizationMiddleware(), h.SubmitFleetTripExpenseForm)
 	apiTransactions.Post("/fleet-trip/expenses/delete", helper.JWTAuthorizationMiddleware(), h.DeleteFleetTripExpenseForm)
+	apiTransactions.Post("/fleet-trip/reimbursement/submit", helper.JWTAuthorizationMiddleware(), h.SubmitFleetTripReimbursementForm)
 }

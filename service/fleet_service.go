@@ -1325,3 +1325,47 @@ func (s *FleetService) DeleteFleetOrderAddon(orgID string, req *FleetOrderDelete
 	}
 	return nil
 }
+
+func (s *FleetService) CancelPartnerOrder(orgID string, userID string, req *model.FleetOrderCancelRequest) error {
+	if req.OrderID == "" {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "order_id is required")
+	}
+	paidAmount, err := s.repo.GetPaidAmount(req.OrderID, orgID)
+	if err != nil {
+		fmt.Println("GetPaidAmount err:", err)
+		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to get paid amount")
+	}
+
+	err = s.repo.FleetOrderCancelation(userID, req.OrderID, orgID)
+	if err != nil {
+		fmt.Println("FleetOrderCancelation err:", err)
+		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to cancel order: "+err.Error())
+	}
+
+	err = s.repo.CancelSchedulesAndRelated(userID, req.OrderID, orgID)
+	if err != nil {
+		fmt.Println("CancelSchedulesAndRelated err:", err)
+		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to cancel schedules: "+err.Error())
+	}
+
+	if paidAmount > 0 {
+		refundAmount := paidAmount * float64(req.RefundPercentage) / 100
+		err = s.repo.RefundOrderTransactions(req.OrderID, refundAmount, req.Reason, strconv.Itoa(req.PaymentMethod), req.BankId, req.BankAccount, req.BankAccountName, orgID, userID)
+		if err != nil {
+			return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to refund order: "+err.Error())
+		}
+	}
+
+	return nil
+}
+
+func (s *FleetService) CancelPartnerOrderDetail(orgID string, userID string, req *model.FleetOrderCancelRequest) error {
+	if req.OrderID == "" {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "order_id is required")
+	}
+	detail, err := s.repo.GetRefundOrderDetail(req.OrderID, orgID)
+	if err != nil {
+		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to get order detail: "+err.Error())
+	}
+	return nil
+}

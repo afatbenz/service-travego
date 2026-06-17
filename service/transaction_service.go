@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"service-travego/model"
 	"service-travego/repository"
 	"strings"
@@ -12,11 +13,15 @@ import (
 )
 
 type TransactionService struct {
-	repo *repository.TransactionRepository
+	repo                *repository.TransactionRepository
+	notificationService *NotificationService
 }
 
-func NewTransactionService(repo *repository.TransactionRepository) *TransactionService {
-	return &TransactionService{repo: repo}
+func NewTransactionService(repo *repository.TransactionRepository, notificationService *NotificationService) *TransactionService {
+	return &TransactionService{
+		repo:                repo,
+		notificationService: notificationService,
+	}
 }
 
 func (s *TransactionService) ListAllRevenue(orgID string, req *model.TransactionListRequest) ([]model.TransactionListItem, error) {
@@ -165,38 +170,53 @@ func (s *TransactionService) SubmitFleetTripExpense(orgID, userID, transactionIt
 	}
 
 	totalAmount, err := s.repo.SumTransactionsAmountByReferenceID(scheduleNumber)
-	fmt.Println(" ---- totalAmount:", totalAmount)
 	if err != nil {
 		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to get total amount")
 	}
 	totalExpenses, err := s.repo.SumFleetTripAmountByScheduleNumber(scheduleNumber)
-	fmt.Println(" ---- totalExpenses:", totalExpenses)
 	if err != nil {
 		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to get total expenses")
 	}
 
 	remaining := totalAmount - totalExpenses
-	fmt.Println(" ---- remaining:", remaining)
 	if remaining <= 0 {
-		return s.repo.CreateFleetTripExpenseTransaction(orgID, userID, orderID, scheduleNumber, transactionItem, 3, amount, "reimbursement - "+description)
+		if s.notificationService != nil {
+			go func() {
+				baseURL := os.Getenv("BASE_URL")
+				_, _ = s.notificationService.CreateNotification(orgID, NotificationPayload{
+					Title:   "Pengeluaran Reimbursement Baru",
+					Message: fmt.Sprintf("Ada pengeluaran reimbursement sebesar %.2f untuk SJP %s", amount, scheduleNumber),
+					URL:     baseURL + "/dashboard/partner/schedules/fleet-schedules/detail/" + scheduleNumber,
+				})
+			}()
+		}
+		return s.repo.CreateFleetTripExpenseTransaction(orgID, userID, orderID, scheduleNumber, transactionItem, 2, 0, amount, "reimbursement - "+description)
 	}
 	if totalExpenses+amount <= totalAmount {
-		return s.repo.CreateFleetTripExpenseTransaction(orgID, userID, orderID, scheduleNumber, transactionItem, 1, amount, description)
+		return s.repo.CreateFleetTripExpenseTransaction(orgID, userID, orderID, scheduleNumber, transactionItem, 1, 1, amount, description)
 	}
 
 	firstAmount := remaining
 	secondAmount := amount - remaining
-	fmt.Println(" ---- firstAmount:", firstAmount)
-	fmt.Println(" ---- secondAmount:", secondAmount)
 
 	if firstAmount > 0 {
-		if err := s.repo.CreateFleetTripExpenseTransaction(orgID, userID, orderID, scheduleNumber, transactionItem, 1, firstAmount, description); err != nil {
+		if err := s.repo.CreateFleetTripExpenseTransaction(orgID, userID, orderID, scheduleNumber, transactionItem, 1, 1, firstAmount, description); err != nil {
 			return err
 		}
 	}
 	if secondAmount > 0 {
-		if err := s.repo.CreateFleetTripExpenseTransaction(orgID, userID, orderID, scheduleNumber, transactionItem, 2, secondAmount, "reimbursement - "+description); err != nil {
+		if err := s.repo.CreateFleetTripExpenseTransaction(orgID, userID, orderID, scheduleNumber, transactionItem, 2, 0, secondAmount, "reimbursement - "+description); err != nil {
 			return err
+		}
+		if s.notificationService != nil {
+			go func() {
+				baseURL := os.Getenv("BASE_URL")
+				_, _ = s.notificationService.CreateNotification(orgID, NotificationPayload{
+					Title:   "Pengeluaran Reimbursement Baru",
+					Message: fmt.Sprintf("Ada pengeluaran reimbursement sebesar %.2f untuk SJP %s", secondAmount, scheduleNumber),
+					URL:     baseURL + "/dashboard/partner/schedules/fleet-schedules/detail/" + scheduleNumber,
+				})
+			}()
 		}
 	}
 	return nil
@@ -215,26 +235,18 @@ func (s *TransactionService) GetFleetTripTotalAmount(scheduleNumber string) (flo
 	return total, nil
 }
 
-func (s *TransactionService) GetFleetTripAmountSummaryByPaymentMethod(scheduleNumber string) (float64, float64, error) {
+func (s *TransactionService) GetFleetTripAmountSummaryByPaymentMethod(scheduleNumber, orgID string) (model.FleetTripAmountSummary, error) {
 	scheduleNumber = strings.TrimSpace(scheduleNumber)
+	orgID = strings.TrimSpace(orgID)
+	result := model.FleetTripAmountSummary{}
+	if orgID == "" {
+		return result, NewServiceError(ErrUnauthorized, http.StatusUnauthorized, "Organization not found")
+	}
 	if scheduleNumber == "" {
-		return 0, 0, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "schedule_number is required")
+		return result, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "schedule_number is required")
 	}
 
-	m, err := s.repo.SumFleetTripAmountByScheduleNumberAndPaymentMethod(scheduleNumber)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	totalExpenses := 0.0
-	if v, ok := m[1]; ok {
-		totalExpenses = v
-	}
-	totalReimburse := 0.0
-	if v, ok := m[2]; ok {
-		totalReimburse = v
-	}
-	return totalExpenses, totalReimburse, nil
+	return s.repo.GetFleetTripAmountSummary(scheduleNumber, orgID)
 }
 
 func (s *TransactionService) ListFleetTripExpenses(scheduleNumber, orgID string) ([]model.FleetTripExpenseRow, error) {
@@ -404,4 +416,38 @@ func (s *TransactionService) UpdateExpenseTransaction(orgID, userID string, req 
 		return NewServiceError(ErrNotFound, http.StatusNotFound, "transaction not found")
 	}
 	return err
+}
+
+func (s *TransactionService) SubmitFleetTripReimbursement(orgID, userID, scheduleNumber string, recipientID string, paymentMethodID string, transactionDateStr string) error {
+	orgID = strings.TrimSpace(orgID)
+	userID = strings.TrimSpace(userID)
+	scheduleNumber = strings.TrimSpace(scheduleNumber)
+	recipientID = strings.TrimSpace(recipientID)
+	paymentMethodID = strings.TrimSpace(paymentMethodID)
+	if orgID == "" || userID == "" || scheduleNumber == "" || recipientID == "" || paymentMethodID == "" {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "organization_id, user_id, schedule_number, recipient_id, and payment_method_id are required")
+	}
+
+	amount, err := s.repo.GetReimbursementAmount(scheduleNumber)
+	if err != nil {
+		return err
+	}
+
+	recordReimbursement := &model.FleetTripReimbursement{
+		ScheduleNumber:  scheduleNumber,
+		Amount:          amount,
+		RecipientID:     recipientID,
+		PaymentMethodID: paymentMethodID,
+		TransactionDate: transactionDateStr,
+	}
+	err = s.repo.CreateFleetTripReimbursement(orgID, userID, recordReimbursement)
+	if err != nil {
+		return err
+	}
+
+	updateErr := s.repo.MarkReimbursementPaid(scheduleNumber)
+	if updateErr != nil {
+		return updateErr
+	}
+	return nil
 }

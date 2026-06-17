@@ -1141,13 +1141,14 @@ func (r *FleetRepository) CreateFleetOrderItems(tx *sql.Tx, orderID, orgID, crea
 		for {
 			_, _ = database.TxExec(tx, "SAVEPOINT sp_fleet_items")
 			var err error
-			if mode == 0 {
+			switch mode {
+			case 0:
 				_, err = database.TxExec(tx, insertWithAll, id, orgID, orderID, f.ArmadaID, f.PriceID, q, f.BiayaLain, addonAmount, f.Discount, subTotal, now, createdBy)
-			} else if mode == 1 {
+			case 1:
 				_, err = database.TxExec(tx, insertWithoutCreatedBy, id, orgID, orderID, f.ArmadaID, f.PriceID, q, f.BiayaLain, addonAmount, f.Discount, subTotal, now)
-			} else if mode == 2 {
+			case 2:
 				_, err = database.TxExec(tx, insertWithAllNoAddon, id, orgID, orderID, f.ArmadaID, f.PriceID, q, f.BiayaLain, f.Discount, subTotal, now, createdBy)
-			} else {
+			default:
 				_, err = database.TxExec(tx, insertWithoutCreatedByNoAddon, id, orgID, orderID, f.ArmadaID, f.PriceID, q, f.BiayaLain, f.Discount, subTotal, now)
 			}
 			if err == nil {
@@ -2821,8 +2822,8 @@ func (r *FleetRepository) InsertServiceOrderPayment(req *model.CreateServiceOrde
 		bankIDArg = *req.BankID
 	}
 	var bankAccountArg interface{}
-	if req.BankAccount != nil {
-		bankAccountArg = *req.BankAccount
+	if req.BankAccount != "" {
+		bankAccountArg = req.BankAccount
 	}
 
 	query := fmt.Sprintf(`
@@ -3013,30 +3014,29 @@ func (r *FleetRepository) ListFleetOrderPaymentHistory(orderID, organizationID s
 }
 
 func (r *FleetRepository) ListPaymentOrders(orderID string, orderType int, organizationID string) ([]model.PaymentOrderRow, error) {
-	orgExpr := "organization_id = " + r.getPlaceholder(3)
-	if r.driver == "postgres" || r.driver == "pgx" {
-		orgExpr = "organization_id::text = " + r.getPlaceholder(3)
-	}
+	orgExpr := "po.organization_id::text = " + r.getPlaceholder(3)
 	query := fmt.Sprintf(`
 		SELECT
-			payment_id,
-			order_type,
-			order_id,
-			organization_id,
-			payment_type,
-			payment_method,
-			bank_id,
-			bank_account,
-			payment_amount,
-			total_amount,
-			remaining_amount,
-			evidence_file,
-			COALESCE(status, 0),
-			created_at,
-			created_by
-		FROM payment_orders
-		WHERE order_id = %s AND order_type = %s AND %s AND COALESCE(status, 0) > 0
-		ORDER BY created_at DESC
+			po.payment_id,
+			po.order_type,
+			po.order_id,
+			po.organization_id,
+			po.payment_type,
+			po.payment_method,
+			po.bank_id,
+			COALESCE(bl.name, '') AS bank_name,
+			po.bank_account,
+			po.payment_amount,
+			po.total_amount,
+			po.remaining_amount,
+			po.evidence_file,
+			COALESCE(po.status, 0),
+			po.created_at,
+			po.created_by
+		FROM payment_orders po
+		LEFT JOIN bank_list bl ON bl.code::text = po.bank_id::text
+		WHERE po.order_id = %s AND po.order_type = %s AND %s AND COALESCE(po.status, 0) > 0
+		ORDER BY po.created_at DESC
 	`, r.getPlaceholder(1), r.getPlaceholder(2), orgExpr)
 
 	rows, err := database.Query(r.db, query, orderID, orderType, organizationID)
@@ -3048,6 +3048,7 @@ func (r *FleetRepository) ListPaymentOrders(orderID string, orderType int, organ
 	out := make([]model.PaymentOrderRow, 0)
 	for rows.Next() {
 		var it model.PaymentOrderRow
+		var bankName sql.NullString
 		if err := rows.Scan(
 			&it.PaymentID,
 			&it.OrderType,
@@ -3056,6 +3057,7 @@ func (r *FleetRepository) ListPaymentOrders(orderID string, orderType int, organ
 			&it.PaymentType,
 			&it.PaymentMethod,
 			&it.BankID,
+			&bankName,
 			&it.BankAccount,
 			&it.PaymentAmount,
 			&it.TotalAmount,
@@ -3067,6 +3069,14 @@ func (r *FleetRepository) ListPaymentOrders(orderID string, orderType int, organ
 		); err != nil {
 			return nil, err
 		}
+		fmt.Println("bankName:", bankName)
+		if !bankName.Valid || bankName.String == "" {
+			it.BankName = sql.NullString{}
+		} else {
+			it.BankName.Valid = true
+			it.BankName = bankName
+		}
+		fmt.Println("it:", it)
 		out = append(out, it)
 	}
 	if err := rows.Err(); err != nil {
@@ -3540,7 +3550,8 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 			COALESCE(c.customer_email, '') as customer_email,
 			COALESCE(c.customer_address, '') as customer_address,
 			%[1]s as customer_city,
-			COALESCE(fo.additional_request, '') as additional_request
+			COALESCE(fo.additional_request, '') as additional_request,
+			fo.updated_at
         FROM fleet_orders fo
         JOIN fleets f ON %[2]s
         JOIN fleet_prices fp ON %[3]s
@@ -3553,6 +3564,7 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 	var createdAt time.Time
 	var pickupCityID string
 	var startDate, endDate time.Time
+	var updatedAt sql.NullTime
 
 	err := r.db.QueryRow(query, orderID, orgID).Scan(
 		&res.OrderID, &res.FleetID, &createdAt, &res.PriceID, &res.PaymentStatus, &res.Status,
@@ -3561,7 +3573,7 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 		&res.Quantity, &res.TotalAmount, &res.AdditionalAmount,
 		&res.Pickup.PickupLocation, &pickupCityID, &startDate, &endDate,
 		&res.Customer.CustomerID, &res.Customer.CustomerName, &res.Customer.CustomerPhone, &res.Customer.CustomerEmail, &res.Customer.CustomerAddress, &res.Customer.CustomerCity,
-		&res.AdditionalRequest,
+		&res.AdditionalRequest, &updatedAt,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -3570,6 +3582,11 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 		return nil, err
 	}
 	res.OrderDate = createdAt.Format("2006-01-02 15:04:05")
+	if updatedAt.Valid {
+		res.UpdatedAt = updatedAt.Time.Format("2006-01-02 15:04:05")
+	} else {
+		res.UpdatedAt = ""
+	}
 	res.StatusLabel = configs.OrderStatus(res.Status).String()
 	res.Pickup.PickupCity = pickupCityID
 	if cityLabel, ok := getCitiesMap()[strings.TrimSpace(pickupCityID)]; ok {
@@ -4677,4 +4694,222 @@ func (r *FleetRepository) GetFleetRevenue(orgID, fleetID, startDate, endDate str
 		TotalRevenue: 0,
 		TotalBooking: totalBooking,
 	}, nil
+}
+
+func (r *FleetRepository) GetPaidAmount(orderID, orgID string) (float64, error) {
+	query := fmt.Sprintf(`
+		SELECT COALESCE(SUM(t.amount), 0) AS paid_amount
+		FROM transactions t
+		INNER JOIN fleet_orders fo ON fo.order_id = t.reference_id
+		WHERE fo.organization_id = %s
+		  AND fo.status = 1
+		  AND t.reference_id = %s
+	`, r.getPlaceholder(1), r.getPlaceholder(2))
+	var paidAmount float64
+	if err := database.QueryRow(r.db, query, orgID, orderID).Scan(&paidAmount); err != nil {
+		if err == sql.ErrNoRows {
+			return 0, nil
+		}
+		return 0, err
+	}
+	return paidAmount, nil
+}
+
+func (r *FleetRepository) FleetOrderCancelation(userID, orderID, orgID string) error {
+	query := fmt.Sprintf(`
+		UPDATE fleet_orders
+		SET status = 0, updated_at = now(), updated_by = %s
+		WHERE order_id = %s
+		  AND organization_id = %s
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
+	if _, err := database.Exec(r.db, query, userID, orderID, orgID); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *FleetRepository) RefundOrderTransactions(orderID string, refundAmount float64, reason string, paymentMethod string, bankCode string, bankAccount string, bankAccountName string, orgID string, userID string) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	transactionID, err := uuid.NewV7()
+	if err != nil {
+		return err
+	}
+
+	invoiceNumber, err := utils.GenerateInvoiceNumberTx(tx, r.driver, orgID, 1, time.Now())
+	if err != nil {
+		return err
+	}
+
+	query := fmt.Sprintf(`INSERT INTO transactions 
+	(
+		transaction_id,
+		transaction_type,
+		order_type,
+		transaction_category,
+		transaction_item,
+		invoice_number,
+		description,
+		transaction_date,
+		payment_type,
+		amount,
+		organization_id,
+		payment_method,
+		created_at,
+		created_by,
+		reference_id,
+		status
+	)
+	VALUES (%s, 2, 1, 'TRX01', 'TRX-I14', %s, %s, %s, 1004, %s, %s, %s, %s, %s, %s, 1)`,
+		r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10))
+	_, err = database.TxExec(tx, query,
+		transactionID.String(),
+		invoiceNumber,
+		"Refund - Order ID "+orderID,
+		time.Now(),
+		refundAmount,
+		orgID,
+		paymentMethod,
+		time.Now(),
+		userID,
+		orderID,
+	)
+	if err != nil {
+		fmt.Println("INSERT INTO transactions err:", err)
+		return err
+	}
+
+	refundID, err := uuid.NewV7()
+	if err != nil {
+		return err
+	}
+
+	refundQuery := fmt.Sprintf(`INSERT INTO transaction_refund
+	(
+		refund_id,
+		transaction_id,
+		reference_id,
+		description,
+		amount,
+		bank_code,
+		bank_account,
+		bank_account_name,
+		organization_id,
+		created_at,
+		created_by
+	)
+	VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)`,
+		r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11))
+	_, err = database.TxExec(tx, refundQuery,
+		refundID.String(),
+		transactionID.String(),
+		orderID,
+		reason,
+		refundAmount,
+		bankCode,
+		bankAccount,
+		bankAccountName,
+		orgID,
+		time.Now(),
+		userID,
+	)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func (r *FleetRepository) CancelSchedulesAndRelated(userID, orderID, orgID string) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Get all schedule IDs first
+	var scheduleIDs []string
+	orgExpr := "organization_id::text = " + r.getPlaceholder(2)
+	getScheduleQuery := fmt.Sprintf(`
+		SELECT schedule_id
+		FROM schedules
+		WHERE order_id = %s AND %s
+	`, r.getPlaceholder(1), orgExpr)
+
+	rows, err := database.TxQuery(tx, getScheduleQuery, orderID, orgID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return err
+		}
+		scheduleIDs = append(scheduleIDs, id)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	// Update schedules table
+	updateSchedulesQuery := fmt.Sprintf(`
+		UPDATE schedules
+		SET status = 0, updated_at = now(), updated_by = %s
+		WHERE order_id = %s AND %s
+	`, r.getPlaceholder(1), r.getPlaceholder(2), orgExpr)
+	_, err = database.TxExec(tx, updateSchedulesQuery, userID, orderID)
+	if err != nil {
+		return err
+	}
+
+	// Update schedule_fleets table
+	updateScheduleFleetsQuery := fmt.Sprintf(`
+		UPDATE schedule_fleets
+		SET status = 0, updated_at = now(), updated_by = %s
+		WHERE order_id = %s AND %s
+	`, r.getPlaceholder(1), r.getPlaceholder(2), orgExpr)
+	_, err = database.TxExec(tx, updateScheduleFleetsQuery, userID, orderID)
+	if err != nil {
+		return err
+	}
+
+	// Update schedule_fleet_teams table for each schedule_id
+	if len(scheduleIDs) > 0 {
+		for _, sid := range scheduleIDs {
+			updateScheduleTeamsQuery := fmt.Sprintf(`
+				UPDATE schedule_fleet_teams
+				SET status = 0, updated_at = now(), updated_by = %s
+				WHERE schedule_id = %s
+			`, r.getPlaceholder(1), r.getPlaceholder(2))
+			_, err = database.TxExec(tx, updateScheduleTeamsQuery, userID, sid)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (r *FleetRepository) GetRefundOrderDetail(orderID string, orgID string) (*model.FleetOrderCancelRequest, error) {
+	query := fmt.Sprintf(`
+		WHERE order_id = %s AND %s
+	`, r.getPlaceholder(1), r.getPlaceholder(2))
+	rows, err := database.TxQuery(r.db, query, orderID, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var req model.FleetOrderCancelRequest
+	if err := rows.Scan(&req); err != nil {
+		return nil, err
+	}
+	return nil, nil
 }

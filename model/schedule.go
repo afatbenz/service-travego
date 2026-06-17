@@ -75,6 +75,8 @@ type ScheduleFleetTripDetailResponse struct {
 	DriverAvatar    string `json:"driver_avatar"`
 	CrewName        string `json:"crew_name"`
 	CrewAvatar      string `json:"crew_avatar"`
+	DriverID        string `json:"driver_id"`
+	CrewID          string `json:"crew_id"`
 }
 
 type ScheduleOrderValidationInput struct {

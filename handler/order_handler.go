@@ -304,6 +304,8 @@ func (h *OrderHandler) CreateOrderPayment(c *fiber.Ctx) error {
 func (h *OrderHandler) CreateServiceOrderPayment(c *fiber.Ctx) error {
 	var req model.CreateServiceOrderPaymentRequest
 	if err := c.BodyParser(&req); err != nil {
+
+		fmt.Println("Error parsing request:", err)
 		return helper.BadRequestResponse(c, "Invalid payload")
 	}
 	if req.OrderID == "" || req.OrderType == 0 || req.PaymentType == 0 || req.PaymentMethod == 0 || req.PaymentAmount <= 0 {

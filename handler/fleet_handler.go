@@ -1408,3 +1408,37 @@ func (h *FleetHandler) DeleteFleetOrderAddon(c *fiber.Ctx) error {
 	}
 	return helper.SuccessResponse(c, fiber.StatusOK, "Addon deleted successfully", nil)
 }
+
+func (h *FleetHandler) CancelPartnerOrder(c *fiber.Ctx) error {
+	var req model.FleetOrderCancelRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.BadRequestResponse(c, "invalid payload")
+	}
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.BadRequestResponse(c, "missing organization context")
+	}
+	userID, _ := c.Locals("user_id").(string)
+	if err := h.service.CancelPartnerOrder(orgID, userID, &req); err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Order canceled successfully", nil)
+}
+
+func (h *FleetHandler) CancelPartnerOrderDetail(c *fiber.Ctx) error {
+	var req model.FleetOrderCancelRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.BadRequestResponse(c, "invalid payload")
+	}
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.BadRequestResponse(c, "missing organization context")
+	}
+	userID, _ := c.Locals("user_id").(string)
+	if err := h.service.CancelPartnerOrderDetail(orgID, userID, &req); err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Order canceled successfully", nil)
+}

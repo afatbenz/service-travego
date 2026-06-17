@@ -1474,8 +1474,10 @@ func (r *ScheduleRepository) GetFleetTripDetail(input model.ScheduleFleetTripDet
 				COALESCE(fo.end_date::text, '') AS end_date,
 				COALESCE(fo.payment_status, 0) AS payment_status,
 				COALESCE(e.fullname, '') AS driver_name,
+				e.uuid::text AS driver_id,
 				COALESCE(e.avatar, '') AS driver_avatar,
 				COALESCE(e2.fullname, '') AS crew_name,
+				e2.uuid::text AS crew_id,
 				COALESCE(e2.avatar, '') AS crew_avatar
 			FROM schedule_fleets sf
 			INNER JOIN schedules s ON s.schedule_id::text = sf.schedule_id::text AND s.organization_id::text = sf.organization_id::text
@@ -1508,8 +1510,10 @@ func (r *ScheduleRepository) GetFleetTripDetail(input model.ScheduleFleetTripDet
 		&res.EndDate,
 		&res.PaymentStatus,
 		&res.DriverName,
+		&res.DriverID,
 		&res.DriverAvatar,
 		&res.CrewName,
+		&res.CrewID,
 		&res.CrewAvatar,
 	); err != nil {
 		if err == sql.ErrNoRows {
