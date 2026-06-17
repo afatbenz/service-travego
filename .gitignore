@@ -33,7 +33,7 @@ go.work
 # Assets
 /assets/
 
-db/
+db/migrations/
 # OS
 .DS_Store
 Thumbs.db
