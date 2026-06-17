@@ -7,6 +7,7 @@ import (
 	"service-travego/database"
 	"service-travego/helper"
 	"service-travego/internal/waai"
+	"service-travego/service"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -39,6 +40,9 @@ func SetupRoutes(app *fiber.App, cfg *configs.Config) {
 	midtransCfg := config.InitMidtrans()
 	rdb := helper.GetRedisClient()
 
+	// Initialize services
+	notificationSvc := service.NewNotificationService(db, cfg.Database.Driver)
+
 	// Setup route groups
 	SetupNotificationRoutes(app, db, cfg.Database.Driver) // Register public routes first
 	SetupGeneralRoutes(api, db, cfg.Database.Driver)
@@ -59,7 +63,7 @@ func SetupRoutes(app *fiber.App, cfg *configs.Config) {
 	SetupMessagesRoutes(api, db, cfg.Database.Driver)
 	SetupOrderRoutes(api, db, cfg.Database.Driver, cfg)
 	SetupDashboardRoutes(api, db, cfg.Database.Driver)
-	SetupTransactionRoutes(api, db, cfg.Database.Driver)
+	SetupTransactionRoutes(api, db, cfg.Database.Driver, notificationSvc)
 	SetupTourPackageRoutes(api, db, cfg.Database.Driver)
 	SetupLeaveManagementRoutes(api, db, cfg.Database.Driver)
 	SetupPrintManagementRoutes(api, db, cfg.Database.Driver)

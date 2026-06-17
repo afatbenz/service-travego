@@ -217,6 +217,12 @@
             "tags": ["private"]
         },
         {
+            "id": "TRX-I14",
+            "label": "Refund - Cancel Order",
+            "type": ["fleet"],
+            "tags": ["private"]
+        },
+        {
             "id": "TRX-I15",
             "label": "Biaya Kebutuhan Operasional Lain",
             "type": ["fleet"],

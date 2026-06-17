@@ -727,16 +727,19 @@ func (h *TransactionHandler) SubmitFleetTripExpenseForm(c *fiber.Ctx) error {
 		return helper.SendErrorResponse(c, code, err.Error())
 	}
 
-	totalExpenses, totalReimburse, err := h.service.GetFleetTripAmountSummaryByPaymentMethod(req.ScheduleNumber)
+	summary, err := h.service.GetFleetTripAmountSummaryByPaymentMethod(req.ScheduleNumber, orgID)
 	if err != nil {
 		code := service.GetStatusCode(err)
 		return helper.SendErrorResponse(c, code, err.Error())
 	}
 
 	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet trip expense submitted successfully", map[string]interface{}{
-		"total_amount":    totalAmount,
-		"total_expenses":  totalExpenses,
-		"total_reimburse": totalReimburse,
+		"total_amount":         totalAmount,
+		"total_expenses":       summary.TotalExpenses,
+		"total_claimed":        summary.TotalClaimed,
+		"total_reimburse":      summary.TotalReimburse,
+		"total_item_reimburse": summary.TotalItemReimburse,
+		"remaining_claim":      summary.RemainingClaim,
 	})
 }
 
@@ -773,4 +776,42 @@ func (h *TransactionHandler) DeleteFleetTripExpenseForm(c *fiber.Ctx) error {
 	}
 
 	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet trip expense deleted successfully", nil)
+}
+
+func (h *TransactionHandler) SubmitFleetTripReimbursementForm(c *fiber.Ctx) error {
+	var req struct {
+		ScheduleNumber  string `json:"schedule_number"`
+		RecipientID     string `json:"recipient_id"`
+		PaymentMethodID string `json:"payment_method_id"`
+		TransactionDate string `json:"transaction_date,omitempty"`
+	}
+
+	if err := c.BodyParser(&req); err != nil {
+		return helper.BadRequestResponse(c, "Invalid request body")
+	}
+
+	req.ScheduleNumber = strings.TrimSpace(req.ScheduleNumber)
+	req.RecipientID = strings.TrimSpace(req.RecipientID)
+	req.PaymentMethodID = strings.TrimSpace(req.PaymentMethodID)
+
+	if req.ScheduleNumber == "" || req.RecipientID == "" || req.PaymentMethodID == "" {
+		return helper.BadRequestResponse(c, "Missing required fields: schedule_number, recipient_id, payment_method_id")
+	}
+
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Organization not found")
+	}
+
+	userID, ok := c.Locals("user_id").(string)
+	if !ok || userID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "User not found")
+	}
+
+	err := h.service.SubmitFleetTripReimbursement(orgID, userID, req.ScheduleNumber, req.RecipientID, req.PaymentMethodID, req.TransactionDate)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet trip reimbursement submitted successfully", nil)
 }

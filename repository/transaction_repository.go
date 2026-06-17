@@ -719,7 +719,7 @@ func (r *TransactionRepository) CreateFleetTripOperationalExpenseTransaction(org
 	return tx.Commit()
 }
 
-func (r *TransactionRepository) CreateFleetTripExpenseTransaction(orgID, userID, orderID, scheduleNumber, transactionItem string, paymentMethod int, amount float64, description string) error {
+func (r *TransactionRepository) CreateFleetTripExpenseTransaction(orgID, userID, orderID, scheduleNumber, transactionItem string, paymentMethod int, status int, amount float64, description string) error {
 	now := time.Now()
 	transactionTripID, err := uuid.NewV7()
 	if err != nil {
@@ -740,16 +740,17 @@ func (r *TransactionRepository) CreateFleetTripExpenseTransaction(orgID, userID,
 			created_at,
 			created_by,
 			reference_id,
-			organization_id
+			organization_id,
+			status
 		) VALUES (
 			%[1]s, %[2]s, %[3]s, %[4]s, %[5]s,
 			%[6]s, %[7]s, %[8]s, %[9]s, %[10]s,
-			%[11]s, %[12]s
+			%[11]s, %[12]s, %[13]s
 		)
 	`,
 		placeholder(1), placeholder(2), placeholder(3), placeholder(4), placeholder(5),
 		placeholder(6), placeholder(7), placeholder(8), placeholder(9), placeholder(10),
-		placeholder(11), placeholder(12),
+		placeholder(11), placeholder(12), placeholder(13),
 	)
 
 	_, err = r.db.Exec(
@@ -766,6 +767,7 @@ func (r *TransactionRepository) CreateFleetTripExpenseTransaction(orgID, userID,
 		userID,
 		orderID,
 		orgID,
+		status,
 	)
 	return err
 }
@@ -826,6 +828,60 @@ func (r *TransactionRepository) SumFleetTripAmountByScheduleNumberAndPaymentMeth
 	return out, nil
 }
 
+func (r *TransactionRepository) GetFleetTripAmountSummary(scheduleNumber, orgID string) (model.FleetTripAmountSummary, error) {
+	scheduleNumber = strings.TrimSpace(scheduleNumber)
+	orgID = strings.TrimSpace(orgID)
+	result := model.FleetTripAmountSummary{}
+	if scheduleNumber == "" || orgID == "" {
+		return result, nil
+	}
+
+	placeholder := r.getPlaceholder
+	query := fmt.Sprintf(`
+		SELECT 
+			COALESCE(SUM(CASE 
+				WHEN status = 1 AND payment_type = 1 
+				THEN amount 
+				ELSE 0 
+			END), 0) AS total_expenses, 
+
+			COALESCE(SUM(CASE 
+				WHEN status = 1 AND payment_type = 2 
+				THEN amount 
+				ELSE 0 
+			END), 0) AS total_claimed, 
+
+			COALESCE(SUM(CASE 
+				WHEN payment_type = 2 
+				THEN amount 
+				ELSE 0 
+			END), 0) AS total_reimburse,
+			
+			COUNT(*) FILTER (
+				WHERE status = 0
+				AND payment_type = 2
+			) AS total_item_reimburse
+
+		FROM transaction_fleet_trips 
+		WHERE schedule_number = %s AND organization_id = %s
+	`, placeholder(1), placeholder(2))
+
+	err := database.QueryRow(r.db, query, scheduleNumber, orgID).Scan(
+		&result.TotalExpenses,
+		&result.TotalClaimed,
+		&result.TotalReimburse,
+		&result.TotalItemReimburse,
+	)
+	if err != nil {
+		return result, err
+	}
+
+	result.RemainingClaim = result.TotalReimburse - result.TotalClaimed
+	result.TotalExpenses = result.TotalExpenses + result.TotalReimburse
+
+	return result, nil
+}
+
 func (r *TransactionRepository) SumFleetTripAmountByScheduleNumber(scheduleNumber string) (float64, error) {
 	scheduleNumber = strings.TrimSpace(scheduleNumber)
 	if scheduleNumber == "" {
@@ -869,6 +925,7 @@ func (r *TransactionRepository) ListFleetTripExpensesByScheduleNumber(scheduleNu
 			COALESCE(payment_type, 0) AS payment_type,
 			COALESCE(description, '') AS description,
 			tft.created_at,
+			COALESCE(tft.status, 0) AS status,
 			COALESCE(u.fullname, e.fullname, '') AS created_by
 		FROM transaction_fleet_trips tft
 		LEFT JOIN users u ON %s
@@ -895,6 +952,7 @@ func (r *TransactionRepository) ListFleetTripExpensesByScheduleNumber(scheduleNu
 			&it.PaymentMethod,
 			&it.Description,
 			&it.CreatedAt,
+			&it.Status,
 			&it.CreatedBy,
 		); err != nil {
 			return nil, err
@@ -905,4 +963,167 @@ func (r *TransactionRepository) ListFleetTripExpensesByScheduleNumber(scheduleNu
 		return nil, err
 	}
 	return out, nil
+}
+
+func (r *TransactionRepository) GetReimbursementAmount(scheduleNumber string) (float64, error) {
+	scheduleNumber = strings.TrimSpace(scheduleNumber)
+	if scheduleNumber == "" {
+		return 0, nil
+	}
+
+	placeholder := r.getPlaceholder
+	query := fmt.Sprintf(`
+		SELECT COALESCE(SUM(amount), 0) AS total_amount
+		FROM transaction_fleet_trips
+		WHERE schedule_number = %s AND status = 0 AND payment_type = 2
+	`, placeholder(1))
+
+	var total float64
+	err := database.QueryRow(r.db, query, scheduleNumber).Scan(&total)
+	if err != nil {
+		fmt.Printf("failed to query reimbursement amount: %v\n", err)
+		return 0, err
+	}
+	return total, nil
+}
+
+func (r *TransactionRepository) CreateFleetTripReimbursement(orgID, userID string, reimbursement *model.FleetTripReimbursement) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	now := time.Now()
+	transactionID, err := uuid.NewV7()
+	if err != nil {
+		return err
+	}
+
+	// Parse transaction date
+	transactionDate, err := time.Parse("2006-01-02", reimbursement.TransactionDate)
+	if err != nil {
+		return err
+	}
+
+	invoiceNumber, err := utils.GenerateInvoiceNumberTx(tx, r.driver, orgID, 1, now)
+	if err != nil {
+		return err
+	}
+
+	placeholder := r.getPlaceholder
+	// Insert into transactions table
+	insertTransactionQuery := fmt.Sprintf(`
+		INSERT INTO transactions (
+			transaction_id,
+			transaction_type,
+			order_type,
+			payment_type,
+			transaction_category,
+			transaction_item,
+			invoice_number,
+			description,
+			transaction_date,
+			payment_method,
+			amount,
+			reference_id,
+			status,
+			organization_id,
+			created_by,
+			created_at
+		) VALUES (
+			%[1]s, %[2]s, %[3]s, '1004', %[4]s, %[5]s,
+			%[6]s, %[7]s, %[8]s, %[9]s, %[10]s,
+			%[11]s, %[12]s, %[13]s, %[14]s, %[15]s
+		)
+	`,
+		placeholder(1), placeholder(2), placeholder(3), placeholder(4), placeholder(5),
+		placeholder(6), placeholder(7), placeholder(8), placeholder(9), placeholder(10),
+		placeholder(11), placeholder(12), placeholder(13), placeholder(14), placeholder(15),
+	)
+
+	_, err = tx.Exec(
+		insertTransactionQuery,
+		transactionID.String(),
+		2,
+		1,
+		"TRX01",
+		"TRX-I13",
+		invoiceNumber,
+		"Biaya Operasional "+reimbursement.ScheduleNumber,
+		transactionDate,
+		reimbursement.PaymentMethodID,
+		reimbursement.Amount,
+		reimbursement.ScheduleNumber,
+		1,
+		orgID,
+		userID,
+		now,
+	)
+	if err != nil {
+		return err
+	}
+
+	// Insert into transaction_reimbursement table
+	reimburseID, err := uuid.NewV7()
+	if err != nil {
+		return err
+	}
+
+	insertReimbursementQuery := fmt.Sprintf(`
+		INSERT INTO transaction_reimbursement (
+			reimburse_id,
+			reference_id,
+			organization_id,
+			amount,
+			employee_id,
+			status,
+			payment_method,
+			created_at
+		) VALUES (
+			%[1]s, %[2]s, %[3]s, %[4]s, %[5]s,
+			%[6]s, %[7]s, %[8]s
+		)
+	`,
+		placeholder(1), placeholder(2), placeholder(3), placeholder(4), placeholder(5),
+		placeholder(6), placeholder(7), placeholder(8),
+	)
+
+	_, err = tx.Exec(
+		insertReimbursementQuery,
+		reimburseID.String(),
+		transactionID.String(),
+		orgID,
+		reimbursement.Amount,
+		reimbursement.RecipientID,
+		1,
+		reimbursement.PaymentMethodID,
+		now,
+	)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func (r *TransactionRepository) MarkReimbursementPaid(scheduleNumber string) error {
+	scheduleNumber = strings.TrimSpace(scheduleNumber)
+	if scheduleNumber == "" {
+		return fmt.Errorf("schedule number is empty")
+	}
+
+	placeholder := r.getPlaceholder
+	query := fmt.Sprintf(`
+		UPDATE transaction_fleet_trips
+		SET status = 1
+		WHERE schedule_number = %s AND status = 0 AND payment_type = 2
+	`, placeholder(1))
+
+	_, err := r.db.Exec(query, scheduleNumber)
+	if err != nil {
+		fmt.Printf("failed to mark reimbursement paid: %v\n", err)
+		return err
+	}
+	return nil
 }

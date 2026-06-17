@@ -36,4 +36,6 @@ func SetupFleetRoutes(api fiber.Router, db *sql.DB, driver string) {
 	fleet.Post("/order/update", helper.JWTAuthorizationMiddleware(), h.UpdatePartnerOrder)
 	fleet.Post("/order/delete-addon", helper.JWTAuthorizationMiddleware(), h.DeleteFleetOrderAddon)
 	fleet.Post("/order/process/:processType/:order_id", helper.JWTAuthorizationMiddleware(), h.ProcessFleetOrder)
+	fleet.Post("/order/cancel", helper.JWTAuthorizationMiddleware(), h.CancelPartnerOrder)
+	fleet.Post("/order/cancelation-detail", helper.JWTAuthorizationMiddleware(), h.CancelPartnerOrderDetail)
 }

@@ -703,7 +703,7 @@ func (s *OrderService) CreateServiceOrderPayment(req *model.CreateServiceOrderPa
 		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "payment_type tidak valid")
 	}
 	if req.PaymentMethod == 1002 { // transfer
-		if req.BankID == nil || req.BankAccount == nil {
+		if req.BankID == nil || req.BankAccount == "" {
 			return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "bank_id dan bank_account wajib diisi untuk transfer")
 		}
 	}
@@ -813,6 +813,7 @@ func (s *OrderService) GetServiceOrderPaymentHistory(organizationID string, req 
 
 	rows, err := s.fleetRepo.ListPaymentOrders(strings.TrimSpace(req.OrderID), req.OrderType, organizationID)
 	if err != nil {
+		fmt.Println("Error listing payment orders:", err)
 		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to get payment history")
 	}
 
@@ -825,9 +826,9 @@ func (s *OrderService) GetServiceOrderPaymentHistory(organizationID string, req 
 			v := int(r.BankID.Int64)
 			bankID = &v
 		}
-		var bankAccount *int
+		var bankAccount *string
 		if r.BankAccount.Valid {
-			v := int(r.BankAccount.Int64)
+			v := r.BankAccount.String
 			bankAccount = &v
 		}
 		evidence := ""
@@ -849,6 +850,7 @@ func (s *OrderService) GetServiceOrderPaymentHistory(organizationID string, req 
 			PaymentMethod:      r.PaymentMethod,
 			PaymentMethodLabel: s.paymentMethodLabels[r.PaymentMethod],
 			BankID:             bankID,
+			BankName:           r.BankName.String,
 			BankAccount:        bankAccount,
 			PaymentAmount:      r.PaymentAmount,
 			TotalAmount:        r.TotalAmount,

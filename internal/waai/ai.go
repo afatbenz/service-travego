@@ -88,6 +88,8 @@ func NewAIClient(apiKey string, db *sql.DB, dbDriver string, rdb *redis.Client, 
 		SMTPPort: os.Getenv("EMAIL_SMTP_PORT"),
 	}
 
+	notificationSvc := service.NewNotificationService(db, dbDriver)
+
 	return &AIClient{
 		apiKey:                apiKey,
 		model:                 model,
@@ -105,7 +107,7 @@ func NewAIClient(apiKey string, db *sql.DB, dbDriver string, rdb *redis.Client, 
 		scheduleService:       service.NewScheduleService(scheduleRepo),
 		orderService:          service.NewOrderService(fleetRepo, contentRepo, orgRepo, emailCfg),
 		dashboardService:      service.NewDashboardService(dashboardRepo),
-		transactionService:    service.NewTransactionService(transactionRepo),
+		transactionService:    service.NewTransactionService(transactionRepo, notificationSvc),
 		printService:          service.NewPrintManagementService(printRepo),
 		wagyClient:            wagyClient,
 	}
@@ -1108,7 +1110,7 @@ func (ac *AIClient) executeTool(ctx context.Context, toolName string, input json
 		if err != nil {
 			return map[string]interface{}{"error": err.Error()}
 		}
-		totalExpenses, totalReimburse, err := ac.transactionService.GetFleetTripAmountSummaryByPaymentMethod(scheduleNumber)
+		summary, err := ac.transactionService.GetFleetTripAmountSummaryByPaymentMethod(scheduleNumber, orgID)
 		if err != nil {
 			return map[string]interface{}{"error": err.Error()}
 		}
@@ -1116,10 +1118,13 @@ func (ac *AIClient) executeTool(ctx context.Context, toolName string, input json
 			"schedule_number":            scheduleNumber,
 			"total_jatah_uang":           totalAmount,
 			"biaya_operasional":          totalAmount,
-			"biaya_operasional_terpakai": totalExpenses,
-			"total_reimburse":            totalReimburse,
-			"total_pengeluaran":          totalExpenses + totalReimburse,
-			"saldo_sisa":                 totalAmount - (totalExpenses + totalReimburse),
+			"biaya_operasional_terpakai": summary.TotalExpenses,
+			"total_claimed":              summary.TotalClaimed,
+			"total_item_reimburse":       summary.TotalItemReimburse,
+			"total_reimburse":            summary.TotalReimburse,
+			"remaining_claim":            summary.RemainingClaim,
+			"total_pengeluaran":          summary.TotalExpenses + summary.TotalClaimed + summary.TotalItemReimburse,
+			"saldo_sisa":                 totalAmount - (summary.TotalExpenses + summary.TotalClaimed + summary.TotalReimburse),
 		}
 
 	case "tambah_pengeluaran_spj":
@@ -1211,7 +1216,7 @@ func (ac *AIClient) executeTool(ctx context.Context, toolName string, input json
 		if err != nil {
 			return map[string]interface{}{"error": err.Error()}
 		}
-		totalExpenses, totalReimburse, err := ac.transactionService.GetFleetTripAmountSummaryByPaymentMethod(scheduleNumber)
+		summary, err := ac.transactionService.GetFleetTripAmountSummaryByPaymentMethod(scheduleNumber, orgID)
 		if err != nil {
 			return map[string]interface{}{"error": err.Error()}
 		}
@@ -1219,10 +1224,13 @@ func (ac *AIClient) executeTool(ctx context.Context, toolName string, input json
 			"schedule_number":            scheduleNumber,
 			"total_jatah_uang":           totalAmount,
 			"biaya_operasional":          totalAmount,
-			"biaya_operasional_terpakai": totalExpenses,
-			"reimburse":                  totalReimburse,
-			"total_pengeluaran":          totalExpenses + totalReimburse,
-			"saldo_sisa":                 totalAmount - (totalExpenses + totalReimburse),
+			"biaya_operasional_terpakai": summary.TotalExpenses,
+			"total_claimed":              summary.TotalClaimed,
+			"total_item_reimburse":       summary.TotalItemReimburse,
+			"remaining_claim":            summary.RemainingClaim,
+			"reimburse":                  summary.TotalReimburse,
+			"total_pengeluaran":          summary.TotalExpenses + summary.TotalClaimed + summary.TotalReimburse,
+			"saldo_sisa":                 totalAmount - (summary.TotalExpenses + summary.TotalClaimed + summary.TotalReimburse),
 		}
 
 	case "print_surat_jalan":

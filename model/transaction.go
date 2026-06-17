@@ -71,6 +71,7 @@ type FleetTripExpenseRow struct {
 	TransactionItem     string
 	Amount              float64
 	PaymentMethod       int
+	Status              int
 	Description         string
 	CreatedAt           time.Time
 	CreatedBy           string
@@ -83,6 +84,8 @@ type FleetTripExpenseItem struct {
 	TransactionItem          string  `json:"transaction_item"`
 	TransactionItemLabel     string  `json:"transaction_item_label"`
 	Amount                   float64 `json:"amount"`
+	Status                   int     `json:"status"`
+	RemainingClaim           float64 `json:"remaining_claim"`
 	PaymentMethod            int     `json:"payment_method"`
 	PaymentMethodLabel       string  `json:"payment_method_label"`
 	Description              string  `json:"description"`
@@ -113,4 +116,20 @@ type UpdateExpenseTransactionRequest struct {
 	TransactionCategory string  `json:"transaction_category"`
 	TransactionItem     string  `json:"transaction_item"`
 	Amount              float64 `json:"amount"`
+}
+
+type FleetTripReimbursement struct {
+	ScheduleNumber  string
+	Amount          float64
+	RecipientID     string
+	PaymentMethodID string
+	TransactionDate string
+}
+
+type FleetTripAmountSummary struct {
+	TotalExpenses      float64
+	TotalClaimed       float64
+	TotalReimburse     float64
+	TotalItemReimburse float64
+	RemainingClaim     float64
 }

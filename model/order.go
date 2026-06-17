@@ -130,6 +130,7 @@ type OrderDetailResponse struct {
 	EndDate            string                    `json:"end_date"`
 	Fleets             []OrderDetailFleetItem    `json:"fleets"`
 	Scheduled          bool                      `json:"scheduled"`
+	UpdatedAt          string                    `json:"updated_at"`
 }
 
 type OrderReviewItem struct {
@@ -391,7 +392,7 @@ type CreateServiceOrderPaymentRequest struct {
 	TransactionItem     string  `json:"transaction_item"`
 	EvidenceFile        string  `json:"evidence_file"`
 	BankID              *int    `json:"bank_id"`
-	BankAccount         *int    `json:"bank_account"`
+	BankAccount         string  `json:"bank_account"`
 	OrganizationID      string  `json:"-"`
 	CreatedBy           string  `json:"-"`
 }
@@ -428,7 +429,8 @@ type ServiceOrderPaymentHistoryItem struct {
 	PaymentMethod      int     `json:"payment_method"`
 	PaymentMethodLabel string  `json:"payment_method_label"`
 	BankID             *int    `json:"bank_id"`
-	BankAccount        *int    `json:"bank_account"`
+	BankName           string  `json:"bank_name"`
+	BankAccount        *string `json:"bank_account"`
 	PaymentAmount      float64 `json:"payment_amount"`
 	TotalAmount        float64 `json:"total_amount"`
 	RemainingAmount    float64 `json:"remaining_amount"`
@@ -446,7 +448,8 @@ type PaymentOrderRow struct {
 	PaymentType     int
 	PaymentMethod   int
 	BankID          sql.NullInt64
-	BankAccount     sql.NullInt64
+	BankName        sql.NullString
+	BankAccount     sql.NullString
 	PaymentAmount   float64
 	TotalAmount     float64
 	RemainingAmount float64
