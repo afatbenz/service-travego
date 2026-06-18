@@ -305,5 +305,13 @@ func (h *FleetUnitHandler) UnitExpenses(c *fiber.Ctx) error {
 		code := service.GetStatusCode(err)
 		return helper.SendErrorResponse(c, code, err.Error())
 	}
-	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet unit expenses loaded", items)
+	res := model.FleetUnitExpensesResponse{
+		Period:        req.Period,
+		TotalExpenses: 0.0,
+		Items:         items,
+	}
+	for _, it := range items {
+		res.TotalExpenses += it.Amount
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Fleet unit expenses loaded", res)
 }

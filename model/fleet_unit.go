@@ -180,3 +180,9 @@ type FleetUnitExpenseItem struct {
 	PaymentTypeLabel         string  `json:"payment_type_label"`
 	Amount                   float64 `json:"amount"`
 }
+
+type FleetUnitExpensesResponse struct {
+	Period        string                 `json:"period"`
+	TotalExpenses float64                `json:"total_expenses"`
+	Items         []FleetUnitExpenseItem `json:"items"`
+}

@@ -1343,31 +1343,43 @@ func (r *FleetUnitRepository) ListUnitExpenses(orgID, unitID string, startDate, 
 		}
 	}
 
-	unitExpr := "sf.unit_id::text = " + r.placeholder(1)
-	orgExpr := "t.organization_id::text = " + r.placeholder(2)
-	selectExpr := `
-			COALESCE(t.transaction_category, '') AS transaction_category,
-			COALESCE(t.transaction_item, '') AS transaction_item,
-			COALESCE(t.description, '') AS description,
-			t.transaction_date,
-			COALESCE(t.payment_type, 0) AS payment_type,
-			COALESCE(t.amount, 0) AS amount
-		`
-
 	query := fmt.Sprintf(`
-		SELECT %s
-		FROM transactions t
-		LEFT JOIN schedule_fleets sf ON sf.schedule_number::text = t.reference_id::text
-		WHERE %s
-			AND %s
-			AND COALESCE(t.status, 0) = 1
-			AND COALESCE(t.transaction_type, 0) = 2
-			AND t.transaction_date >= %s
-			AND t.transaction_date < %s
-		ORDER BY t.transaction_date DESC
-	`, selectExpr, unitExpr, orgExpr, r.placeholder(3), r.placeholder(4))
+		SELECT * FROM (
+			SELECT 
+				COALESCE(t.transaction_category, '') AS transaction_category,
+				COALESCE(t.transaction_item, '') AS transaction_item,
+				COALESCE(t.description, '') AS description,
+				t.transaction_date,
+				COALESCE(t.payment_type, 0) AS payment_type,
+				COALESCE(t.amount, 0) AS amount
+			FROM transactions t
+			LEFT JOIN schedule_fleets sf ON sf.schedule_number::text = t.reference_id::text
+			WHERE sf.unit_id::text = %s AND t.organization_id::text = %s
+				AND COALESCE(t.status, 0) = 1
+				AND COALESCE(t.transaction_type, 0) = 2
 
-	rows, err := database.Query(r.db, query, unitID, orgID, startDate, endDate)
+			UNION ALL
+
+			SELECT 
+				COALESCE(t.transaction_category, '') AS transaction_category,
+				COALESCE(t.transaction_item, '') AS transaction_item,
+				COALESCE(t.description, '') AS description,
+				t.transaction_date,
+				COALESCE(t.payment_type, 0) AS payment_type,
+				COALESCE(t.amount, 0) AS amount
+			FROM transactions t
+			INNER JOIN transaction_fleets tf ON t.transaction_id = tf.transaction_id
+			WHERE tf.fleet_unit_id::text = %s AND t.organization_id::text = %s
+				AND COALESCE(t.status, 0) = 1
+				AND COALESCE(t.transaction_type, 0) = 2
+			ORDER BY transaction_date DESC
+		) as expenses
+		WHERE expenses.transaction_date >= %s AND expenses.transaction_date < %s
+		ORDER BY expenses.transaction_date DESC
+	`, r.placeholder(1), r.placeholder(2), r.placeholder(3), r.placeholder(4), r.placeholder(5), r.placeholder(6))
+	fmt.Println((query))
+
+	rows, err := database.Query(r.db, query, unitID, orgID, unitID, orgID, startDate, endDate)
 	if err != nil {
 		return nil, err
 	}

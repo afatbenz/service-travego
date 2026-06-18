@@ -4901,7 +4901,7 @@ func (r *FleetRepository) GetRefundOrderDetail(orderID string, orgID string) (*m
 	query := fmt.Sprintf(`
 		WHERE order_id = %s AND %s
 	`, r.getPlaceholder(1), r.getPlaceholder(2))
-	rows, err := database.TxQuery(r.db, query, orderID, orgID)
+	rows, err := database.Query(r.db, query, orderID, orgID)
 	if err != nil {
 		return nil, err
 	}

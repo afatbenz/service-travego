@@ -290,9 +290,7 @@ func (s *OrganizationService) UpdateOrganizationLogo(orgID, sourceFilePath strin
 
 // GetAPIConfig retrieves API configuration for an organization
 func (s *OrganizationService) GetAPIConfig(userID string) (map[string]interface{}, error) {
-	// Find organization by user
-	// Assuming 1 user = 1 organization for now, or get list
-	orgs, err := s.orgRepo.FindByUsername(userID)
+	orgs, err := s.orgRepo.FindByUsernameUserID(userID)
 	if err != nil {
 		return nil, err
 	}
@@ -301,12 +299,34 @@ func (s *OrganizationService) GetAPIConfig(userID string) (map[string]interface{
 		return nil, nil
 	}
 
-	// Return config for the first organization found
-	return map[string]interface{}{
+	role := 0
+	if s.orgUserRepo != nil {
+		r, roleErr := s.orgUserRepo.GetRoleByUserIDAndOrgID(userID, orgs[0].ID)
+		if roleErr == nil {
+			role = r
+		} else if roleErr != sql.ErrNoRows {
+			return nil, roleErr
+		}
+	}
+
+	authData := helper.AuthSensitiveData{
+		OrganizationID:   orgs[0].ID,
+		UserID:           userID,
+		OrganizationRole: role,
+		IsAdmin:          role == 1,
+	}
+	apiToken, err := helper.EncryptAuthSensitiveData(authData)
+	if err != nil {
+		return nil, err
+	}
+
+	res := map[string]interface{}{
 		"organization_id":   orgs[0].ID,
 		"organization_code": orgs[0].OrganizationCode,
 		"domain_url":        orgs[0].DomainURL,
-	}, nil
+		"api_token":         apiToken,
+	}
+	return res, nil
 }
 
 // UpdateDomainURL updates the domain URL for an organization

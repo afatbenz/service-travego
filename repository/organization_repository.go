@@ -167,17 +167,18 @@ func (r *OrganizationRepository) FindByCode(code string) (*model.Organization, e
 	return &org, nil
 }
 
-// FindByUsername retrieves organizations
-func (r *OrganizationRepository) FindByUsername(username string) ([]model.Organization, error) {
+// FindByUsernameUserIDByUserID retrieves organizations
+func (r *OrganizationRepository) FindByUsernameUserID(userID string) ([]model.Organization, error) {
 	query := fmt.Sprintf(`
 		SELECT organization_id, organization_code, organization_name, company_name, address, city, province,
 		       phone, email, npwp_number, organization_type, postal_code, domain_url, created_by, created_at, updated_at
 		FROM organizations
-		WHERE created_by = (SELECT user_id FROM users WHERE username = %s)
+		WHERE created_by = (SELECT user_id FROM users WHERE user_id = %s)
 		ORDER BY created_at DESC
 	`, r.getPlaceholder(1))
+	fmt.Println(query, userID)
 
-	rows, err := database.Query(r.db, query, username)
+	rows, err := database.Query(r.db, query, userID)
 	if err != nil {
 		return nil, err
 	}
