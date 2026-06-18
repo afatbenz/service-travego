@@ -1359,13 +1359,13 @@ func (s *FleetService) CancelPartnerOrder(orgID string, userID string, req *mode
 	return nil
 }
 
-func (s *FleetService) CancelPartnerOrderDetail(orgID string, userID string, req *model.FleetOrderCancelRequest) error {
-	if req.OrderID == "" {
-		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "order_id is required")
+func (s *FleetService) CancelPartnerOrderDetail(orgID string, userID string, orderID string) (*model.OrderDetailResponse, error) {
+	if strings.TrimSpace(orderID) == "" {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "order_id is required")
 	}
-	detail, err := s.repo.GetRefundOrderDetail(req.OrderID, orgID)
+	res, err := s.GetPartnerOrderDetail(orderID, orgID)
 	if err != nil {
-		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to get order detail: "+err.Error())
+		return nil, err
 	}
-	return nil
+	return res, nil
 }

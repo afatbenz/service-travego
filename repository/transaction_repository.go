@@ -345,7 +345,51 @@ func (r *TransactionRepository) CreateManualTransaction(orgID, userID string, re
 	return tx.Commit()
 }
 
+func (r *TransactionRepository) ValidateFleetUnit(unitID, orgID string) (string, string, error) {
+	unitID = strings.TrimSpace(unitID)
+	orgID = strings.TrimSpace(orgID)
+	if unitID == "" || orgID == "" {
+		return "", "", fmt.Errorf("unit_id and organization_id are required")
+	}
+
+	placeholder := r.getPlaceholder
+	orgExpr := "f.organization_id = " + placeholder(2)
+	if r.driver == "postgres" || r.driver == "pgx" {
+		orgExpr = "f.organization_id::text = " + placeholder(2)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT f.fleet_name, fu.vehicle_id
+		FROM fleet_units fu
+		INNER JOIN fleets f ON f.uuid = fu.fleet_id
+		WHERE fu.unit_id = %s AND %s
+		LIMIT 1
+	`, placeholder(1), orgExpr)
+
+	var fleetName, vehicleID string
+	err := database.QueryRow(r.db, query, unitID, orgID).Scan(&fleetName, &vehicleID)
+	if err == sql.ErrNoRows {
+		return "", "", fmt.Errorf("fleet unit not found")
+	}
+	if err != nil {
+		return "", "", err
+	}
+	return fleetName, vehicleID, nil
+}
+
 func (r *TransactionRepository) CreateExpenseTransaction(orgID, userID string, req *CreateExpenseTransactionRequest) error {
+	orderType := 4
+	description := req.Description
+	note := ""
+	if strings.TrimSpace(req.UnitID) != "" {
+		orderType = 1
+		fleetName, vehicleID, err := r.ValidateFleetUnit(req.UnitID, orgID)
+		if err != nil {
+			return err
+		}
+		note = fleetName + " - " + vehicleID
+	}
+
 	tx, err := r.db.Begin()
 	if err != nil {
 		return err
@@ -356,11 +400,6 @@ func (r *TransactionRepository) CreateExpenseTransaction(orgID, userID string, r
 	transactionID, err := uuid.NewV7()
 	if err != nil {
 		return err
-	}
-
-	orderType := 4
-	if strings.TrimSpace(req.UnitID) != "" {
-		orderType = 1
 	}
 
 	invoiceNumber, err := utils.GenerateInvoiceNumberTx(tx, r.driver, orgID, orderType, now)
@@ -385,16 +424,18 @@ func (r *TransactionRepository) CreateExpenseTransaction(orgID, userID string, r
 			created_at,
 			created_by,
 			payment_method,
-			status
+			status,
+			note
 		) VALUES (
 			%[1]s, %[2]s, %[3]s, %[4]s, %[5]s,
 			%[6]s, %[7]s, %[8]s, %[9]s, %[10]s,
-			%[11]s, %[12]s, %[13]s, %[14]s, 1
+			%[11]s, %[12]s, %[13]s, %[14]s, 1, %[15]s
 		)
 	`,
 		placeholder(1), placeholder(2), placeholder(3), placeholder(4), placeholder(5),
 		placeholder(6), placeholder(7), placeholder(8), placeholder(9), placeholder(10),
-		placeholder(11), placeholder(12), placeholder(13), placeholder(14),
+		placeholder(11), placeholder(12), placeholder(13), placeholder(14), placeholder(15),
+		note,
 	)
 
 	_, err = tx.Exec(
@@ -405,7 +446,7 @@ func (r *TransactionRepository) CreateExpenseTransaction(orgID, userID string, r
 		req.TransactionCategory,
 		req.TransactionItem,
 		invoiceNumber,
-		req.Description,
+		description,
 		req.TransactionDate,
 		req.PaymentType,
 		orgID,
@@ -413,6 +454,7 @@ func (r *TransactionRepository) CreateExpenseTransaction(orgID, userID string, r
 		now,
 		userID,
 		req.PaymentMethod,
+		note,
 	)
 	if err != nil {
 		return err

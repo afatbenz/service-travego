@@ -284,13 +284,16 @@ type OrderAvailabilityResponse struct {
 }
 
 type FleetOrderCancelRequest struct {
-	OrderID             string `json:"order_id"`
-	PaymentMethod       int    `json:"payment_method"`
-	PaymentMethodLabel  string `json:"payment_method_label"`
-	Reason              string `json:"reason"`
-	RefundPercentage    int    `json:"refund_percentage"`
-	BankAccount         string `json:"bank_account,omitempty"`
-	BankId              string `json:"bank_id,omitempty"`
-	BankAccountName     string `json:"bank_account_name,omitempty"`
-	BankNameLabel       string `json:"bank_name_label,omitempty"`
+	OrderID            string `json:"order_id"`
+	PaymentMethod      int    `json:"payment_method"`
+	PaymentMethodLabel string `json:"payment_method_label"`
+	Reason             string `json:"reason"`
+	RefundPercentage   int    `json:"refund_percentage"`
+	BankAccount        string `json:"bank_account,omitempty"`
+	BankId             string `json:"bank_id,omitempty"`
+	BankAccountName    string `json:"bank_account_name,omitempty"`
+	BankNameLabel      string `json:"bank_name_label,omitempty"`
+}
+
+type FleetOrderCancelDetail struct {
 }

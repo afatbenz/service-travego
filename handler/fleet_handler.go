@@ -1436,9 +1436,10 @@ func (h *FleetHandler) CancelPartnerOrderDetail(c *fiber.Ctx) error {
 		return helper.BadRequestResponse(c, "missing organization context")
 	}
 	userID, _ := c.Locals("user_id").(string)
-	if err := h.service.CancelPartnerOrderDetail(orgID, userID, &req); err != nil {
+	res, err := h.service.CancelPartnerOrderDetail(orgID, userID, req.OrderID)
+	if err != nil {
 		code := service.GetStatusCode(err)
 		return helper.SendErrorResponse(c, code, err.Error())
 	}
-	return helper.SuccessResponse(c, fiber.StatusOK, "Order canceled successfully", nil)
+	return helper.SuccessResponse(c, fiber.StatusOK, "Order detail retrieved", res)
 }
