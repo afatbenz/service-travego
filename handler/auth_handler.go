@@ -156,7 +156,7 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 		return helper.SendValidationErrorResponse(c, validationErrors)
 	}
 
-	loginResponse, err := h.authService.Login(req.Email, req.Phone, req.Password)
+	loginResponse, err := h.authService.Login(req.Email, req.Phone, req.Password, "")
 	if err != nil {
 		statusCode := service.GetStatusCode(err)
 		log.Printf("[ERROR] Login failed - Email: %s, Phone: %s, Status: %d, Error: %v", req.Email, req.Phone, statusCode, err)
