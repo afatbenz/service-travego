@@ -28,7 +28,10 @@ func SetupOrganizationRoutes(api fiber.Router, db *sql.DB, driver string, cfg *c
 	orgTypeService := service.NewOrganizationTypeService(orgTypeRepo)
 
 	// Initialize handlers
+	authService := service.NewAuthService(userRepo, &cfg.Email)
+	authService.SetOrganizationUserRepository(orgUserRepo)
 	orgHandler := handler.NewOrganizationHandler(orgService)
+	orgHandler.SetAuthService(authService)
 	orgHandler.SetJoinService(orgJoinService)
 	orgHandler.SetOrganizationTypeService(orgTypeService)
 

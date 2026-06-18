@@ -272,59 +272,64 @@ type LoginResponse struct {
 	Avatar       string `json:"avatar"`
 }
 
-// Login authenticates a user with email/phone and password
-// Returns LoginResponse containing token, username, fullname, and avatar
-func (s *AuthService) Login(email, phone, password string) (*LoginResponse, error) {
-	// Validate: either email or phone must be provided
-	if email == "" && phone == "" {
-		return nil, NewServiceError(ErrInvalidCredentials, http.StatusBadRequest, "email or phone is required")
+func (s *AuthService) Login(email, phone, password, userID string) (*LoginResponse, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	phone = strings.TrimSpace(phone)
+	password = strings.TrimSpace(password)
+	userID = strings.TrimSpace(userID)
+
+	if email == "" && phone == "" && userID == "" {
+		return nil, NewServiceError(ErrInvalidCredentials, http.StatusBadRequest, "email, phone or user_id is required")
 	}
 
 	var user *model.User
 	var err error
 
-	// Find user by email or phone
-	if email != "" {
-		// Normalize email to lowercase
-		email = strings.ToLower(strings.TrimSpace(email))
-		user, err = s.userRepo.FindByEmail(email)
+	if userID != "" {
+		user, err = s.userRepo.FindByUserID(userID)
 		if err != nil {
 			if err == sql.ErrNoRows {
-				return nil, NewServiceError(ErrInvalidCredentials, http.StatusBadRequest, "invalid credentials")
+				return nil, NewServiceError(ErrUserNotFound, http.StatusNotFound, "user not found")
 			}
-			log.Printf("[ERROR] Error finding user by email - Email: %s, Error: %v", email, err)
+			log.Printf("[ERROR] Error finding user by user_id - UserID: %s, Error: %v", userID, err)
 			return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to authenticate")
 		}
-	} else if phone != "" {
-		// Normalize phone number
-		phone = helper.NormalizePhoneNumber(phone)
-		user, err = s.userRepo.FindByPhone(phone)
-		if err != nil {
-			if err == sql.ErrNoRows {
-				return nil, NewServiceError(ErrInvalidCredentials, http.StatusBadRequest, "invalid credentials")
+	} else {
+		if email != "" {
+			user, err = s.userRepo.FindByEmail(email)
+			if err != nil {
+				if err == sql.ErrNoRows {
+					return nil, NewServiceError(ErrInvalidCredentials, http.StatusBadRequest, "invalid credentials")
+				}
+				log.Printf("[ERROR] Error finding user by email - Email: %s, Error: %v", email, err)
+				return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to authenticate")
 			}
-			log.Printf("[ERROR] Error finding user by phone - Phone: %s, Error: %v", phone, err)
-			return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to authenticate")
+		} else if phone != "" {
+			phone = helper.NormalizePhoneNumber(phone)
+			user, err = s.userRepo.FindByPhone(phone)
+			if err != nil {
+				if err == sql.ErrNoRows {
+					return nil, NewServiceError(ErrInvalidCredentials, http.StatusBadRequest, "invalid credentials")
+				}
+				log.Printf("[ERROR] Error finding user by phone - Phone: %s, Error: %v", phone, err)
+				return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to authenticate")
+			}
+		}
+
+		if !helper.CheckPasswordHash(password, user.Password) {
+			log.Printf("[INFO] Invalid password attempt - UserID: %s", user.UserID)
+			return nil, NewServiceError(ErrInvalidCredentials, http.StatusBadRequest, "invalid credentials")
 		}
 	}
 
-	// Check if user is active
 	if !user.IsActive {
 		return nil, NewServiceError(ErrInvalidCredentials, http.StatusBadRequest, "user is inactive")
 	}
 
-	// Check if user is verified
 	if !user.IsVerified {
 		return nil, NewServiceError(ErrInvalidCredentials, http.StatusBadRequest, "user is not verified")
 	}
 
-	// Verify password
-	if !helper.CheckPasswordHash(password, user.Password) {
-		log.Printf("[INFO] Invalid password attempt - UserID: %s", user.UserID)
-		return nil, NewServiceError(ErrInvalidCredentials, http.StatusBadRequest, "invalid credentials")
-	}
-
-	// Get organization_id and role from organization_users table
 	organizationID := ""
 	organizationRole := 0
 	organizationName := ""
@@ -332,7 +337,6 @@ func (s *AuthService) Login(email, phone, password string) (*LoginResponse, erro
 		orgID, role, err := s.orgUserRepo.GetOrganizationAndRoleByUserID(user.UserID)
 		if err != nil && err != sql.ErrNoRows {
 			log.Printf("[ERROR] Error getting organization and role - UserID: %s, Error: %v", user.UserID, err)
-			// Continue without organization data if error (user might not have organization)
 		} else if err == nil {
 			organizationID = orgID
 			organizationRole = role
@@ -341,13 +345,10 @@ func (s *AuthService) Login(email, phone, password string) (*LoginResponse, erro
 		orgCode, orgName, _, _, _, err := s.orgUserRepo.GetOrganizationWithJoinDateByUserID(user.UserID)
 		if err == nil {
 			organizationName = orgName
-			// Optionally, organizationID can be set from orgCode by lookup; keeping existing orgID from previous call
 			_ = orgCode
 		}
 	}
 
-	// Generate JWT token
-	// Build encrypted token for sensitive data (decryptable by frontend)
 	sensitive := helper.AuthSensitiveData{
 		OrganizationID:   organizationID,
 		UserID:           user.UserID,
@@ -375,7 +376,6 @@ func (s *AuthService) Login(email, phone, password string) (*LoginResponse, erro
 		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to generate token")
 	}
 
-	// Generate and store refresh token in Redis (24 hours TTL, sliding expiration)
 	refreshToken, err := helper.GenerateRefreshToken()
 	if err != nil {
 		log.Printf("[ERROR] Failed to generate refresh token - UserID: %s, Error: %v", user.UserID, err)
@@ -391,7 +391,6 @@ func (s *AuthService) Login(email, phone, password string) (*LoginResponse, erro
 		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to store refresh token")
 	}
 
-	// Set default avatar based on gender if avatar is empty
 	avatar := user.Avatar
 	if avatar == "" {
 		if user.Gender == "F" {
@@ -401,7 +400,6 @@ func (s *AuthService) Login(email, phone, password string) (*LoginResponse, erro
 		}
 	}
 
-	// Add APP_HOST prefix to avatar URL if it starts with /assets
 	avatar = helper.GetAssetURL(avatar)
 
 	return &LoginResponse{

@@ -277,6 +277,7 @@ func (r *OrganizationRepository) Create(org *model.Organization) (*model.Organiz
 		).Scan(&org.CreatedAt, &org.UpdatedAt)
 
 		if err != nil {
+			fmt.Println("Error creating organization on if clause:", err.Error())
 			return nil, err
 		}
 	} else {
@@ -318,6 +319,7 @@ func (r *OrganizationRepository) Create(org *model.Organization) (*model.Organiz
 			org.UpdatedAt,
 		)
 		if err != nil {
+			fmt.Println("Error creating organization else clause:", err.Error())
 			return nil, err
 		}
 	}

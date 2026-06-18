@@ -145,6 +145,10 @@ func (r *UserRepository) FindByID(id string) (*model.User, error) {
 	return &user, nil
 }
 
+func (r *UserRepository) FindByUserID(id string) (*model.User, error) {
+	return r.FindByID(id)
+}
+
 // FindByEmail retrieves user
 func (r *UserRepository) FindByEmail(email string) (*model.User, error) {
 	query := fmt.Sprintf(`

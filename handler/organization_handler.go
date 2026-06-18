@@ -19,6 +19,7 @@ type OrganizationHandler struct {
 	orgService     *service.OrganizationService
 	orgJoinService *service.OrganizationJoinService
 	orgTypeService *service.OrganizationTypeService
+	authService    *service.AuthService
 	wagyClient     *waai.WagyClient
 }
 
@@ -38,6 +39,10 @@ func (h *OrganizationHandler) SetOrganizationTypeService(orgTypeService *service
 	h.orgTypeService = orgTypeService
 }
 
+func (h *OrganizationHandler) SetAuthService(authService *service.AuthService) {
+	h.authService = authService
+}
+
 // SetWagyClient sets the wagy client
 func (h *OrganizationHandler) SetWagyClient(wagyClient *waai.WagyClient) {
 	h.wagyClient = wagyClient
@@ -45,9 +50,9 @@ func (h *OrganizationHandler) SetWagyClient(wagyClient *waai.WagyClient) {
 
 // CreateOrganization handles POST /api/organization/create
 func (h *OrganizationHandler) CreateOrganization(c *fiber.Ctx) error {
-	// Get user_id from locals (set by JWT middleware)
 	userID, ok := c.Locals("user_id").(string)
 	if !ok || userID == "" {
+		fmt.Println("User not authenticated")
 		return helper.UnauthorizedResponse(c, "User not authenticated")
 	}
 
@@ -61,7 +66,7 @@ func (h *OrganizationHandler) CreateOrganization(c *fiber.Ctx) error {
 		return helper.SendValidationErrorResponse(c, validationErrors)
 	}
 
-	// Create organization model
+	// // Create organization model
 	org := &model.Organization{
 		OrganizationCode: req.OrganizationCode,
 		OrganizationName: req.OrganizationName,
@@ -85,12 +90,48 @@ func (h *OrganizationHandler) CreateOrganization(c *fiber.Ctx) error {
 		}
 		return helper.SendErrorResponse(c, statusCode, err.Error())
 	}
+
+	if err := h.orgService.CreateOrganizationSubscription(createdOrg.ID); err != nil {
+		fmt.Println("Error creating subscription:", err.Error())
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to create subscription")
+	}
+
+	assistantAccountID := ""
+	if h.wagyClient != nil && strings.TrimSpace(req.Phone) != "" {
+		message := "Selamat datang di TraveGO. Kini Anda bisa menikmati fitur TraveGO dengan chat AI Assistant dan dashboard web TraveGO."
+		fmt.Printf("Sending welcome WhatsApp to %s\n", req.Phone)
+		if _, err := h.wagyClient.SendMessage(req.Phone, message); err != nil {
+			fmt.Println("Error sending welcome WhatsApp:", err.Error())
+		} else {
+			assistantAccountID, err = h.orgService.CreateDefaultAssistantAccount(createdOrg.ID, userID, req.Phone)
+			if err != nil {
+				fmt.Println("Error creating assistant account:", err.Error())
+				return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to create assistant account")
+			}
+		}
+	}
+
+	if h.authService == nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Auth service not initialized")
+	}
+	loginResponse, err := h.authService.Login("", "", "", userID)
+	if err != nil {
+		fmt.Println("Error generating organization creation token:", err.Error())
+		statusCode := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, statusCode, err.Error())
+	}
+
 	responseData := map[string]interface{}{
 		"organization_id":   createdOrg.ID,
 		"organizationID":    createdOrg.ID,
 		"organization_code": createdOrg.OrganizationCode,
 		"OrganizationCode":  createdOrg.OrganizationCode,
 		"organization":      createdOrg,
+		"token":             loginResponse.Token,
+		"refresh_token":     loginResponse.RefreshToken,
+	}
+	if assistantAccountID != "" {
+		responseData["assistant_account_id"] = assistantAccountID
 	}
 
 	return helper.SuccessResponse(c, fiber.StatusCreated, "Organization created successfully", responseData)

@@ -67,49 +67,43 @@ func (r *OrganizationUserRepository) CheckUserInOrganization(userID, organizatio
 	return count > 0, nil
 }
 
-// CreateOrganizationUser inserts new record
 func (r *OrganizationUserRepository) CreateOrganizationUser(orgUser *model.OrganizationUser) error {
 	query := fmt.Sprintf(`
         INSERT INTO organization_users (
             uuid, user_id, organization_id, organization_role, is_active, created_at, created_by, updated_at, updated_by
-        )
-        SELECT %s, u.user_id, o.organization_id, %s, %s, %s, %s, %s, %s
-        FROM users u, organizations o
-        WHERE u.user_id = %s AND o.organization_id = %s
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
     `,
-		r.getPlaceholder(1), // uuid
-		r.getPlaceholder(4),
-		r.getPlaceholder(5),
-		r.getPlaceholder(6),
-		r.getPlaceholder(7),
-		r.getPlaceholder(8),
-		r.getPlaceholder(9),
-		r.getPlaceholder(2),
-		r.getPlaceholder(3),
+		r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5),
+		r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9),
 	)
 
 	_, err := database.Exec(
 		r.db,
 		query,
 		orgUser.UUID,
+		orgUser.UserID,
+		orgUser.OrganizationID,
 		orgUser.OrganizationRole,
 		orgUser.IsActive,
 		orgUser.CreatedAt,
 		orgUser.CreatedBy,
 		orgUser.UpdatedAt,
 		orgUser.UpdatedBy,
-		orgUser.UserID,
-		orgUser.OrganizationID,
 	)
 	return err
 }
 
 // CreateSubscription inserts a new subscription record
 func (r *OrganizationUserRepository) CreateSubscription(orgID string) error {
+	return r.CreateSubscriptionWithDuration(orgID, 30)
+}
+
+// CreateSubscriptionWithDuration inserts a new subscription record
+func (r *OrganizationUserRepository) CreateSubscriptionWithDuration(orgID string, expiryDays int) error {
 	subscriptionID := uuid.New().String()
 	now := time.Now()
 	activateDate := now.Format("2006-01-02")
-	expiryDate := now.AddDate(0, 0, 30).Format("2006-01-02")
+	expiryDate := now.AddDate(0, 0, expiryDays).Format("2006-01-02")
 	packageID := "trave01"
 	subscriptionType := 1
 	status := 1

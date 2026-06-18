@@ -13,6 +13,8 @@ import (
 	"service-travego/repository"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type OrganizationService struct {
@@ -42,11 +44,7 @@ func (s *OrganizationService) SetOrganizationTypeRepository(orgTypeRepo *reposit
 	s.orgTypeRepo = orgTypeRepo
 }
 
-// generateOrganizationCode generates organization code from organization name
-// Format: non-vowel letters (consonants) from org name + 4 random digits
-// Example: "AGRA MAS" -> "AGRMS" + 4 digits, "GARUDA MAS" -> "GRDMS" + 4 digits, "citra adi lancar" -> "CAL" + 4 digits
 func (s *OrganizationService) generateOrganizationCode(orgName string) (string, error) {
-	// Extract non-vowel letters (consonants) from organization name
 	vowels := "aeiouAEIOU "
 	var extractedConsonants []string
 
@@ -119,13 +117,10 @@ func (s *OrganizationService) generateOrganizationCode(orgName string) (string, 
 
 // CreateOrganization creates a new organization
 func (s *OrganizationService) CreateOrganization(userID string, org *model.Organization) (*model.Organization, error) {
-	// Check if user already has an organization (optional, depending on business logic)
-	// For now, allow multiple organizations per user
-
-	// Generate organization code if not provided
 	if org.OrganizationCode == "" {
 		code, err := s.generateOrganizationCode(org.OrganizationName)
 		if err != nil {
+			fmt.Println("Error generating organization code:", err, org.OrganizationName)
 			return nil, err
 		}
 		org.OrganizationCode = code
@@ -133,15 +128,65 @@ func (s *OrganizationService) CreateOrganization(userID string, org *model.Organ
 		// Check if provided code exists
 		existingOrg, err := s.orgRepo.FindByCode(org.OrganizationCode)
 		if err != nil && err != sql.ErrNoRows {
+			fmt.Println("Error checking organization code:", err, org.OrganizationCode)
 			return nil, err
 		}
 		if existingOrg != nil {
+			fmt.Println("Organization code already exists:", org.OrganizationCode)
 			return nil, errors.New("organization code already exists")
 		}
 	}
 
 	org.CreatedBy = userID
-	return s.orgRepo.Create(org)
+	org.ID = uuid.New().String()
+	createdOrg, err := s.orgRepo.Create(org)
+	fmt.Println("Created organization:", createdOrg.ID, "Error:", err)
+	if err != nil {
+		return nil, err
+	}
+
+	if s.orgUserRepo == nil {
+		return nil, errors.New("organization user repository not initialized")
+	}
+
+	now := time.Now()
+	orgUser := &model.OrganizationUser{
+		UUID:             uuid.New().String(),
+		UserID:           userID,
+		OrganizationID:   createdOrg.ID,
+		OrganizationRole: 1,
+		IsActive:         true,
+		CreatedAt:        now,
+		CreatedBy:        userID,
+		UpdatedAt:        now,
+		UpdatedBy:        userID,
+	}
+
+	if err = s.orgUserRepo.CreateOrganizationUser(orgUser); err != nil {
+		return nil, fmt.Errorf("failed to create organization user: %w", err)
+	}
+
+	return createdOrg, nil
+}
+
+func (s *OrganizationService) CreateOrganizationSubscription(organizationID string) error {
+	if s.orgUserRepo == nil {
+		return errors.New("organization user repository not initialized")
+	}
+	return s.orgUserRepo.CreateSubscriptionWithDuration(organizationID, 60)
+}
+
+func (s *OrganizationService) CreateDefaultAssistantAccount(organizationID, createdBy, accountNumber string) (string, error) {
+	accountNumber = strings.TrimSpace(accountNumber)
+	if accountNumber == "" {
+		return "", errors.New("account_number is required")
+	}
+
+	assistantID, err := s.orgRepo.CreateAssistantAccount(organizationID, createdBy, 1, nil, accountNumber, "Admin")
+	if err != nil {
+		return "", fmt.Errorf("failed to create assistant account: %w", err)
+	}
+	return assistantID, nil
 }
 
 // UpdateOrganization updates an existing organization
