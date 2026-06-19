@@ -207,6 +207,140 @@ func (r *OrganizationUserRepository) GetOrganizationWithJoinDateByUserID(userID 
 	return organizationCode, organizationName, companyName, joinDate, organizationRole, nil
 }
 
+// GetUsers retrieves users from an organization with optional status filter
+func (r *OrganizationUserRepository) GetUsers(organizationID string, status interface{}) ([]model.User, error) {
+	query := fmt.Sprintf(`
+		SELECT u.user_id, u.username, u.fullname, u.email, u.phone, u.address, u.city, u.province, u.avatar, u.created_at, ou.is_active
+		FROM users u
+		INNER JOIN organization_users ou ON u.user_id = ou.user_id
+		WHERE ou.organization_id = %s
+	`, r.getPlaceholder(1))
+
+	var args []interface{}
+	args = append(args, organizationID)
+
+	if status != nil {
+		query += fmt.Sprintf(" AND ou.is_active = %s", r.getPlaceholder(len(args)+1))
+		args = append(args, status)
+	}
+
+	query += " ORDER BY u.fullname"
+
+	rows, err := database.Query(r.db, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []model.User
+	for rows.Next() {
+		var user model.User
+		var fullname, address, city, province, avatar sql.NullString
+
+		err := rows.Scan(
+			&user.UserID,
+			&user.Username,
+			&fullname,
+			&user.Email,
+			&user.Phone,
+			&address,
+			&city,
+			&province,
+			&avatar,
+			&user.CreatedAt,
+			&user.IsActive,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if fullname.Valid {
+			user.Name = fullname.String
+		}
+		if address.Valid {
+			user.Address = address.String
+		}
+		if city.Valid {
+			user.City = city.String
+		}
+		if province.Valid {
+			user.Province = province.String
+		}
+		if avatar.Valid {
+			user.Avatar = avatar.String
+		}
+
+		users = append(users, user)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return users, nil
+}
+
+// UpdateOrganizationUserActiveByUserID updates is_active on organization_users
+func (r *OrganizationUserRepository) UpdateOrganizationUserActiveByUserID(userID, organizationID string, isActive bool) error {
+	query := fmt.Sprintf(`
+		UPDATE organization_users
+		SET is_active = %s, updated_at = %s
+		WHERE user_id = %s AND organization_id = %s
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))
+
+	_, err := database.Exec(r.db, query, isActive, time.Now(), userID, organizationID)
+	return err
+}
+
+// DeleteOrganizationUserByUserID deletes a row from organization_users
+func (r *OrganizationUserRepository) DeleteOrganizationUserByUserID(userID, organizationID string) error {
+	query := fmt.Sprintf(`
+		DELETE FROM organization_users
+		WHERE user_id = %s AND organization_id = %s
+	`, r.getPlaceholder(1), r.getPlaceholder(2))
+
+	result, err := database.Exec(r.db, query, userID, organizationID)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+
+	return nil
+}
+
+// UpdateUserIsActive updates is_active on users table
+func (r *OrganizationUserRepository) UpdateUserIsActive(userID, organizationID string, isActive bool) error {
+	query := fmt.Sprintf(`
+		UPDATE users
+		SET is_active = %s, updated_at = %s
+		WHERE user_id = %s AND organization_id = %s
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))
+
+	result, err := database.Exec(r.db, query, isActive, time.Now(), userID, organizationID)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+
+	return nil
+}
+
 // GetRoleByUserIDAndOrgID retrieves role
 func (r *OrganizationUserRepository) GetRoleByUserIDAndOrgID(userID, organizationID string) (int, error) {
 	query := fmt.Sprintf(`

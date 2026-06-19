@@ -1,0 +1,62 @@
+{
+    "packages": [
+        {
+            "id": "trave01",
+            "package_name": "Basic Class",
+            "package_description": "Untuk pengguna baru dan bisnis skala kecil yang ingin mencoba layanan TraveGo.",
+            "package_price": 0,
+            "original_price": 79000,
+            "package_duration": 30,
+            "features": [
+                "Akses Semua Fitur",
+                "Report Data to Excel & Googlesheet",
+                "Akses AI Assistant",
+                "1 pengguna dashboard",
+                "1 pengguna AI Assistant",
+                "1 Armada Terdaftar",
+                "3 Unit Armada Terdaftar",
+                "1 Mitra KSO Terdaftar"
+            ]
+        },
+        {
+            "id": "trave02",
+            "package_name": "Silver Class",
+            "package_description": "Untuk bisnis skala menengah yang ingin mengembangkan layanan dengan TraveGo.",
+            "package_price": 419000,
+            "original_price": 799000,
+            "package_duration": 365,
+            "features": [
+                "Akses Semua Fitur",
+                "Report Data to Excel & Googlesheet",
+                "Akses AI Assistant",
+                "Open API untuk website sendiri",
+                "5 pengguna dashboard",
+                "5 pengguna AI Assistant",
+                "5 Armada Terdaftar",
+                "20 Unit Armada Terdaftar",
+                "5 Mitra KSO Terdaftar"
+            ]
+        },
+        {
+            "id": "trave03",
+            "package_name": "Diamond Class",
+            "package_description": "Untuk optimalisasi bisnis skala besar dengan akses lebih banyak.",
+            "package_price": 9490000,
+            "original_price": 13599000,
+            "package_duration": 365,
+            "features": [
+                "Akses Semua Fitur",
+                "Report Data to Excel & Googlesheet",
+                "Akses AI Assistant",
+                "Open API untuk integrasi dengan website sendiri",
+                "Customer Relationship Management (CRM)",
+                "Dedicated Hosting & Domain",
+                "unlimited pengguna dashboard",
+                "unlimited pengguna AI Assistant",
+                "unlimited Armada Terdaftar",
+                "unlimited Unit Armada Terdaftar",
+                "unlimited Mitra KSO Terdaftar"
+            ]
+        }
+    ]
+}

@@ -83,3 +83,41 @@ func formatInvoiceNumber(orderType int, now time.Time, sequence int) string {
 	timePart := fmt.Sprintf("%03d", ms)
 	return fmt.Sprintf("INV-%s%d-%s%04d", datePart, orderType, timePart, sequence)
 }
+
+func GenerateRequestNumber(seq int) string {
+	timePart := time.Now().Format("150405")
+	return fmt.Sprintf("REQ-%s-00%d", timePart, seq)
+}
+
+func GenerateItemSKU(db *sql.DB, driver, organizationID string) (string, error) {
+	orgExpr := "organization_id = " + placeholder(driver, 1)
+	if driver == "postgres" || driver == "pgx" {
+		orgExpr = "organization_id::text = " + placeholder(driver, 1)
+	}
+	query := fmt.Sprintf("SELECT COUNT(1) FROM inventory_items WHERE %s ", orgExpr)
+
+	var count int
+	if err := database.QueryRow(db, query, organizationID).Scan(&count); err != nil {
+		return "", err
+	}
+	seq := count + 1
+	if seq < 1 {
+		seq = 1
+	}
+
+	now := time.Now()
+	yearMonth := now.Format("2606")
+
+	var skuSeq string
+	if seq > 9999 {
+		skuSeq = fmt.Sprintf("%d", seq)
+	} else if seq > 999 {
+		skuSeq = fmt.Sprintf("0%d", seq)
+	} else if seq > 99 {
+		skuSeq = fmt.Sprintf("00%d", seq)
+	} else {
+		skuSeq = fmt.Sprintf("000%d", seq)
+	}
+
+	return fmt.Sprintf("SKU-%s0-%s", skuSeq, yearMonth), nil
+}

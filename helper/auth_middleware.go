@@ -218,7 +218,7 @@ func DualAuthMiddleware(orgRepo *repository.OrganizationRepository) fiber.Handle
 						"message": "Organization not found or invalid",
 					})
 				}
-				orgID = org.ID
+				orgID = org.OrganizationId
 			}
 
 			// Set locals

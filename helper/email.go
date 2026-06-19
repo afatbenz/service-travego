@@ -22,6 +22,7 @@ type EmailTemplateData struct {
 	ResetLink        string // For reset password email
 	RequesterName    string // For join organization approval email
 	OrganizationName string // For join organization approval email
+	ApproveURL       string // For join organization approval email
 }
 
 type OrderSuccessEmailData struct {
@@ -231,12 +232,13 @@ func SendResetPasswordEmail(cfg *configs.EmailConfig, to, username, resetLink st
 }
 
 // SendJoinOrganizationApprovalEmail sends an email to organization members for approval
-func SendJoinOrganizationApprovalEmail(cfg *configs.EmailConfig, to, username, requesterUsername, organizationName string) error {
+func SendJoinOrganizationApprovalEmail(cfg *configs.EmailConfig, to, username, requesterUsername, organizationName, approveURL string) error {
 	data := EmailTemplateData{
 		Username:         username,
 		Year:             time.Now().Year(),
 		RequesterName:    requesterUsername,
 		OrganizationName: organizationName,
+		ApproveURL:       approveURL,
 	}
 
 	htmlBody, err := renderEmailTemplate("join_organization_approval.html", data)

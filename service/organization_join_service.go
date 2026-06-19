@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"log"
 	"net/http"
+	"os"
 	"service-travego/configs"
 	"service-travego/helper"
 	"service-travego/model"
@@ -14,24 +15,25 @@ import (
 )
 
 type OrganizationJoinService struct {
-	orgRepo     *repository.OrganizationRepository
-	orgUserRepo *repository.OrganizationUserRepository
-	userRepo    *repository.UserRepository
-	emailCfg    *configs.EmailConfig
+	orgRepo          *repository.OrganizationRepository
+	orgUserRepo      *repository.OrganizationUserRepository
+	userRepo         *repository.UserRepository
+	notificationSvc  *NotificationService
+	emailCfg         *configs.EmailConfig
 }
 
-func NewOrganizationJoinService(orgRepo *repository.OrganizationRepository, orgUserRepo *repository.OrganizationUserRepository, userRepo *repository.UserRepository, emailCfg *configs.EmailConfig) *OrganizationJoinService {
+func NewOrganizationJoinService(orgRepo *repository.OrganizationRepository, orgUserRepo *repository.OrganizationUserRepository, userRepo *repository.UserRepository, notificationSvc *NotificationService, emailCfg *configs.EmailConfig) *OrganizationJoinService {
 	return &OrganizationJoinService{
-		orgRepo:     orgRepo,
-		orgUserRepo: orgUserRepo,
-		userRepo:    userRepo,
-		emailCfg:    emailCfg,
+		orgRepo:         orgRepo,
+		orgUserRepo:     orgUserRepo,
+		userRepo:        userRepo,
+		notificationSvc: notificationSvc,
+		emailCfg:        emailCfg,
 	}
 }
 
 // JoinOrganization handles user joining an organization
 func (s *OrganizationJoinService) JoinOrganization(userID, organizationCode string) error {
-	// Find organization by code
 	org, err := s.orgRepo.FindByCode(organizationCode)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -42,9 +44,9 @@ func (s *OrganizationJoinService) JoinOrganization(userID, organizationCode stri
 	}
 
 	// Check if user already exists in organization_users for this organization
-	exists, err := s.orgUserRepo.CheckUserInOrganization(userID, org.ID)
+	exists, err := s.orgUserRepo.CheckUserInOrganization(userID, org.OrganizationId)
 	if err != nil {
-		log.Printf("[ERROR] Error checking user in organization - UserID: %s, OrgID: %s, Error: %v", userID, org.ID, err)
+		log.Printf("[ERROR] Error checking user in organization - UserID: %s, OrgID: %s, Error: %v", userID, org.OrganizationId, err)
 		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to check organization membership")
 	}
 
@@ -62,7 +64,7 @@ func (s *OrganizationJoinService) JoinOrganization(userID, organizationCode stri
 		orgUser := &model.OrganizationUser{
 			UUID:             uuid.New().String(),
 			UserID:           userID,
-			OrganizationID:   org.ID,
+			OrganizationID:   org.OrganizationId,
 			OrganizationRole: 1,
 			IsActive:         false,
 			CreatedAt:        now,
@@ -72,21 +74,34 @@ func (s *OrganizationJoinService) JoinOrganization(userID, organizationCode stri
 		}
 
 		if err = s.orgUserRepo.CreateOrganizationUser(orgUser); err != nil {
-			log.Printf("[ERROR] Failed to create organization user - UserID: %s, OrgID: %s, Error: %v", userID, org.ID, err)
+			log.Printf("[ERROR] Failed to create organization user - UserID: %s, OrgID: %s, Error: %v", userID, org.OrganizationId, err)
 			return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to join organization")
 		}
 	} else {
 		// User already exists, update role to 2
-		if err = s.orgUserRepo.UpdateOrganizationUserRole(userID, org.ID, 2); err != nil {
-			log.Printf("[ERROR] Failed to update organization user role - UserID: %s, OrgID: %s, Error: %v", userID, org.ID, err)
+		if err = s.orgUserRepo.UpdateOrganizationUserRole(userID, org.OrganizationId, 2); err != nil {
+			log.Printf("[ERROR] Failed to update organization user role - UserID: %s, OrgID: %s, Error: %v", userID, org.OrganizationId, err)
 			return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to update organization role")
 		}
 	}
 
+	// Get base URL for approval link
+	baseURL := os.Getenv("BASE_URL")
+	if baseURL == "" {
+		baseURL = os.Getenv("APP_HOST")
+	}
+	approveURL := ""
+	if baseURL != "" {
+		approveURL = baseURL + "/dashboard/partner/organization/request-user"
+	}
+
+	// Track if we need to create notification
+	notificationCreated := false
+
 	// Get all users in the organization (excluding the current user)
-	orgUsers, err := s.orgUserRepo.GetUsersByOrganizationID(org.ID)
+	orgUsers, err := s.orgUserRepo.GetUsersByOrganizationID(org.OrganizationId)
 	if err != nil {
-		log.Printf("[ERROR] Failed to get organization users - OrgID: %s, Error: %v", org.ID, err)
+		log.Printf("[ERROR] Failed to get organization users - OrgID: %s, Error: %v", org.OrganizationId, err)
 		// Continue even if this fails, as the join was successful
 	} else {
 		// Send email to existing users (excluding current user) for approval
@@ -100,9 +115,17 @@ func (s *OrganizationJoinService) JoinOrganization(userID, organizationCode stri
 				}
 
 				// Send approval email
-				if err = helper.SendJoinOrganizationApprovalEmail(s.emailCfg, user.Email, user.Username, currentUser.Username, org.OrganizationName); err != nil {
+				if err = helper.SendJoinOrganizationApprovalEmail(s.emailCfg, user.Email, user.Username, currentUser.Username, org.OrganizationName, approveURL); err != nil {
 					log.Printf("[ERROR] Failed to send approval email - Email: %s, Error: %v", user.Email, err)
 					// Continue even if email fails
+				} else if !notificationCreated && s.notificationSvc != nil {
+					// Create notification only once after first successful email
+					_, _ = s.notificationSvc.CreateNotification(org.OrganizationId, NotificationPayload{
+						Title:   "Permintaan User Baru",
+						Message: "Tinjau user sebelum memberikan persetujuan akses",
+						URL:     approveURL,
+					})
+					notificationCreated = true
 				}
 			}
 		}

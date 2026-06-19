@@ -91,7 +91,7 @@ func (h *OrganizationHandler) CreateOrganization(c *fiber.Ctx) error {
 		return helper.SendErrorResponse(c, statusCode, err.Error())
 	}
 
-	if err := h.orgService.CreateOrganizationSubscription(createdOrg.ID); err != nil {
+	if err := h.orgService.CreateOrganizationSubscription(createdOrg.OrganizationId); err != nil {
 		fmt.Println("Error creating subscription:", err.Error())
 		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to create subscription")
 	}
@@ -103,7 +103,7 @@ func (h *OrganizationHandler) CreateOrganization(c *fiber.Ctx) error {
 		if _, err := h.wagyClient.SendMessage(req.Phone, message); err != nil {
 			fmt.Println("Error sending welcome WhatsApp:", err.Error())
 		} else {
-			assistantAccountID, err = h.orgService.CreateDefaultAssistantAccount(createdOrg.ID, userID, req.Phone)
+			assistantAccountID, err = h.orgService.CreateDefaultAssistantAccount(createdOrg.OrganizationId, userID, req.Phone)
 			if err != nil {
 				fmt.Println("Error creating assistant account:", err.Error())
 				return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to create assistant account")
@@ -122,8 +122,8 @@ func (h *OrganizationHandler) CreateOrganization(c *fiber.Ctx) error {
 	}
 
 	responseData := map[string]interface{}{
-		"organization_id":   createdOrg.ID,
-		"organizationID":    createdOrg.ID,
+		"organization_id":   createdOrg.OrganizationId,
+		"organizationID":    createdOrg.OrganizationId,
 		"organization_code": createdOrg.OrganizationCode,
 		"OrganizationCode":  createdOrg.OrganizationCode,
 		"organization":      createdOrg,
@@ -138,7 +138,6 @@ func (h *OrganizationHandler) CreateOrganization(c *fiber.Ctx) error {
 }
 
 func (h *OrganizationHandler) JoinOrganization(c *fiber.Ctx) error {
-	// Get user_id from locals (set by JWT middleware)
 	userID, ok := c.Locals("user_id").(string)
 	if !ok || userID == "" {
 		return helper.UnauthorizedResponse(c, "User not authenticated")
@@ -438,4 +437,101 @@ func (h *OrganizationHandler) DeleteBankAccount(c *fiber.Ctx) error {
 	}
 
 	return helper.SuccessResponse(c, fiber.StatusOK, "Bank account deleted successfully", nil)
+}
+
+// GetUsers retrieves users from the organization with optional status filter
+func (h *OrganizationHandler) GetUsers(c *fiber.Ctx) error {
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusBadRequest, "Missing organization context")
+	}
+
+	status := c.Query("status", "")
+
+	users, err := h.orgService.GetOrganizationUsers(orgID, status)
+	if err != nil {
+		fmt.Println("Error fetching users:", err.Error())
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to load users")
+	}
+
+	res := make([]map[string]interface{}, 0, len(users))
+	for i := range users {
+		res = append(res, map[string]interface{}{
+			"user_id":      users[i].UserID,
+			"username":     users[i].Username,
+			"fullname":     users[i].Name,
+			"email":        users[i].Email,
+			"phone":        users[i].Phone,
+			"address":      users[i].Address,
+			"city":         users[i].City,
+			"province":     users[i].Province,
+			"avatar":       users[i].Avatar,
+			"created_at":   users[i].CreatedAt,
+			"is_active":    users[i].IsActive,
+		})
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Users loaded successfully", res)
+}
+
+// HandleJoinAction handles join request actions (approve, delete, reject)
+func (h *OrganizationHandler) HandleJoinAction(c *fiber.Ctx) error {
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusBadRequest, "Missing organization context")
+	}
+
+	action := c.Params("action")
+	userID := c.Params("user_id")
+
+	switch action {
+	case "approve":
+		if err := h.orgService.ApproveJoinRequest(orgID, userID); err != nil {
+			fmt.Println("Error approving join request:", err.Error())
+			return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to approve join request")
+		}
+		return helper.SuccessResponse(c, fiber.StatusOK, "Join request approved successfully", nil)
+	case "reject":
+		if err := h.orgService.RejectJoinRequest(orgID, userID); err != nil {
+			fmt.Println("Error rejecting join request:", err.Error())
+			return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to reject join request")
+		}
+		return helper.SuccessResponse(c, fiber.StatusOK, "Join request rejected successfully", nil)
+	case "delete":
+		if err := h.orgService.RejectJoinRequest(orgID, userID); err != nil {
+			fmt.Println("Error deleting join request:", err.Error())
+			return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to delete join request")
+		}
+		return helper.SuccessResponse(c, fiber.StatusOK, "Join request deleted successfully", nil)
+	default:
+		return helper.SendErrorResponse(c, fiber.StatusBadRequest, "Invalid action. Allowed actions: approve, delete, reject")
+	}
+}
+
+// HandleUserAction handles user actions (enable, disable)
+func (h *OrganizationHandler) HandleUserAction(c *fiber.Ctx) error {
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusBadRequest, "Missing organization context")
+	}
+
+	action := c.Params("action")
+	userID := c.Params("user_id")
+
+	switch action {
+	case "enable":
+		if err := h.orgService.ToggleUserStatus(orgID, userID, true); err != nil {
+			fmt.Println("Error enabling user:", err.Error())
+			return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to enable user")
+		}
+		return helper.SuccessResponse(c, fiber.StatusOK, "User enabled successfully", nil)
+	case "disable":
+		if err := h.orgService.ToggleUserStatus(orgID, userID, false); err != nil {
+			fmt.Println("Error disabling user:", err.Error())
+			return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to disable user")
+		}
+		return helper.SuccessResponse(c, fiber.StatusOK, "User disabled successfully", nil)
+	default:
+		return helper.SendErrorResponse(c, fiber.StatusBadRequest, "Invalid action. Allowed actions: enable, disable")
+	}
 }
