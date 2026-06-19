@@ -22,6 +22,7 @@ func SetupInventoryRoutes(api fiber.Router, db *sql.DB, driver string) {
 	items.Post("/create", helper.JWTAuthorizationMiddleware(), h.CreateItem)
 	items.Post("/update", helper.JWTAuthorizationMiddleware(), h.UpdateItem)
 	items.Post("/delete", helper.JWTAuthorizationMiddleware(), h.DeleteItem)
+	items.Post("/transfer", helper.JWTAuthorizationMiddleware(), h.TransferItem)
 	items.Post("/detail", helper.JWTAuthorizationMiddleware(), h.GetItemDetail)
 	items.Post("/movement", helper.JWTAuthorizationMiddleware(), h.GetItemMovements)
 

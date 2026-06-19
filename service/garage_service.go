@@ -41,8 +41,8 @@ func (s *GarageService) ensureLocationsLoaded() {
 	}
 }
 
-func (s *GarageService) GetGarages(organizationID string) ([]model.GarageWithLabel, error) {
-	garages, err := s.garageRepo.GetAll(organizationID)
+func (s *GarageService) GetGarages(organizationID, itemID string) ([]model.GarageWithLabel, error) {
+	garages, err := s.garageRepo.GetAll(organizationID, itemID)
 	if err != nil {
 		return nil, err
 	}

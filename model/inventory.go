@@ -218,6 +218,18 @@ type InventoryItemGarage struct {
 	UpdatedBy      string    `json:"updated_by"`
 }
 
+type InventoryGarageStock struct {
+	Stock      int    `json:"stock"`
+	GarageName string `json:"garage_name"`
+}
+
+type TransferInventoryItemRequest struct {
+	ItemID            string `json:"item_id"`
+	GarageFrom        string `json:"garage_from"`
+	GarageDestination string `json:"garage_destination"`
+	Stock             int    `json:"stock"`
+}
+
 type InventoryItemLocation struct {
 	GarageName      string    `json:"garage_name"`
 	GarageAddress   string    `json:"garage_address"`

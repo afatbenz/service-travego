@@ -707,6 +707,139 @@ func (r *InventoryRepository) GetItemGarageStock(itemID, garageID, organizationI
 	return stock, nil
 }
 
+func (r *InventoryRepository) GetItemGarageStockWithGarageName(itemID, garageID, organizationID string) (model.InventoryGarageStock, error) {
+	query := fmt.Sprintf(`
+		SELECT ig.stock, g.garage_name
+		FROM inventory_item_garage ig
+		INNER JOIN garage g ON ig.garage_id = g.garage_id
+		WHERE ig.item_id = %s AND ig.organization_id = %s AND ig.garage_id = %s
+		LIMIT 1
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
+
+	var stock model.InventoryGarageStock
+	err := database.QueryRow(r.db, query, itemID, organizationID, garageID).Scan(&stock.Stock, &stock.GarageName)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return model.InventoryGarageStock{}, sql.ErrNoRows
+		}
+		return model.InventoryGarageStock{}, err
+	}
+	return stock, nil
+}
+
+func (r *InventoryRepository) UpdateItemGarageStock(itemID, garageID, organizationID, updatedBy string, stock int) error {
+	now := time.Now()
+	query := fmt.Sprintf(`
+		UPDATE inventory_item_garage SET stock = %s, updated_at = %s, updated_by = %s
+		WHERE garage_id = %s AND item_id = %s AND organization_id = %s
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6))
+
+	result, err := database.Exec(r.db, query, stock, now, updatedBy, garageID, itemID, organizationID)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+
+	return nil
+}
+
+func (r *InventoryRepository) TransferItemStock(organizationID, updatedBy string, req *model.TransferInventoryItemRequest, currentStockFrom, currentStockDest model.InventoryGarageStock) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+
+	rollback := true
+	defer func() {
+		if rollback {
+			_ = tx.Rollback()
+		}
+	}()
+
+	now := time.Now()
+	newStockFrom := currentStockFrom.Stock - req.Stock
+	newStockDest := currentStockDest.Stock + req.Stock
+
+	query := fmt.Sprintf(`
+		UPDATE inventory_item_garage SET stock = %s, updated_at = %s, updated_by = %s
+		WHERE garage_id = %s AND item_id = %s AND organization_id = %s
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6))
+
+	if _, err := database.TxExec(tx, query, newStockFrom, now, updatedBy, req.GarageFrom, req.ItemID, organizationID); err != nil {
+		return err
+	}
+
+	if err := r.createInventoryMovementInTx(tx, organizationID, &model.InventoryMovement{
+		MovementID:   uuid.New().String(),
+		ItemID:       req.ItemID,
+		GarageID:     req.GarageFrom,
+		Quantity:     req.Stock,
+		StockBefore:  currentStockFrom.Stock,
+		StockFinal:   newStockFrom,
+		MovementType: 4,
+		Notes:        fmt.Sprintf("Transfer Stock to %s", currentStockDest.GarageName),
+		CreatedAt:    now,
+		CreatedBy:    updatedBy,
+	}); err != nil {
+		return err
+	}
+
+	if _, err := database.TxExec(tx, query, newStockDest, now, updatedBy, req.GarageDestination, req.ItemID, organizationID); err != nil {
+		return err
+	}
+
+	if err := r.createInventoryMovementInTx(tx, organizationID, &model.InventoryMovement{
+		MovementID:   uuid.New().String(),
+		ItemID:       req.ItemID,
+		GarageID:     req.GarageDestination,
+		Quantity:     req.Stock,
+		StockBefore:  currentStockDest.Stock,
+		StockFinal:   newStockDest,
+		MovementType: 1,
+		Notes:        fmt.Sprintf("Transfer Stock from %s", currentStockFrom.GarageName),
+		CreatedAt:    now,
+		CreatedBy:    updatedBy,
+	}); err != nil {
+		return err
+	}
+
+	rollback = false
+	return tx.Commit()
+}
+
+func (r *InventoryRepository) createInventoryMovementInTx(tx *sql.Tx, organizationID string, movement *model.InventoryMovement) error {
+	query := fmt.Sprintf(`
+		INSERT INTO inventory_movement (movement_id, item_id, garage_id, quantity, stock_before, stock_final, movement_type, notes, organization_id, created_at, created_by)
+		VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+	`,
+		r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
+		r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8),
+		r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11),
+	)
+
+	_, err := database.TxExec(tx, query,
+		movement.MovementID,
+		movement.ItemID,
+		movement.GarageID,
+		movement.Quantity,
+		movement.StockBefore,
+		movement.StockFinal,
+		movement.MovementType,
+		movement.Notes,
+		organizationID,
+		movement.CreatedAt,
+		movement.CreatedBy,
+	)
+	return err
+}
+
 func (r *InventoryRepository) UpsertItemGarage(itemID, garageID, organizationID, createdBy string, stock int) error {
 	_, err := r.GetItemGarageStock(itemID, garageID, organizationID)
 	if err != nil && err != sql.ErrNoRows {
