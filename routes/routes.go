@@ -69,6 +69,7 @@ func SetupRoutes(app *fiber.App, cfg *configs.Config) {
 	SetupPrintManagementRoutes(api, db, cfg.Database.Driver)
 	SetupPaymentRoutes(api, db, cfg.Database.Driver, midtransCfg)
 	SetupPreferenceCityRoutes(api, db, cfg.Database.Driver)
+	SetupInventoryRoutes(api, db, cfg.Database.Driver)
 	SetupAssistantRoutes(api, db, cfg.Database.Driver, rdb)
 
 	// Setup WhatsApp AI Assistant module (WAAI)

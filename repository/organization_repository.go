@@ -75,7 +75,7 @@ func (r *OrganizationRepository) FindByID(id string) (*model.Organization, error
 	var whatsApp sql.NullString
 	var logo sql.NullString
 	err := database.QueryRow(r.db, query, id).Scan(
-		&org.ID,
+		&org.OrganizationId,
 		&org.OrganizationCode,
 		&org.OrganizationName,
 		&org.CompanyName,
@@ -144,8 +144,9 @@ func (r *OrganizationRepository) FindByCode(code string) (*model.Organization, e
     `, r.getPlaceholder(1))
 
 	var org model.Organization
+	var whatsApp sql.NullString
 	err := database.QueryRow(r.db, query, code).Scan(
-		&org.ID,
+		&org.OrganizationId,
 		&org.OrganizationCode,
 		&org.OrganizationName,
 		&org.CompanyName,
@@ -153,10 +154,17 @@ func (r *OrganizationRepository) FindByCode(code string) (*model.Organization, e
 		&org.City,
 		&org.Province,
 		&org.Phone,
+		&whatsApp,
 		&org.Email,
 		&org.CreatedAt,
 		&org.UpdatedAt,
 	)
+	if whatsApp.Valid {
+		org.WhatsApp = whatsApp.String
+	} else {
+		org.WhatsApp = ""
+	}
+
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, sql.ErrNoRows
@@ -191,7 +199,7 @@ func (r *OrganizationRepository) FindByUsernameUserID(userID string) ([]model.Or
 		var postalCode sql.NullString
 		var domainURL sql.NullString
 		err := rows.Scan(
-			&org.ID,
+			&org.OrganizationId,
 			&org.OrganizationCode,
 			&org.OrganizationName,
 			&org.CompanyName,
@@ -259,7 +267,7 @@ func (r *OrganizationRepository) Create(org *model.Organization) (*model.Organiz
 		err := database.QueryRow(
 			r.db,
 			query,
-			org.ID,
+			org.OrganizationId,
 			org.OrganizationCode,
 			org.OrganizationName,
 			org.CompanyName,
@@ -302,7 +310,7 @@ func (r *OrganizationRepository) Create(org *model.Organization) (*model.Organiz
 		_, err := database.Exec(
 			r.db,
 			query,
-			org.ID,
+			org.OrganizationId,
 			org.OrganizationCode,
 			org.OrganizationName,
 			org.CompanyName,
@@ -574,7 +582,7 @@ func (r *OrganizationRepository) Update(org *model.Organization) (*model.Organiz
 			org.Phone,
 			org.Email,
 			org.UpdatedAt,
-			org.ID,
+			org.OrganizationId,
 		).Scan(&org.OrganizationCode, &org.CreatedAt)
 
 		if err != nil {
@@ -604,7 +612,7 @@ func (r *OrganizationRepository) Update(org *model.Organization) (*model.Organiz
 			org.Phone,
 			org.Email,
 			org.UpdatedAt,
-			org.ID,
+			org.OrganizationId,
 		)
 		if err != nil {
 			return nil, err

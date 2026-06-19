@@ -138,9 +138,9 @@ func (s *OrganizationService) CreateOrganization(userID string, org *model.Organ
 	}
 
 	org.CreatedBy = userID
-	org.ID = uuid.New().String()
+	org.OrganizationId = uuid.New().String()
 	createdOrg, err := s.orgRepo.Create(org)
-	fmt.Println("Created organization:", createdOrg.ID, "Error:", err)
+	fmt.Println("Created organization:", createdOrg.OrganizationId, "Error:", err)
 	if err != nil {
 		return nil, err
 	}
@@ -153,7 +153,7 @@ func (s *OrganizationService) CreateOrganization(userID string, org *model.Organ
 	orgUser := &model.OrganizationUser{
 		UUID:             uuid.New().String(),
 		UserID:           userID,
-		OrganizationID:   createdOrg.ID,
+		OrganizationID:   createdOrg.OrganizationId,
 		OrganizationRole: 1,
 		IsActive:         true,
 		CreatedAt:        now,
@@ -192,7 +192,7 @@ func (s *OrganizationService) CreateDefaultAssistantAccount(organizationID, crea
 // UpdateOrganization updates an existing organization
 func (s *OrganizationService) UpdateOrganization(userID string, org *model.Organization) (*model.Organization, error) {
 	// Check if organization exists
-	existingOrg, err := s.orgRepo.FindByID(org.ID)
+	existingOrg, err := s.orgRepo.FindByID(org.OrganizationId)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, errors.New("organization not found")
@@ -346,7 +346,7 @@ func (s *OrganizationService) GetAPIConfig(userID string) (map[string]interface{
 
 	role := 0
 	if s.orgUserRepo != nil {
-		r, roleErr := s.orgUserRepo.GetRoleByUserIDAndOrgID(userID, orgs[0].ID)
+		r, roleErr := s.orgUserRepo.GetRoleByUserIDAndOrgID(userID, orgs[0].OrganizationId)
 		if roleErr == nil {
 			role = r
 		} else if roleErr != sql.ErrNoRows {
@@ -355,7 +355,7 @@ func (s *OrganizationService) GetAPIConfig(userID string) (map[string]interface{
 	}
 
 	authData := helper.AuthSensitiveData{
-		OrganizationID:   orgs[0].ID,
+		OrganizationID:   orgs[0].OrganizationId,
 		UserID:           userID,
 		OrganizationRole: role,
 		IsAdmin:          role == 1,
@@ -366,7 +366,7 @@ func (s *OrganizationService) GetAPIConfig(userID string) (map[string]interface{
 	}
 
 	res := map[string]interface{}{
-		"organization_id":   orgs[0].ID,
+		"organization_id":   orgs[0].OrganizationId,
 		"organization_code": orgs[0].OrganizationCode,
 		"domain_url":        orgs[0].DomainURL,
 		"api_token":         apiToken,
@@ -490,6 +490,53 @@ func (s *OrganizationService) ensureLocationsLoaded() {
 	for _, p := range loc.Provinces {
 		s.provincesName[p.ID] = p.Name
 	}
+}
+
+func (s *OrganizationService) convertUserCitiesToLabels(users []model.User) []model.User {
+	s.ensureLocationsLoaded()
+
+	for i := range users {
+		users[i].City = s.citiesName[users[i].City]
+		users[i].Province = s.provincesName[users[i].Province]
+	}
+
+	return users
+}
+
+func (s *OrganizationService) GetOrganizationUsers(organizationID, status string) ([]model.User, error) {
+	var statusFilter interface{}
+	if status != "" {
+		if status == "1" {
+			statusFilter = true
+		} else if status == "0" {
+			statusFilter = false
+		}
+	}
+
+	users, err := s.orgUserRepo.GetUsers(organizationID, statusFilter)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(users) == 0 {
+		return users, nil
+	}
+
+	users = s.convertUserCitiesToLabels(users)
+
+	return users, nil
+}
+
+func (s *OrganizationService) ApproveJoinRequest(organizationID, userID string) error {
+	return s.orgUserRepo.UpdateOrganizationUserActiveByUserID(userID, organizationID, true)
+}
+
+func (s *OrganizationService) RejectJoinRequest(organizationID, userID string) error {
+	return s.orgUserRepo.DeleteOrganizationUserByUserID(userID, organizationID)
+}
+
+func (s *OrganizationService) ToggleUserStatus(organizationID, userID string, enable bool) error {
+	return s.orgUserRepo.UpdateUserIsActive(userID, organizationID, enable)
 }
 
 func (s *OrganizationService) GetOrganizationDetail(organizationID string) (map[string]interface{}, error) {

@@ -1697,6 +1697,150 @@ CREATE TABLE public.users (
 
 ALTER TABLE public.users OWNER TO postgres;
 
+-- Table Garage
+CREATE TABLE public.garage
+(
+    garage_id uuid,
+    organization_id uuid,
+    garage_name character varying(50),
+    garage_address character varying(255),
+    garage_city character varying(50),
+    status integer,
+    created_at timestamp with time zone,
+    created_by uuid,
+    updated_at timestamp with time zone,
+    updated_by uuid
+);
+
+ALTER TABLE IF EXISTS public.garage
+    OWNER to postgres;
+
+-- Table ITEM
+CREATE TABLE public.inventory_items
+(
+    item_id uuid,
+    organization_id uuid,
+    item_name character varying(100),
+    item_uom character varying(20),
+    item_category integer,
+    stock integer,
+    status integer,
+    created_at timestamp with time zone,
+    created_by uuid,
+    updated_at timestamp with time zone,
+    updated_by uuid
+);
+
+ALTER TABLE IF EXISTS public.inventory_items
+    OWNER to postgres;
+
+
+-- Inventory Item by Garage
+CREATE TABLE public.inventory_item_garage
+(
+    item_garage_id uuid,
+    item_id uuid,
+    garage_id uuid,
+    stock integer,
+    organization_id uuid,
+    created_at timestamp with time zone,
+    created_by uuid,
+    updated_at timestamp with time zone,
+    updated_by uuid
+);
+
+ALTER TABLE IF EXISTS public.inventory_item_garage
+OWNER to postgres;
+
+-- Inventory Request
+CREATE TABLE public.inventory_request
+(
+    request_id uuid,
+    request_number character varying(50),
+    item_id uuid,
+    garage_id uuid,
+    quantity integer,
+    status integer,
+    description text COLLATE pg_catalog."default",
+    organization_id uuid,
+    created_at timestamp with time zone,
+    created_by uuid,
+    approve_at timestamp with time zone,
+    approve_by uuid,
+    updated_at timestamp with time zone,
+    updated_by uuid
+);
+
+ALTER TABLE IF EXISTS public.inventory_request
+    OWNER to postgres;
+
+-- Inventory Movement
+CREATE TABLE public.inventory_movement
+(
+    movement_id uuid,
+    item_id uuid,
+    garage_id uuid,
+    quantity integer,
+    stock_before integer,
+    stock_final integer,
+    movement_type integer,
+    created_at timestamp with time zone,
+    created_by uuid
+);
+
+ALTER TABLE IF EXISTS public.inventory_movement
+    OWNER to postgres;
+
+
+-- Movement Types
+CREATE TABLE public.inventory_movement_types
+(
+    id integer,
+    label character varying
+);
+
+ALTER TABLE IF EXISTS public.inventory_movement_types
+    OWNER to postgres;
+
+-- Purchase Orders
+CREATE TABLE public.inventory_orders
+(
+    purchase_id uuid,
+    request_id uuid,
+    suplier_id uuid,
+    quantity integer,
+    amount numeric,
+    total_amount numeric,
+    organization_id uuid,
+    status integer,
+    created_at timestamp with time zone,
+    created_by uuid,
+    updated_at timestamp with time zone,
+    updated_by uuid
+);
+
+ALTER TABLE IF EXISTS public.inventory_orders
+    OWNER to postgres;
+
+
+-- Supliers
+CREATE TABLE public.supliers
+(
+    suplier_id uuid,
+    suplier_name character varying(50),
+    suplier_address character varying(200),
+    suplier_city integer,
+    suplier_phone character varying(20),
+    supliter_email character varying(50),
+    created_at timestamp with time zone,
+    created_by uuid,
+    updated_at timestamp with time zone,
+    updated_by uuid
+);
+
+ALTER TABLE IF EXISTS public.supliers
+    OWNER to postgres;
+
 --
 -- TOC entry 5285 (class 0 OID 33988)
 -- Dependencies: 277

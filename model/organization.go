@@ -6,7 +6,7 @@ import (
 
 // Organization represents an organization entity
 type Organization struct {
-	ID               string    `json:"id"`                // UUID
+	OrganizationId   string    `json:"organization_id"`   // UUID
 	OrganizationCode string    `json:"organization_code"` // Unique code (4 vowels + 4 digits)
 	OrganizationName string    `json:"organization_name"`
 	CompanyName      string    `json:"company_name"`

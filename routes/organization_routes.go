@@ -24,8 +24,11 @@ func SetupOrganizationRoutes(api fiber.Router, db *sql.DB, driver string, cfg *c
 	orgService := service.NewOrganizationService(orgRepo, userRepo)
 	orgService.SetOrganizationUserRepository(orgUserRepo)
 	orgService.SetOrganizationTypeRepository(orgTypeRepo)
-	orgJoinService := service.NewOrganizationJoinService(orgRepo, orgUserRepo, userRepo, &cfg.Email)
+	notificationSvc := service.NewNotificationService(db, driver)
+	orgJoinService := service.NewOrganizationJoinService(orgRepo, orgUserRepo, userRepo, notificationSvc, &cfg.Email)
 	orgTypeService := service.NewOrganizationTypeService(orgTypeRepo)
+	garageService := service.NewGarageService(repository.NewGarageRepository(db, driver))
+	garageHandler := handler.NewGarageHandler(garageService)
 
 	// Initialize handlers
 	authService := service.NewAuthService(userRepo, &cfg.Email)
@@ -57,9 +60,17 @@ func SetupOrganizationRoutes(api fiber.Router, db *sql.DB, driver string, cfg *c
 	organization.Post("/bank-account/update", helper.JWTAuthorizationMiddleware(), orgHandler.UpdateBankAccount)
 	organization.Post("/bank-account/delete", helper.JWTAuthorizationMiddleware(), orgHandler.DeleteBankAccount)
 	organization.Get("/types", orgHandler.GetOrganizationTypes)
+	organization.Get("/users", helper.JWTAuthorizationMiddleware(), orgHandler.GetUsers)
+	organization.Put("/join/:action/:user_id", helper.JWTAuthorizationMiddleware(), orgHandler.HandleJoinAction)
+	organization.Put("/users/:action/:user_id", helper.JWTAuthorizationMiddleware(), orgHandler.HandleUserAction)
 	// Assistant routes
 	organization.Get("/assistant/list", helper.JWTAuthorizationMiddleware(), orgHandler.AssistantList)
 	organization.Post("/assistant/submit", helper.JWTAuthorizationMiddleware(), orgHandler.AssistantSubmit)
 	organization.Post("/assistant/update", helper.JWTAuthorizationMiddleware(), orgHandler.AssistantUpdate)
 	organization.Post("/assistant/delete", helper.JWTAuthorizationMiddleware(), orgHandler.AssistantDelete)
+	// Garage routes
+	organization.Get("/garage/list", helper.JWTAuthorizationMiddleware(), garageHandler.GetGarages)
+	organization.Post("/garage/create", helper.JWTAuthorizationMiddleware(), garageHandler.CreateGarage)
+	organization.Post("/garage/update", helper.JWTAuthorizationMiddleware(), garageHandler.UpdateGarage)
+	organization.Post("/garage/delete", helper.JWTAuthorizationMiddleware(), garageHandler.DeleteGarage)
 }
