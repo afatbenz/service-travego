@@ -24,7 +24,9 @@ func (h *GarageHandler) GetGarages(c *fiber.Ctx) error {
 		return helper.SendErrorResponse(c, fiber.StatusBadRequest, "Missing organization_id")
 	}
 
-	garages, err := h.garageService.GetGarages(orgID)
+	itemID := c.Query("item_id", "")
+
+	garages, err := h.garageService.GetGarages(orgID, itemID)
 	if err != nil {
 		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to load garages")
 	}

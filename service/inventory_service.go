@@ -3,6 +3,7 @@ package service
 import (
 	"database/sql"
 	"net/http"
+	"service-travego/helper"
 	"service-travego/model"
 	"service-travego/repository"
 	"service-travego/utils"
@@ -224,7 +225,7 @@ func (s *InventoryService) UpdateItem(organizationID, updatedBy string, req *mod
 		case "item_uom":
 			existing.ItemUOM = v.(string)
 		case "item_category":
-			existing.ItemCategory = int(v.(int64))
+			existing.ItemCategory = helper.ToInt(v)
 		case "garage_id":
 			existing.GarageID = v.(string)
 		}
@@ -235,6 +236,53 @@ func (s *InventoryService) UpdateItem(organizationID, updatedBy string, req *mod
 
 func (s *InventoryService) DeleteItem(organizationID, itemID string) error {
 	return s.repo.DeleteItem(itemID, organizationID)
+}
+
+func (s *InventoryService) TransferItem(organizationID, createdBy string, req *model.TransferInventoryItemRequest) error {
+	if req.ItemID == "" {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "item_id is required")
+	}
+	if req.GarageFrom == "" {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "garage_from is required")
+	}
+	if req.GarageDestination == "" {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "garage_destination is required")
+	}
+	if req.GarageFrom == req.GarageDestination {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "garage_from and garage_destination must be different")
+	}
+	if req.Stock <= 0 {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "stock is required")
+	}
+
+	currentStockFrom, err := s.repo.GetItemGarageStockWithGarageName(req.ItemID, req.GarageFrom, organizationID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return NewServiceError(ErrNotFound, http.StatusNotFound, "garage_from not found")
+		}
+		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to get garage_from stock")
+	}
+
+	currentStockDest, err := s.repo.GetItemGarageStockWithGarageName(req.ItemID, req.GarageDestination, organizationID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return NewServiceError(ErrNotFound, http.StatusNotFound, "garage_destination not found")
+		}
+		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to get garage_destination stock")
+	}
+
+	if req.Stock > currentStockFrom.Stock {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "Stok yang ditransfer melebihi jumlah stok yang tersedia")
+	}
+
+	if err := s.repo.TransferItemStock(organizationID, createdBy, req, currentStockFrom, currentStockDest); err != nil {
+		if err == sql.ErrNoRows {
+			return NewServiceError(ErrNotFound, http.StatusNotFound, "garage stock not found")
+		}
+		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to transfer stock")
+	}
+
+	return nil
 }
 
 func (s *InventoryService) GetItemDetail(itemID string) (*model.InventoryItemDetail, error) {

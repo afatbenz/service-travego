@@ -171,6 +171,46 @@ func (h *InventoryHandler) DeleteItem(c *fiber.Ctx) error {
 	return helper.SuccessResponse(c, fiber.StatusOK, "Item deleted", nil)
 }
 
+func (h *InventoryHandler) TransferItem(c *fiber.Ctx) error {
+	var req model.TransferInventoryItemRequest
+	if err := c.BodyParser(&req); err != nil {
+		raw := c.Body()
+		var m map[string]interface{}
+		if err2 := json.Unmarshal(raw, &m); err2 == nil {
+			if v, ok := m["item_id"].(string); ok {
+				req.ItemID = v
+			}
+			if v, ok := m["garage_from"].(string); ok {
+				req.GarageFrom = v
+			}
+			if v, ok := m["garage_destination"].(string); ok {
+				req.GarageDestination = v
+			}
+			if v, ok := m["stock"]; ok {
+				req.Stock = helper.ToInt(v)
+			}
+		}
+	}
+
+	userID, _ := c.Locals("user_id").(string)
+	orgID, _ := c.Locals("organization_id").(string)
+	if userID == "" || orgID == "" {
+		return helper.BadRequestResponse(c, "missing user or organization context")
+	}
+
+	if err := h.service.TransferItem(orgID, userID, &req); err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Stock transferred", fiber.Map{
+		"item_id":            req.ItemID,
+		"garage_from":        req.GarageFrom,
+		"garage_destination": req.GarageDestination,
+		"stock":              req.Stock,
+	})
+}
+
 func (h *InventoryHandler) GetItemDetail(c *fiber.Ctx) error {
 	var req struct {
 		ItemID string `json:"item_id"`

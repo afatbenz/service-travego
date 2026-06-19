@@ -30,16 +30,32 @@ func (r *GarageRepository) getPlaceholder(pos int) string {
 	return fmt.Sprintf("$%d", pos)
 }
 
-func (r *GarageRepository) GetAll(organizationID string) ([]model.Garage, error) {
-	query := fmt.Sprintf(`
-		SELECT garage_id, organization_id, garage_name, garage_address, garage_city,
-		       created_at, created_by, updated_at, updated_by
-		FROM garage
-		WHERE organization_id = %s
-		ORDER BY created_at DESC
-	`, r.getPlaceholder(1))
+func (r *GarageRepository) GetAll(organizationID, itemID string) ([]model.Garage, error) {
+	var query string
+	var args []interface{}
 
-	rows, err := database.Query(r.db, query, organizationID)
+	if itemID != "" {
+		query = fmt.Sprintf(`
+			SELECT g.garage_id, g.organization_id, g.garage_name, g.garage_address, g.garage_city,
+			       g.created_at, g.created_by, g.updated_at, g.updated_by
+			FROM garage g
+			INNER JOIN inventory_item_garage ig ON g.garage_id = ig.garage_id
+			WHERE g.organization_id = %s AND ig.item_id = %s AND g.status = 1
+			ORDER BY garage_name
+		`, r.getPlaceholder(1), r.getPlaceholder(2))
+		args = append(args, organizationID, itemID)
+	} else {
+		query = fmt.Sprintf(`
+			SELECT garage_id, organization_id, garage_name, garage_address, garage_city,
+			       created_at, created_by, updated_at, updated_by
+			FROM garage
+			WHERE organization_id = %s
+			ORDER BY created_at DESC
+		`, r.getPlaceholder(1))
+		args = append(args, organizationID)
+	}
+
+	rows, err := database.Query(r.db, query, args...)
 	if err != nil {
 		return nil, err
 	}
