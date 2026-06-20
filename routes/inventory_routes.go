@@ -19,6 +19,7 @@ func SetupInventoryRoutes(api fiber.Router, db *sql.DB, driver string) {
 
 	items := inventories.Group("/items")
 	items.Get("/", helper.JWTAuthorizationMiddleware(), h.GetItems)
+	items.Get("/generate-sku", helper.JWTAuthorizationMiddleware(), h.GenerateSKU)
 	items.Post("/create", helper.JWTAuthorizationMiddleware(), h.CreateItem)
 	items.Post("/update", helper.JWTAuthorizationMiddleware(), h.UpdateItem)
 	items.Post("/delete", helper.JWTAuthorizationMiddleware(), h.DeleteItem)

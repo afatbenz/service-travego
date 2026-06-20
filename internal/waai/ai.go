@@ -48,6 +48,7 @@ type AIClient struct {
 	orderService          *service.OrderService
 	dashboardService      *service.DashboardService
 	transactionService    *service.TransactionService
+	inventoryService      *service.InventoryService
 	printService          *service.PrintManagementService
 	wagyClient            *WagyClient
 }
@@ -79,6 +80,7 @@ func NewAIClient(apiKey string, db *sql.DB, dbDriver string, rdb *redis.Client, 
 	dashboardRepo := repository.NewDashboardRepository(db, dbDriver)
 	transactionRepo := repository.NewTransactionRepository(db, dbDriver)
 	printRepo := repository.NewPrintManagementRepository(db, dbDriver)
+	inventoryRepo := repository.NewInventoryRepository(db, dbDriver)
 
 	// Load minimal email config for OrderService
 	emailCfg := &configs.EmailConfig{
@@ -108,6 +110,7 @@ func NewAIClient(apiKey string, db *sql.DB, dbDriver string, rdb *redis.Client, 
 		orderService:          service.NewOrderService(fleetRepo, contentRepo, orgRepo, emailCfg),
 		dashboardService:      service.NewDashboardService(dashboardRepo),
 		transactionService:    service.NewTransactionService(transactionRepo, notificationSvc),
+		inventoryService:      service.NewInventoryService(inventoryRepo),
 		printService:          service.NewPrintManagementService(printRepo),
 		wagyClient:            wagyClient,
 	}
@@ -676,6 +679,9 @@ You have access to the following functions to help users:
 34. get_upcoming_unit_schedule - Get upcoming schedule for a fleet unit by unit_id
 35. get_latest_unit_schedule - Get latest schedule for a fleet unit by unit_id
 36. get_unit_trip_history - Get trip history for a fleet unit by unit_id, start_date, end_date (YYYY-MM-DD)
+37. get_inventory_items - View inventory item list with total stock per item and garage names
+38. get_inventory_detail - View inventory item detail by item_id, including stock per garage/location
+39. get_inventory_stock - Check stock count for an inventory item, either total stock or stock in a specific garage
 
 Tool usage rules:
 - [CRITICAL] Data dalam database dapat BERUBAH sewaktu-waktu. JANGAN PERCAYA jawaban Anda dari riwayat percakapan sebelumnya. Selalu PANGGIL TOOL setiap kali user menanyakan data (pesanan, pelanggan, jadwal, armada, dll.) untuk mendapatkan data TERBARU dari database.
@@ -686,6 +692,11 @@ Tool usage rules:
   2. If one match is found, call get_customer_detail with that customer_id and share the contact info
   3. If multiple matches are found, list them and ask the user to clarify
   4. If no match is found, tell the user the customer was not found
+- When the user asks about inventory, inventory item stock, stock per garage, or stock item count, you MUST call inventory tools every time:
+  1. Call get_inventory_items to check the inventory list or find item_id from item name/SKU.
+  2. Call get_inventory_detail when the user asks for inventory item detail.
+  3. Call get_inventory_stock when the user asks for jumlah stok / total stock, with item_id and optional garage_id.
+  4. If the user provides only an item name, first call get_inventory_items to find the matching item_id before calling get_inventory_detail or get_inventory_stock.
 - When the user asks about pesanan/order (e.g. "ada pesanan bulan ini?", "berapa order bulan Juni?"), you MUST call get_order_list with period set to the relevant YYYY-MM (use %s for "bulan ini"). Answer ONLY from the tool result summary (total_orders, paid, unpaid, revenue). Never guess from Today's Bookings — that number is for today only.
 - For order detail by order_id, call get_order_detail — JANGAN PERCAYA jawaban sebelumnya, selalu panggil tool untuk data terbaru.
 - For itinerary of order detail by order_id, call get_order_detail, get orders.itinerary[].
@@ -867,6 +878,113 @@ func (ac *AIClient) executeTool(ctx context.Context, toolName string, input json
 			return map[string]interface{}{"error": err.Error()}
 		}
 		return data
+
+	case "get_inventory_items":
+		items, err := ac.inventoryService.GetItems(orgID)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+
+		search := strings.ToLower(strings.TrimSpace(getStringParam(params, "search")))
+		garageID := strings.ToLower(strings.TrimSpace(getStringParam(params, "garage_id")))
+		if search != "" || garageID != "" {
+			filtered := make([]model.InventoryItemWithLabel, 0, len(items))
+			for _, item := range items {
+				itemSearch := strings.ToLower(item.ItemName + " " + item.ItemSKU)
+				garageNames := strings.ToLower(item.GarageNames)
+				if search != "" && !strings.Contains(itemSearch, search) {
+					continue
+				}
+				if garageID != "" && !strings.Contains(garageNames, garageID) {
+					continue
+				}
+				filtered = append(filtered, item)
+			}
+			items = filtered
+		}
+
+		return map[string]interface{}{
+			"items": items,
+			"count": len(items),
+		}
+
+	case "get_inventory_detail":
+		itemID := getStringParam(params, "item_id")
+		if itemID == "" {
+			return map[string]interface{}{"error": "item_id is required"}
+		}
+		if _, err := ac.inventoryService.GetItem(orgID, itemID); err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+
+		detail, err := ac.inventoryService.GetItemDetail(itemID)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+
+		totalStock := 0
+		for _, location := range detail.Locations {
+			totalStock += location.Stock
+		}
+
+		return map[string]interface{}{
+			"item_id":       detail.ItemID,
+			"item_sku":      detail.ItemSKU,
+			"item_name":     detail.ItemName,
+			"item_uom":      detail.ItemUOM,
+			"item_category": detail.ItemCategory,
+			"total_stock":   totalStock,
+			"locations":     detail.Locations,
+		}
+
+	case "get_inventory_stock":
+		itemID := getStringParam(params, "item_id")
+		if itemID == "" {
+			return map[string]interface{}{"error": "item_id is required"}
+		}
+		if _, err := ac.inventoryService.GetItem(orgID, itemID); err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+
+		detail, err := ac.inventoryService.GetItemDetail(itemID)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+
+		garageID := strings.TrimSpace(getStringParam(params, "garage_id"))
+		garageIDLower := strings.ToLower(garageID)
+		totalStock := 0
+		stock := 0
+		garageName := ""
+		foundGarageID := garageID
+		garageFound := garageID == ""
+		for _, location := range detail.Locations {
+			totalStock += location.Stock
+			if garageID != "" && (strings.EqualFold(location.GarageID, garageID) || strings.Contains(strings.ToLower(location.GarageName), garageIDLower)) {
+				stock = location.Stock
+				garageName = location.GarageName
+				foundGarageID = location.GarageID
+				garageFound = true
+			}
+		}
+		if garageID != "" && !garageFound {
+			return map[string]interface{}{"error": "garage_id not found for this item"}
+		}
+		if garageID == "" {
+			stock = totalStock
+		}
+
+		return map[string]interface{}{
+			"item_id":       detail.ItemID,
+			"item_name":     detail.ItemName,
+			"item_uom":      detail.ItemUOM,
+			"item_category": detail.ItemCategory,
+			"garage_id":     foundGarageID,
+			"garage_name":   garageName,
+			"stock":         stock,
+			"total_stock":   totalStock,
+			"locations":     detail.Locations,
+		}
 
 	case "get_booking_list":
 		status := getStringParam(params, "status")

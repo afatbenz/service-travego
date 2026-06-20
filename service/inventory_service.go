@@ -34,6 +34,10 @@ func (s *InventoryService) GetItems(organizationID string) ([]model.InventoryIte
 	return s.repo.GetAllItems(organizationID)
 }
 
+func (s *InventoryService) GenerateItemSKU(organizationID string) (string, error) {
+	return s.repo.GenerateItemSKU(organizationID)
+}
+
 func (s *InventoryService) GetItem(itemID, organizationID string) (*model.InventoryItem, error) {
 	item, err := s.repo.GetItemByID(itemID, organizationID)
 	if err != nil {

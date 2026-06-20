@@ -27,6 +27,10 @@ func NewInventoryRepository(db *sql.DB, driver string) *InventoryRepository {
 	}
 }
 
+func (r *InventoryRepository) GenerateItemSKU(organizationID string) (string, error) {
+	return utils.GenerateItemSKU(r.db, r.driver, organizationID)
+}
+
 func (r *InventoryRepository) getPlaceholder(pos int) string {
 	if r.driver == "mysql" {
 		return "?"
@@ -169,7 +173,9 @@ func (r *InventoryRepository) CreateItem(item *model.InventoryItem) error {
 	if err != nil {
 		return err
 	}
-	item.ItemSKU = sku
+	if item.ItemSKU == "" {
+		item.ItemSKU = sku
+	}
 
 	query := fmt.Sprintf(`
 		INSERT INTO inventory_items (item_id, item_sku, organization_id, item_name, item_uom, item_category, stock, status, created_at, created_by, updated_at, updated_by)
@@ -943,7 +949,7 @@ func (r *InventoryRepository) GetSupplierIDByName(supplierName string) (string, 
 
 func (r *InventoryRepository) GetItemLocations(itemID string) ([]model.InventoryItemLocation, error) {
 	query := fmt.Sprintf(`
-		SELECT g.garage_name, g.garage_address, g.garage_city, ig.stock, ig.updated_at
+		SELECT ig.garage_id, g.garage_name, g.garage_address, g.garage_city, ig.stock, ig.updated_at
 		FROM inventory_item_garage ig
 		INNER JOIN garage g ON g.garage_id = ig.garage_id
 		WHERE ig.item_id = %s
@@ -962,6 +968,7 @@ func (r *InventoryRepository) GetItemLocations(itemID string) ([]model.Inventory
 		var garageCity string
 		var updatedAt sql.NullTime
 		if err := rows.Scan(
+			&loc.GarageID,
 			&loc.GarageName,
 			&loc.GarageAddress,
 			&garageCity,

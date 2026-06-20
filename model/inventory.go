@@ -231,6 +231,7 @@ type TransferInventoryItemRequest struct {
 }
 
 type InventoryItemLocation struct {
+	GarageID        string    `json:"garage_id"`
 	GarageName      string    `json:"garage_name"`
 	GarageAddress   string    `json:"garage_address"`
 	GarageCity      string    `json:"garage_city"`

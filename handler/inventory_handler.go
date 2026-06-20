@@ -32,6 +32,22 @@ func (h *InventoryHandler) GetItems(c *fiber.Ctx) error {
 	return helper.SuccessResponse(c, fiber.StatusOK, "Items loaded", items)
 }
 
+func (h *InventoryHandler) GenerateSKU(c *fiber.Ctx) error {
+	orgID, _ := c.Locals("organization_id").(string)
+	if orgID == "" {
+		return helper.BadRequestResponse(c, "missing organization context")
+	}
+
+	itemSKU, err := h.service.GenerateItemSKU(orgID)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "SKU generated", fiber.Map{
+		"item_sku": itemSKU,
+	})
+}
+
 func (h *InventoryHandler) CreateItem(c *fiber.Ctx) error {
 	var req model.CreateInventoryItemRequest
 	if err := c.BodyParser(&req); err != nil {
