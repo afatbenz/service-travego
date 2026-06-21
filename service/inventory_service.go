@@ -2,6 +2,7 @@ package service
 
 import (
 	"database/sql"
+	"fmt"
 	"net/http"
 	"service-travego/helper"
 	"service-travego/model"
@@ -13,11 +14,15 @@ import (
 )
 
 type InventoryService struct {
-	repo *repository.InventoryRepository
+	repo                *repository.InventoryRepository
+	notificationService *NotificationService
 }
 
-func NewInventoryService(repo *repository.InventoryRepository) *InventoryService {
-	return &InventoryService{repo: repo}
+func NewInventoryService(repo *repository.InventoryRepository, notificationService *NotificationService) *InventoryService {
+	return &InventoryService{
+		repo:                repo,
+		notificationService: notificationService,
+	}
 }
 
 func (s *InventoryService) GetMovementNotes(movementType int) string {
@@ -34,6 +39,10 @@ func (s *InventoryService) GetItems(organizationID string) ([]model.InventoryIte
 	return s.repo.GetAllItems(organizationID)
 }
 
+func (s *InventoryService) GenerateItemSKU(organizationID string) (string, error) {
+	return s.repo.GenerateItemSKU(organizationID)
+}
+
 func (s *InventoryService) GetItem(itemID, organizationID string) (*model.InventoryItem, error) {
 	item, err := s.repo.GetItemByID(itemID, organizationID)
 	if err != nil {
@@ -46,10 +55,17 @@ func (s *InventoryService) GetItem(itemID, organizationID string) (*model.Invent
 }
 
 func (s *InventoryService) CreateItem(organizationID, createdBy string, req *model.CreateInventoryItemRequest) (*model.InventoryItem, error) {
-	if req.ItemID != "" {
-		return s.handleCreateItemWithItemID(organizationID, createdBy, req)
+	switch req.TransactionType {
+	case "1":
+		return s.createItemTransactionType1(organizationID, createdBy, req)
+	case "2":
+		return s.createItemTransactionType2(organizationID, createdBy, req)
+	default:
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "invalid transaction_type")
 	}
+}
 
+func (s *InventoryService) createItemTransactionType1(organizationID, createdBy string, req *model.CreateInventoryItemRequest) (*model.InventoryItem, error) {
 	if req.ItemName == "" {
 		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "item_name is required")
 	}
@@ -123,59 +139,128 @@ func (s *InventoryService) CreateItem(organizationID, createdBy string, req *mod
 	return item, nil
 }
 
-func (s *InventoryService) handleCreateItemWithItemID(organizationID, createdBy string, req *model.CreateInventoryItemRequest) (*model.InventoryItem, error) {
-	if req.MovementType == 0 {
-		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "movement_type is required when item_id is provided")
+func (s *InventoryService) createItemTransactionType2(organizationID, createdBy string, req *model.CreateInventoryItemRequest) (*model.InventoryItem, error) {
+	if req.ItemID == "" && req.ItemName == "" {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "item_id or item_name is required")
 	}
 
-	if req.GarageID == "" {
-		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "garage_id is required when item_id is provided")
+	totalAmount := float64(req.Stock) * req.ItemPrice
+
+	purchaseID, err := utils.GeneratePurchaseOrderID(s.repo.GetDB(), s.repo.GetDriver(), organizationID)
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to generate purchase order ID")
 	}
 
-	currentStock, err := s.repo.GetItemGarageStock(req.ItemID, req.GarageID, organizationID)
-	if err != nil && err != sql.ErrNoRows {
-		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to get garage stock")
-	}
+	var item *model.InventoryItem
+	var itemID string
+	_, err = s.repo.GetItemByID(req.ItemID, organizationID)
+	if err != nil {
+		if err == sql.ErrNoRows || req.ItemID == "" {
+			if req.ItemName == "" {
+				return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "item_name is required when item_id not found")
+			}
+			if req.ItemUOM == "" {
+				return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "item_uom is required")
+			}
+			newItem := &model.InventoryItem{
+				OrganizationID: organizationID,
+				ItemName:       req.ItemName,
+				ItemUOM:        req.ItemUOM,
+				ItemCategory:   req.ItemCategory,
+				ItemSKU:        req.ItemSKU,
+				CreatedBy:      createdBy,
+				UpdatedBy:      createdBy,
+			}
 
-	var finalStock int
-	var stockBefore int
-	if err == sql.ErrNoRows {
-		stockBefore = 0
-		finalStock = req.Stock
+			if err := s.repo.CreateItemWithoutStock(newItem); err != nil {
+				return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create item")
+			}
+
+			itemID = newItem.ItemID
+			item = newItem
+		} else {
+			return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to get item")
+		}
 	} else {
-		stockBefore = currentStock
-		if req.MovementType == 1 {
-			finalStock = currentStock + req.Stock
-		} else if req.MovementType == 2 {
-			finalStock = req.Stock
+		itemID = req.ItemID
+		item, err = s.repo.GetItemByID(req.ItemID, organizationID)
+		if err != nil {
+			return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to get item")
 		}
 	}
 
-	if err := s.repo.UpsertItemGarage(req.ItemID, req.GarageID, organizationID, createdBy, finalStock); err != nil {
-		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to upsert garage stock")
+	var supplierID string
+	if req.SupplierID != "" {
+		supplierID = req.SupplierID
+	} else {
+		supplierID, err = s.repo.GetSupplierIDByName(req.SupplierName)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				newSupplier := &model.Supplier{
+					SupplierName:  req.SupplierName,
+					SupplierPhone: req.SupplierPhone,
+					SupplierURL:   req.SupplierURL,
+					CreatedBy:     createdBy,
+					UpdatedBy:     createdBy,
+				}
+				var createErr error
+				supplierID, createErr = s.repo.CreateSupplierFromExternal(newSupplier)
+				if createErr != nil {
+					return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create supplier")
+				}
+			} else {
+				return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to find supplier")
+			}
+		}
 	}
 
-	movementType := req.MovementType
-	if movementType == 2 {
-		movementType = 3
+	// if req.GarageID != "" {
+	// 	if err := s.repo.UpsertItemGarage(itemID, req.GarageID, organizationID, createdBy, req.Stock); err != nil {
+	// 		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to upsert garage stock")
+	// 	}
+	// }
+
+	order := &model.InventoryOrder{
+		PurchaseID:      purchaseID,
+		ItemID:          itemID,
+		ItemCategory:    req.ItemCategory,
+		GarageID:        req.GarageID,
+		SupplierID:      supplierID,
+		Quantity:        req.Stock,
+		Amount:          req.ItemPrice,
+		TotalAmount:     totalAmount,
+		OrganizationID:  organizationID,
+		TransactionDate: req.TransactionDate,
+		CreatedBy:       createdBy,
+		UpdatedBy:       createdBy,
+	}
+	if err := s.repo.CreatePurchaseOrder(order); err != nil {
+		fmt.Println("err create purchase ", err)
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create purchase order")
 	}
 
-	s.repo.CreateInventoryMovement(organizationID, &model.InventoryMovement{
-		MovementID:   uuid.New().String(),
-		ItemID:       req.ItemID,
-		GarageID:     req.GarageID,
-		Quantity:     req.Stock,
-		StockBefore:  stockBefore,
-		StockFinal:   finalStock,
-		MovementType: movementType,
-		Notes:        s.GetMovementNotes(movementType),
-		CreatedAt:    time.Now(),
-		CreatedBy:    createdBy,
-	})
-
-	item, err := s.repo.GetItemByID(req.ItemID, organizationID)
+	invoiceNumber, err := utils.GenerateInvoiceNumber(s.repo.GetDB(), s.repo.GetDriver(), organizationID, 1, time.Now())
 	if err != nil {
-		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to get item")
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to generate invoice number")
+	}
+
+	transaction := &model.InventoryTransaction{
+		TransactionID:       uuid.New().String(),
+		InvoiceNumber:       invoiceNumber,
+		Description:         fmt.Sprintf("Persediaan assets %s - %s", item.ItemName, purchaseID),
+		TransactionType:     2,
+		TransactionItem:     "TRX-I12",
+		TransactionCategory: "TRX08",
+		TransactionDateStr:  req.TransactionDate,
+		PaymentType:         1004,
+		Amount:              totalAmount,
+		ReferenceID:         purchaseID,
+		CreatedBy:           createdBy,
+		CreatedAt:           time.Now(),
+		Status:              0,
+	}
+	if err := s.repo.CreateInventoryTransaction(organizationID, transaction); err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create transaction")
 	}
 
 	return item, nil
@@ -316,8 +401,8 @@ func (s *InventoryService) GetRequest(requestID, organizationID string) (*model.
 }
 
 func (s *InventoryService) CreateRequest(organizationID, createdBy string, req *model.CreateInventoryRequestRequest) (*model.InventoryRequest, error) {
-	if req.ItemName == "" {
-		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "item_name is required")
+	if req.ItemID == "" && req.ItemName == "" {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "item_id or item_name is required")
 	}
 	if req.GarageID == "" {
 		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "garage_id is required")
@@ -326,26 +411,37 @@ func (s *InventoryService) CreateRequest(organizationID, createdBy string, req *
 		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "quantity is required")
 	}
 
-	itemID, err := s.repo.GetItemIDByName(req.ItemName, organizationID)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			newItem := &model.InventoryItem{
-				OrganizationID: organizationID,
-				ItemName:       req.ItemName,
-				CreatedBy:      createdBy,
-				UpdatedBy:      createdBy,
+	var itemID string
+	var err error
+	if req.ItemID != "" {
+		itemID = req.ItemID
+	} else {
+		itemID, err = s.repo.GetItemIDByName(req.ItemName, organizationID)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				newItem := &model.InventoryItem{
+					OrganizationID: organizationID,
+					ItemName:       req.ItemName,
+					CreatedBy:      createdBy,
+					UpdatedBy:      createdBy,
+				}
+				if err := s.repo.CreateItemWithoutStock(newItem); err != nil {
+					return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create item")
+				}
+				itemID = newItem.ItemID
+			} else {
+				return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to find item")
 			}
-			if err := s.repo.CreateItem(newItem); err != nil {
-				return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create item")
-			}
-			itemID = newItem.ItemID
-		} else {
-			return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to find item")
 		}
 	}
 
+	requestNumber, err := utils.GenerateRequestNumber(s.repo.GetDB(), s.repo.GetDriver(), organizationID)
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to generate request number")
+	}
+
 	request := &model.InventoryRequest{
-		RequestNumber:  utils.GenerateRequestNumber(1),
+		RequestNumber:  requestNumber,
 		ItemID:         itemID,
 		GarageID:       req.GarageID,
 		Quantity:       req.Quantity,
@@ -353,12 +449,32 @@ func (s *InventoryService) CreateRequest(organizationID, createdBy string, req *
 		CreatedBy:      createdBy,
 		UpdatedBy:      createdBy,
 	}
-
 	if err := s.repo.CreateRequest(request); err != nil {
 		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create request")
 	}
 
+	_ = s.sendRequestNotification(organizationID, request)
+
 	return request, nil
+}
+
+func (s *InventoryService) sendRequestNotification(organizationID string, request *model.InventoryRequest) error {
+	if s.notificationService == nil {
+		return nil
+	}
+
+	baseURL := helper.GetEnv("APP_HOST", "")
+	if baseURL == "" {
+		return nil
+	}
+
+	_, _ = s.notificationService.CreateNotification(organizationID, NotificationPayload{
+		Title:   "Permintaan Asset Baru",
+		Message: "Tinjau permintaan asset baru",
+		URL:     fmt.Sprintf("%s/dashboard/partner/inventories/request/detail/%s", baseURL, request.RequestID),
+	})
+
+	return nil
 }
 
 func (s *InventoryService) UpdateRequest(organizationID, updatedBy string, req *model.UpdateInventoryRequestRequest) error {
@@ -394,6 +510,7 @@ func (s *InventoryService) GetOrder(purchaseID, organizationID string) (*model.I
 		if err == sql.ErrNoRows {
 			return nil, NewServiceError(ErrNotFound, http.StatusNotFound, "order not found")
 		}
+		fmt.Println("err get order ", err)
 		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to get order")
 	}
 	return order, nil
@@ -445,6 +562,7 @@ func (s *InventoryService) GetSuppliers(organizationID string) ([]model.Supplier
 func (s *InventoryService) GetSupplier(supplierID string) (*model.Supplier, error) {
 	supplier, err := s.repo.GetSupplierByID(supplierID)
 	if err != nil {
+		fmt.Println("err==== ", err)
 		if err == sql.ErrNoRows {
 			return nil, NewServiceError(ErrNotFound, http.StatusNotFound, "supplier not found")
 		}
@@ -477,4 +595,101 @@ func (s *InventoryService) CreateSupplier(organizationID, createdBy string, req 
 
 func (s *InventoryService) DeleteSupplier(organizationID, supplierID string) error {
 	return s.repo.DeleteSupplier(supplierID)
+}
+
+func (s *InventoryService) ReceiveRequest(organizationID, updatedBy string, req *model.ReceiveInventoryOrderRequest) error {
+	if req.PurchaseID == "" {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "purchase_id is required")
+	}
+
+	if err := s.repo.ReceivePurchaseOrder(req.PurchaseID, organizationID, updatedBy); err != nil {
+		if err == sql.ErrNoRows {
+			return NewServiceError(ErrNotFound, http.StatusNotFound, "order not found")
+		}
+		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to receive purchase order")
+	}
+
+	return nil
+}
+
+func (s *InventoryService) SubmitRequestOrder(organizationID, userID string, req *model.SubmitRequestOrderRequest) (*model.InventoryOrder, error) {
+	inventoryReq, err := s.repo.GetRequestByID(req.RequestID, organizationID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, NewServiceError(ErrNotFound, http.StatusNotFound, "request not found")
+		}
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to get request")
+	}
+
+	totalAmount := float64(req.Quantity) * req.ItemPrice
+
+	var supplierID string
+	if req.SupplierID != "" {
+		supplierID = req.SupplierID
+	} else {
+		supplierID, err = s.repo.GetSupplierIDByName(req.SupplierName)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				newSupplier := &model.Supplier{
+					SupplierName:  req.SupplierName,
+					SupplierPhone: req.SupplierPhone,
+					CreatedBy:     userID,
+					UpdatedBy:     userID,
+				}
+				supplierID, err = s.repo.CreateSupplierFromExternal(newSupplier)
+				if err != nil {
+					return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create supplier")
+				}
+			} else {
+				return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to find supplier")
+			}
+		}
+	}
+
+	purchaseID, err := utils.GeneratePurchaseOrderID(s.repo.GetDB(), s.repo.GetDriver(), organizationID)
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to generate purchase order ID")
+	}
+
+	order := &model.InventoryOrder{
+		PurchaseID:     purchaseID,
+		RequestID:      req.RequestID,
+		ItemID:         inventoryReq.ItemID,
+		GarageID:       inventoryReq.GarageID,
+		SupplierID:     supplierID,
+		Quantity:       req.Quantity,
+		Amount:         req.ItemPrice,
+		TotalAmount:    totalAmount,
+		OrganizationID: organizationID,
+		CreatedBy:      userID,
+		UpdatedBy:      userID,
+	}
+	if err := s.repo.CreatePurchaseOrder(order); err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create purchase order")
+	}
+
+	invoiceNumber, err := utils.GenerateInvoiceNumber(s.repo.GetDB(), s.repo.GetDriver(), organizationID, 1, time.Now())
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to generate invoice number")
+	}
+
+	transaction := &model.InventoryTransaction{
+		TransactionID:       uuid.New().String(),
+		InvoiceNumber:       invoiceNumber,
+		Description:         fmt.Sprintf("Persediaan assets %s - %s", inventoryReq.ItemName, purchaseID),
+		TransactionType:     2,
+		TransactionItem:     "TRX-I12",
+		TransactionCategory: "TRX08",
+		PaymentType:         1004,
+		Amount:              totalAmount,
+		ReferenceID:         purchaseID,
+		CreatedBy:           userID,
+		CreatedAt:           time.Now(),
+		Status:              0,
+	}
+	if err := s.repo.CreateInventoryTransaction(organizationID, transaction); err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create transaction")
+	}
+
+	return order, nil
 }

@@ -70,4 +70,3 @@ func (h *MessagesHandler) ReadMessage(c *fiber.Ctx) error {
 	}
 	return helper.SuccessResponse(c, fiber.StatusOK, "Message updated", nil)
 }
-

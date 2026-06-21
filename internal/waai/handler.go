@@ -13,25 +13,30 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// Handler handles WhatsApp AI webhook requests
+// Handler handles all WhatsApp AI webhook requests
 type Handler struct {
-	config     *Config
-	wagyClient *WagyClient
-	aiClient   *AIClient
-	tenantRepo *TenantRepository
-	sessionMgr *SessionManager
+	config         *Config
+	wagyClient     *WagyClient
+	aiClient       *AIClient
+	tenantRepo     *TenantRepository
+	sessionMgr     *SessionManager
+	asstCustRepo   *AssistantCustomerRepository
+	clientRegistry *WagyClientRegistry
 }
 
 // NewHandler creates a new webhook handler
 func NewHandler(cfg *Config, db *sql.DB, dbDriver string, rdb *redis.Client) *Handler {
 	authMgr := NewAuthManager(rdb)
 	wagyClient := NewWagyClient(cfg.WagyDeviceID, cfg.WagyToken)
+
 	return &Handler{
-		config:     cfg,
-		wagyClient: wagyClient,
-		aiClient:   NewAIClient(cfg.AnthropicAPIKey, db, dbDriver, rdb, wagyClient),
-		tenantRepo: NewTenantRepository(db, dbDriver, authMgr),
-		sessionMgr: NewSessionManager(rdb),
+		config:         cfg,
+		wagyClient:     wagyClient,
+		asstCustRepo:   NewAssistantCustomerRepository(db, dbDriver),
+		aiClient:       NewAIClient(cfg.AnthropicAPIKey, db, dbDriver, rdb, wagyClient),
+		tenantRepo:     NewTenantRepository(db, dbDriver, authMgr),
+		sessionMgr:     NewSessionManager(rdb),
+		clientRegistry: NewWagyClientRegistry(),
 	}
 }
 
@@ -49,8 +54,8 @@ func (h *Handler) HandleWebhookGET(c *fiber.Ctx) error {
 }
 
 // HandleWebhookPOST handles incoming WhatsApp messages from Wagy
+// Ini adalah single entry point untuk SEMUA device (Skenario 1: TraveGO ERP, Skenario 2: Company Assistants)
 func (h *Handler) HandleWebhookPOST(c *fiber.Ctx) error {
-	// Verify signature
 	signature := c.Get("X-Wagy-Signature")
 	if signature == "" {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
@@ -58,73 +63,167 @@ func (h *Handler) HandleWebhookPOST(c *fiber.Ctx) error {
 		})
 	}
 
-	// Read request body
 	rawBody := c.Body()
 
-	// Verify signature
 	if !VerifySignature(rawBody, signature, h.config.WagyWebhookSecret) {
-		log.Printf("Signature verification failed for phone webhook")
+		log.Printf("[WAAI] Signature verification failed")
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 			"error": "Invalid signature",
 		})
 	}
 
-	// Parse webhook payload
 	var payload WebhookPayload
-	err := json.Unmarshal(rawBody, &payload)
-	if err != nil {
-		log.Printf("Failed to parse webhook payload: %v", err)
+	if err := json.Unmarshal(rawBody, &payload); err != nil {
+		log.Printf("[WAAI] Failed to parse payload: %v", err)
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "Invalid payload",
 		})
 	}
 
-	// Filter: only process message.received events from WhatsApp
 	if payload.Event != "message.received" || payload.Source != "whatsapp" {
-		// Ignore other events
-		return c.Status(fiber.StatusOK).JSON(fiber.Map{
-			"status": "ignored",
-		})
+		return c.Status(fiber.StatusOK).JSON(fiber.Map{"status": "ignored"})
 	}
 
-	// Extract phone number
-	phone := ExtractPhoneNumber(payload.Data.Content.PhoneJID)
+	customerPhone := ExtractPhoneNumber(payload.Data.Content.PhoneJID)
+	ownerPhone := ExtractPhoneNumber(payload.Data.OwnerJID)
 	messageText := payload.Data.Content.Message
+	wagyDeviceID := payload.Data.DeviceID
 
-	log.Printf("[WAAI] Incoming message from %s: %s", phone, messageText)
+	log.Printf("[WAAI] Event=message.received | wagy_device=%s | owner=%s | from=%s | msg=%s",
+		wagyDeviceID, ownerPhone, customerPhone, messageText)
 
-	// Check if tenant exists (quick check)
-	ctxTenant, cancelTenant := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancelTenant()
-
-	_, err = h.tenantRepo.GetTenantByPhone(ctxTenant, phone)
-	if err != nil {
-		// If tenant not found, check if it's a "public" question that AI can answer without tenant context
-		// This includes questions about capabilities, identity, or registration
-		if isCapabilitiesQuestion(messageText) || isIdentityOrDeveloperQuestion(messageText) || isRegistrationQuestion(messageText) {
-			log.Printf("[WAAI] Tenant not found for phone %s, but message is a public question. Processing with AI.", phone)
-			go h.processMessageAsync(phone, messageText)
-			return c.Status(fiber.StatusOK).JSON(fiber.Map{
-				"status": "received",
-			})
-		}
-
-		// Tenant not found - send error message and return
-		log.Printf("[WAAI] Tenant not found for phone: %s", phone)
-		replyText := buildUnregisteredReply(messageText)
-		_ = h.sendMessage(phone, replyText)
-		return c.Status(fiber.StatusOK).JSON(fiber.Map{
-			"status": "tenant_not_found",
-		})
+	switch {
+	case ownerPhone == h.config.ServiceAccount:
+		h.processERPAssistant(customerPhone, messageText)
+	default:
+		h.processCompanyAssistant(customerPhone, ownerPhone, messageText)
 	}
 
-	// Process message in background goroutine (must return quickly)
-	go h.processMessageAsync(phone, messageText)
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{"status": "received"})
+}
 
-	// Return 200 immediately to Wagy
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-		"status": "received",
+// processERPAssistant — Skenario 1: User mengirim ke bot perusahaan TraveGO
+func (h *Handler) processERPAssistant(customerPhone, messageText string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := h.tenantRepo.GetTenantByPhone(ctx, customerPhone)
+	if err != nil {
+		if isCapabilitiesQuestion(messageText) || isIdentityOrDeveloperQuestion(messageText) || isRegistrationQuestion(messageText) {
+			go h.processMessageAsync(customerPhone, messageText)
+			return
+		}
+		replyText := buildUnregisteredReply(messageText)
+		_ = h.sendMessage(customerPhone, replyText)
+		return
+	}
+
+	go h.processMessageAsync(customerPhone, messageText)
+}
+
+// processCompanyAssistant — Skenario 2: Customer mengirim ke nomor perusahaan customer
+func (h *Handler) processCompanyAssistant(customerPhone, ownerPhone, messageText string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	asstCust, found, err := h.asstCustRepo.FindByDeviceID(ctx, ownerPhone)
+	if err != nil {
+		log.Printf("[WAAI][Company] DB error for %s: %v", ownerPhone, err)
+		return
+	}
+	if !found {
+		log.Printf("[WAAI][Company] Ignored: %s not registered in assistant_customers", ownerPhone)
+		return
+	}
+
+	log.Printf("[WAAI][Company] org=%s | assistant_device=%s | from=%s",
+		asstCust.OrganizationID, asstCust.AssistantDeviceID, customerPhone)
+
+	go h.processCompanyMessageAsync(customerPhone, messageText, asstCust)
+}
+
+// processCompanyMessageAsync memproses pesan untuk company assistant (Skenario 2)
+func (h *Handler) processCompanyMessageAsync(customerPhone, messageText string, asstCust *AssistantCustomer) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	sendClient := h.clientRegistry.GetClient(asstCust.AssistantDeviceID, asstCust.DeviceToken)
+	if sendClient == nil {
+		log.Printf("[WAAI][Company] Cannot get WagyClient for device %s", asstCust.AssistantDeviceID)
+		finalResponse := "Maaf, layanan assistant sedang tidak tersedia. Silakan hubungi kantor langsung."
+		_ = h.sendMessage(customerPhone, finalResponse)
+		return
+	}
+
+	tenant := &TenantInfo{
+		OrganizationID:   asstCust.OrganizationID,
+		OrganizationName: asstCust.DeviceName,
+		Role:             "CustomerAssistant",
+	}
+
+	snapshot := make(map[string]interface{})
+	if tenant.OrganizationID != "" {
+		ctxAuth := withAuthorizedTenantContext(ctx, tenant)
+		var err error
+		snapshot, err = h.tenantRepo.GetOrganizationSnapshot(ctxAuth, tenant.OrganizationID)
+		if err != nil {
+			log.Printf("[WAAI][Company] Failed snapshot org %s: %v", tenant.OrganizationID, err)
+			snapshot = map[string]interface{}{}
+		}
+		if tenant.OrganizationName == "" {
+			if name, ok := snapshot["organization_name"].(string); ok && name != "" {
+				tenant.OrganizationName = name
+			}
+		}
+	}
+
+	history, err := h.sessionMgr.LoadSessionFor(ctx, asstCust.OrganizationID, customerPhone)
+	if err != nil {
+		log.Printf("[WAAI][Company] Failed load session: %v", err)
+		history = []ConversationMessage{}
+	}
+
+	if len(history) > 20 {
+		history = history[len(history)-20:]
+	}
+
+	history = append(history, ConversationMessage{
+		Role:    "user",
+		Content: messageText,
 	})
+
+	systemPrompt := h.aiClient.BuildCompanySystemPrompt(tenant, snapshot, messageText, asstCust.DeviceName)
+
+	finalResponse, err := h.aiClient.callAnthropicWithTools(ctx, systemPrompt, history)
+	if err != nil {
+		log.Printf("[WAAI][Company] AI error: %v", err)
+		finalResponse = "Maaf, layanan sedang sibuk. Silakan coba lagi."
+	}
+	finalResponse = formatWhatsAppReply(finalResponse)
+
+	history = append(history, ConversationMessage{
+		Role:    "assistant",
+		Content: finalResponse,
+	})
+	_ = h.sessionMgr.SaveSessionFor(ctx, asstCust.OrganizationID, customerPhone, history)
+
+	if err := h.sendMessageWithClient(customerPhone, finalResponse, sendClient); err != nil {
+		log.Printf("[WAAI][Company] Failed send via device %s: %v", asstCust.AssistantDeviceID, err)
+	}
+
+	log.Printf("[WAAI][Company] Reply sent | device=%s | to=%s", asstCust.AssistantDeviceID, customerPhone)
+}
+
+func (h *Handler) sendMessageWithClient(phone, message string, client *WagyClient) error {
+	if client == nil {
+		return fmt.Errorf("WagyClient is nil")
+	}
+	_, err := client.SendMessage(phone, message)
+	if err != nil {
+		return err
+	}
+	log.Printf("[WAAI] Message sent to %s", phone)
+	return nil
 }
 
 // processMessageAsync processes the message asynchronously

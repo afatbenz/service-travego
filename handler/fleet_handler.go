@@ -1443,3 +1443,16 @@ func (h *FleetHandler) CancelPartnerOrderDetail(c *fiber.Ctx) error {
 	}
 	return helper.SuccessResponse(c, fiber.StatusOK, "Order detail retrieved", res)
 }
+
+func (h *FleetHandler) GetFacilityList(c *fiber.Ctx) error {
+	orgID, _ := c.Locals("organization_id").(string)
+	if orgID == "" {
+		return helper.BadRequestResponse(c, "missing organization context")
+	}
+	items, err := h.service.GetFacilityList(orgID)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Facility list loaded", items)
+}

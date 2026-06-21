@@ -23,3 +23,22 @@ func ToInt(v interface{}) int {
 		return 0
 	}
 }
+
+func ToFloat64(v interface{}) float64 {
+	switch vv := v.(type) {
+	case float64:
+		return vv
+	case string:
+		n, _ := strconv.ParseFloat(vv, 64)
+		return n
+	case json.Number:
+		n, _ := vv.Float64()
+		return n
+	case int:
+		return float64(vv)
+	case int64:
+		return float64(vv)
+	default:
+		return 0
+	}
+}

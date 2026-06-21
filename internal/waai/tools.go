@@ -202,6 +202,68 @@ func GetToolDefinitions() []ToolDefinition {
 		},
 		{
 			Type: "function",
+			Name: "get_inventory_items",
+			Function: FunctionDefinition{
+				Name:        "get_inventory_items",
+				Description: "Get daftar inventory item aktif beserta total stok dan garage yang memiliki stok. Gunakan untuk cek inventory umum atau mencari item_id dari nama item/SKU.",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"search": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional search by item name or item SKU",
+						},
+						"garage_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional garage ID filter",
+						},
+					},
+					"required": []string{},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Name: "get_inventory_detail",
+			Function: FunctionDefinition{
+				Name:        "get_inventory_detail",
+				Description: "Get detail inventory item by item_id, including stock per garage/location.",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"item_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Inventory item ID",
+						},
+					},
+					"required": []string{"item_id"},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Name: "get_inventory_stock",
+			Function: FunctionDefinition{
+				Name:        "get_inventory_stock",
+				Description: "Get jumlah stok item, either total stock across garages or stock in a specific garage.",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"item_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Inventory item ID",
+						},
+						"garage_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional garage ID to get stock only for that garage",
+						},
+					},
+					"required": []string{"item_id"},
+				},
+			},
+		},
+		{
+			Type: "function",
 			Name: "get_booking_list",
 			Function: FunctionDefinition{
 				Name:        "get_booking_list",

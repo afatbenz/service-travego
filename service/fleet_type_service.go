@@ -3,13 +3,13 @@ package service
 import "service-travego/repository"
 
 type FleetTypeService struct {
-    repo *repository.FleetTypeRepository
+	repo *repository.FleetTypeRepository
 }
 
 func NewFleetTypeService(repo *repository.FleetTypeRepository) *FleetTypeService {
-    return &FleetTypeService{repo: repo}
+	return &FleetTypeService{repo: repo}
 }
 
 func (s *FleetTypeService) GetAllFleetTypes() ([]map[string]interface{}, error) {
-    return s.repo.FindAll()
+	return s.repo.FindAll()
 }

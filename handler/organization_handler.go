@@ -457,17 +457,17 @@ func (h *OrganizationHandler) GetUsers(c *fiber.Ctx) error {
 	res := make([]map[string]interface{}, 0, len(users))
 	for i := range users {
 		res = append(res, map[string]interface{}{
-			"user_id":      users[i].UserID,
-			"username":     users[i].Username,
-			"fullname":     users[i].Name,
-			"email":        users[i].Email,
-			"phone":        users[i].Phone,
-			"address":      users[i].Address,
-			"city":         users[i].City,
-			"province":     users[i].Province,
-			"avatar":       users[i].Avatar,
-			"created_at":   users[i].CreatedAt,
-			"is_active":    users[i].IsActive,
+			"user_id":    users[i].UserID,
+			"username":   users[i].Username,
+			"fullname":   users[i].Name,
+			"email":      users[i].Email,
+			"phone":      users[i].Phone,
+			"address":    users[i].Address,
+			"city":       users[i].City,
+			"province":   users[i].Province,
+			"avatar":     users[i].Avatar,
+			"created_at": users[i].CreatedAt,
+			"is_active":  users[i].IsActive,
 		})
 	}
 

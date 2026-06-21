@@ -37,4 +37,3 @@ func SetupMessagesRoutes(api fiber.Router, db *sql.DB, driver string) {
 	group.Use(helper.DualAuthMiddleware(orgRepo))
 	group.Post("/submit", h.SubmitMessage)
 }
-

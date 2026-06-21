@@ -620,7 +620,7 @@ func (r *FleetRepository) GetFleetDetail(id, orgID string) (*model.FleetDetailRe
 }
 
 func (r *FleetRepository) GetFleetFacilities(fleetID string) ([]string, error) {
-	query := fmt.Sprintf("SELECT facility FROM fleet_facilities WHERE fleet_id = %s", r.getPlaceholder(1))
+	query := fmt.Sprintf("SELECT f.facility_name as facility FROM fleet_facilities ff INNER JOIN facilities f ON f.facility_id = ff.facility_id WHERE ff.fleet_id = %s", r.getPlaceholder(1))
 	rows, err := database.Query(r.db, query, fleetID)
 	if err != nil {
 		return nil, err
@@ -634,6 +634,51 @@ func (r *FleetRepository) GetFleetFacilities(fleetID string) ([]string, error) {
 		}
 	}
 	return facilities, nil
+}
+
+func (r *FleetRepository) GetFacilityList(orgID string) ([]model.FacilityItem, error) {
+	var query string
+	if r.driver == "postgres" || r.driver == "pgx" {
+		query = `
+			SELECT facility_id, facility_name, facility_icon FROM facilities WHERE organization_id IS NULL 
+			UNION
+			SELECT facility_id, facility_name, facility_icon FROM facilities WHERE organization_id = ` + r.getPlaceholder(1) + `
+			ORDER BY facility_name
+		`
+	} else {
+		query = `
+			SELECT facility_id, facility_name, facility_icon FROM facilities WHERE organization_id IS NULL 
+			UNION
+			SELECT facility_id, facility_name, facility_icon FROM facilities WHERE organization_id = ` + r.getPlaceholder(1) + `
+			ORDER BY facility_name
+		`
+	}
+
+	rows, err := database.Query(r.db, query, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []model.FacilityItem
+	for rows.Next() {
+		var item model.FacilityItem
+		var facilityName, facilityIcon sql.NullString
+		if err := rows.Scan(&item.FacilityID, &facilityName, &facilityIcon); err != nil {
+			return nil, err
+		}
+		if facilityName.Valid {
+			item.FacilityName = facilityName.String
+		}
+		if facilityIcon.Valid {
+			item.FacilityIcon = facilityIcon.String
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 func (r *FleetRepository) GetFleetPricing(orgID, fleetID string) ([]model.FleetPriceItem, error) {
@@ -2095,7 +2140,7 @@ func (r *FleetRepository) GetFleetOrderSummary(fleetID, priceID string) (*model.
 	}
 
 	// Facilities
-	fQuery := fmt.Sprintf("SELECT facility FROM fleet_facilities WHERE fleet_id = %s", r.getPlaceholder(1))
+	fQuery := fmt.Sprintf("SELECT f.facility_name as facility FROM fleet_facilities ff INNER JOIN facilities f ON f.facility_id = ff.facility_id WHERE ff.fleet_id = %s", r.getPlaceholder(1))
 	rows, err := database.Query(r.db, fQuery, fleetID)
 	if err == nil {
 		defer rows.Close()

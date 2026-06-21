@@ -28,18 +28,18 @@ func SetupContentRoutes(api fiber.Router, db *sql.DB, driver string) {
 	content := api.Group("/content")
 	content.Delete("/delete-list/:uuid", helper.JWTAuthorizationMiddleware(), contentHandler.DeleteListByUUID)
 	content.Post("/upload", helper.JWTAuthorizationMiddleware(), func(c *fiber.Ctx) error {
-			err := c.Next()
-			if err != nil {
-				if fiberErr, ok := err.(*fiber.Error); ok && fiberErr.Code == fiber.StatusRequestEntityTooLarge {
-					return c.Status(fiber.StatusBadRequest).JSON(map[string]interface{}{
-						"code":    fiber.StatusBadRequest,
-						"message": "FILE_TOO_LARGE",
-					})
-				}
-				return err
+		err := c.Next()
+		if err != nil {
+			if fiberErr, ok := err.(*fiber.Error); ok && fiberErr.Code == fiber.StatusRequestEntityTooLarge {
+				return c.Status(fiber.StatusBadRequest).JSON(map[string]interface{}{
+					"code":    fiber.StatusBadRequest,
+					"message": "FILE_TOO_LARGE",
+				})
 			}
-			return nil
-		}, contentHandler.UploadContent)
+			return err
+		}
+		return nil
+	}, contentHandler.UploadContent)
 	content.Post("/update", helper.JWTAuthorizationMiddleware(), contentHandler.UpsertGeneralContent)
 	content.Get("/:parent/:section_tag", helper.JWTAuthorizationMiddleware(), contentHandler.GetContentDetailByParentAndTag)
 	content.Get("/:parent", helper.JWTAuthorizationMiddleware(), contentHandler.GetContentByParent)

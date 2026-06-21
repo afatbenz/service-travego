@@ -15,11 +15,11 @@ import (
 )
 
 type OrganizationJoinService struct {
-	orgRepo          *repository.OrganizationRepository
-	orgUserRepo      *repository.OrganizationUserRepository
-	userRepo         *repository.UserRepository
-	notificationSvc  *NotificationService
-	emailCfg         *configs.EmailConfig
+	orgRepo         *repository.OrganizationRepository
+	orgUserRepo     *repository.OrganizationUserRepository
+	userRepo        *repository.UserRepository
+	notificationSvc *NotificationService
+	emailCfg        *configs.EmailConfig
 }
 
 func NewOrganizationJoinService(orgRepo *repository.OrganizationRepository, orgUserRepo *repository.OrganizationUserRepository, userRepo *repository.UserRepository, notificationSvc *NotificationService, emailCfg *configs.EmailConfig) *OrganizationJoinService {

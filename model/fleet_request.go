@@ -297,3 +297,9 @@ type FleetOrderCancelRequest struct {
 
 type FleetOrderCancelDetail struct {
 }
+
+type FacilityItem struct {
+	FacilityID   string `json:"facility_id"`
+	FacilityName string `json:"facility_name"`
+	FacilityIcon string `json:"facility_icon"`
+}

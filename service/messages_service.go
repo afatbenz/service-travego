@@ -72,4 +72,3 @@ func (s *MessagesService) ReadMessage(orgID, messageID string) error {
 	}
 	return nil
 }
-

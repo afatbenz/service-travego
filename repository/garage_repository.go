@@ -40,7 +40,7 @@ func (r *GarageRepository) GetAll(organizationID, itemID string) ([]model.Garage
 			       g.created_at, g.created_by, g.updated_at, g.updated_by
 			FROM garage g
 			INNER JOIN inventory_item_garage ig ON g.garage_id = ig.garage_id
-			WHERE g.organization_id = %s AND ig.item_id = %s AND g.status = 1
+			WHERE g.organization_id = %s AND ig.item_id = %s 
 			ORDER BY garage_name
 		`, r.getPlaceholder(1), r.getPlaceholder(2))
 		args = append(args, organizationID, itemID)
@@ -54,6 +54,7 @@ func (r *GarageRepository) GetAll(organizationID, itemID string) ([]model.Garage
 		`, r.getPlaceholder(1))
 		args = append(args, organizationID)
 	}
+	fmt.Println("query ... ", query)
 
 	rows, err := database.Query(r.db, query, args...)
 	if err != nil {
