@@ -5,4 +5,3 @@ type FleetAddonListItem struct {
 	AddonName  string  `json:"addon_name"`
 	AddonPrice float64 `json:"addon_price"`
 }
-

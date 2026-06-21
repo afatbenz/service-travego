@@ -84,9 +84,35 @@ func formatInvoiceNumber(orderType int, now time.Time, sequence int) string {
 	return fmt.Sprintf("INV-%s%d-%s%04d", datePart, orderType, timePart, sequence)
 }
 
-func GenerateRequestNumber(seq int) string {
-	timePart := time.Now().Format("150405")
-	return fmt.Sprintf("REQ-%s-00%d", timePart, seq)
+func GenerateRequestNumber(db *sql.DB, driver, organizationID string) (string, error) {
+	orgExpr := "organization_id = " + placeholder(driver, 1)
+	if driver == "postgres" || driver == "pgx" {
+		orgExpr = "organization_id::text = " + placeholder(driver, 1)
+	}
+	query := fmt.Sprintf("SELECT COUNT(1) FROM inventory_request WHERE %s ", orgExpr)
+
+	var count int
+	if err := database.QueryRow(db, query, organizationID).Scan(&count); err != nil {
+		return "", err
+	}
+	seq := count + 1
+	if seq < 1 {
+		seq = 1
+	}
+
+	var seqStr string
+	if seq > 9999 {
+		seqStr = fmt.Sprintf("%d", seq)
+	} else if seq > 999 {
+		seqStr = fmt.Sprintf("0%d", seq)
+	} else if seq > 99 {
+		seqStr = fmt.Sprintf("00%d", seq)
+	} else {
+		seqStr = fmt.Sprintf("000%d", seq)
+	}
+
+	datePart := time.Now().Format("0601")
+	return fmt.Sprintf("REQ-%s-00%s", datePart, seqStr), nil
 }
 
 func GenerateItemSKU(db *sql.DB, driver, organizationID string) (string, error) {
@@ -106,7 +132,7 @@ func GenerateItemSKU(db *sql.DB, driver, organizationID string) (string, error) 
 	}
 
 	now := time.Now()
-	yearMonth := now.Format("2606")
+	yearMonth := now.Format("0606")
 
 	var skuSeq string
 	if seq > 9999 {
@@ -120,4 +146,36 @@ func GenerateItemSKU(db *sql.DB, driver, organizationID string) (string, error) 
 	}
 
 	return fmt.Sprintf("SKU-%s0-%s", skuSeq, yearMonth), nil
+}
+
+func GeneratePurchaseOrderID(db *sql.DB, driver, organizationID string) (string, error) {
+	orgExpr := "organization_id = " + placeholder(driver, 1)
+	if driver == "postgres" || driver == "pgx" {
+		orgExpr = "organization_id::text = " + placeholder(driver, 1)
+	}
+	query := fmt.Sprintf("SELECT COUNT(1) FROM inventory_orders WHERE %s ", orgExpr)
+
+	var count int
+	if err := database.QueryRow(db, query, organizationID).Scan(&count); err != nil {
+		return "", err
+	}
+	seq := count + 1
+	if seq < 1 {
+		seq = 1
+	}
+
+	var seqStr string
+	if seq > 9999 {
+		seqStr = fmt.Sprintf("%d", seq)
+	} else if seq > 999 {
+		seqStr = fmt.Sprintf("0%d", seq)
+	} else if seq > 99 {
+		seqStr = fmt.Sprintf("00%d", seq)
+	} else {
+		seqStr = fmt.Sprintf("000%d", seq)
+	}
+
+	now := time.Now()
+	datePart := now.Format("06-01")
+	return fmt.Sprintf("PO-00%s-%s", seqStr, datePart), nil
 }

@@ -6,11 +6,12 @@ import (
 
 // Config holds WhatsApp AI Assistant configuration
 type Config struct {
-	WagyDeviceID    string
-	WagyToken       string
+	WagyDeviceID      string
+	WagyToken         string
 	WagyWebhookSecret string
-	AnthropicAPIKey string
-	RedisURL        string
+	AnthropicAPIKey   string
+	RedisURL          string
+	ServiceAccount    string // "6285195911626" — nomor bot perusahaan TraveGO (Skenario 1)
 }
 
 // LoadConfig loads configuration from environment variables
@@ -21,17 +22,19 @@ func LoadConfig() *Config {
 		WagyWebhookSecret: os.Getenv("WAGY_WEBHOOK_SECRET"),
 		AnthropicAPIKey:   os.Getenv("ANTHROPIC_API_KEY"),
 		RedisURL:          os.Getenv("REDIS_URL"),
+		ServiceAccount:    os.Getenv("SERVICE_ACCOUNT"),
 	}
 }
 
 // Validate checks if required configuration values are set
 func (c *Config) Validate() error {
 	requiredFields := map[string]string{
-		"WAGY_DEVICE_ID":         c.WagyDeviceID,
-		"WAGY_TOKEN":             c.WagyToken,
-		"WAGY_WEBHOOK_SECRET":    c.WagyWebhookSecret,
-		"ANTHROPIC_API_KEY":      c.AnthropicAPIKey,
-		"REDIS_URL":              c.RedisURL,
+		"WAGY_DEVICE_ID":      c.WagyDeviceID,
+		"WAGY_TOKEN":          c.WagyToken,
+		"WAGY_WEBHOOK_SECRET": c.WagyWebhookSecret,
+		"ANTHROPIC_API_KEY":   c.AnthropicAPIKey,
+		"REDIS_URL":           c.RedisURL,
+		"SERVICE_ACCOUNT":     c.ServiceAccount,
 	}
 
 	for name, value := range requiredFields {

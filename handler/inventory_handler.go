@@ -49,9 +49,9 @@ func (h *InventoryHandler) GenerateSKU(c *fiber.Ctx) error {
 }
 
 func (h *InventoryHandler) CreateItem(c *fiber.Ctx) error {
+	raw := c.Body()
 	var req model.CreateInventoryItemRequest
 	if err := c.BodyParser(&req); err != nil {
-		raw := c.Body()
 		var m map[string]interface{}
 		if err2 := json.Unmarshal(raw, &m); err2 == nil {
 			if v, ok := m["item_id"].(string); ok {
@@ -75,6 +75,67 @@ func (h *InventoryHandler) CreateItem(c *fiber.Ctx) error {
 			if v, ok := m["movement_type"]; ok {
 				req.MovementType = helper.ToInt(v)
 			}
+			if v, ok := m["item_sku"].(string); ok {
+				req.ItemSKU = v
+			}
+			if v, ok := m["item_price"]; ok {
+				req.ItemPrice = helper.ToFloat64(v)
+			}
+			if v, ok := m["transaction_type"].(string); ok {
+				req.TransactionType = v
+			}
+			if v, ok := m["supplier_id"].(string); ok {
+				req.SupplierID = v
+			}
+			if v, ok := m["supplier_name"].(string); ok {
+				req.SupplierName = v
+			}
+			if v, ok := m["supplier_phone"].(string); ok {
+				req.SupplierPhone = v
+			}
+			if v, ok := m["supplier_url"].(string); ok {
+				req.SupplierURL = v
+			}
+			if v, ok := m["transaction_date"].(string); ok {
+				req.TransactionDate = v
+			}
+			if v, ok := m["supplier_price"]; ok {
+				req.SupplierPrice = helper.ToFloat64(v)
+			}
+			if v, ok := m["notes"].(string); ok {
+				req.Notes = v
+			}
+		}
+	}
+
+	if req.GarageID == "" {
+		return helper.BadRequestResponse(c, "garage_id is required")
+	}
+	if req.ItemCategory == 0 {
+		return helper.BadRequestResponse(c, "item_category is required")
+	}
+	if req.ItemSKU == "" {
+		return helper.BadRequestResponse(c, "item_sku is required")
+	}
+	if req.ItemUOM == "" {
+		return helper.BadRequestResponse(c, "item_uom is required")
+	}
+	if req.Stock <= 0 {
+		return helper.BadRequestResponse(c, "stock is required")
+	}
+	if req.ItemPrice <= 0 {
+		return helper.BadRequestResponse(c, "item_price is required")
+	}
+	if req.TransactionType == "" {
+		return helper.BadRequestResponse(c, "transaction_type is required")
+	}
+	if req.TransactionDate == "" {
+		return helper.BadRequestResponse(c, "transaction_date is required")
+	}
+
+	if req.TransactionType == "2" {
+		if req.SupplierID == "" && req.SupplierName == "" {
+			return helper.BadRequestResponse(c, "supplier_id or supplier_name is required when transaction_type is 2")
 		}
 	}
 
@@ -82,17 +143,6 @@ func (h *InventoryHandler) CreateItem(c *fiber.Ctx) error {
 	orgID, _ := c.Locals("organization_id").(string)
 	if userID == "" || orgID == "" {
 		return helper.BadRequestResponse(c, "missing user or organization context")
-	}
-
-	if req.ItemID != "" {
-		return h.handleCreateItemWithID(c, req, userID, orgID)
-	}
-
-	if req.ItemName == "" {
-		return helper.BadRequestResponse(c, "item_name is required")
-	}
-	if req.ItemUOM == "" {
-		return helper.BadRequestResponse(c, "item_uom is required")
 	}
 
 	item, err := h.service.CreateItem(orgID, userID, &req)
@@ -308,8 +358,20 @@ func (h *InventoryHandler) CreateRequest(c *fiber.Ctx) error {
 		raw := c.Body()
 		var m map[string]interface{}
 		if err2 := json.Unmarshal(raw, &m); err2 == nil {
+			if v, ok := m["request_id"].(string); ok {
+				req.RequestID = v
+			}
+			if v, ok := m["item_id"].(string); ok {
+				req.ItemID = v
+			}
 			if v, ok := m["item_name"].(string); ok {
 				req.ItemName = v
+			}
+			if v, ok := m["item_phone"].(string); ok {
+				req.ItemPhone = v
+			}
+			if v, ok := m["item_url"].(string); ok {
+				req.ItemURL = v
 			}
 			if v, ok := m["garage_id"].(string); ok {
 				req.GarageID = v
@@ -324,6 +386,16 @@ func (h *InventoryHandler) CreateRequest(c *fiber.Ctx) error {
 	orgID, _ := c.Locals("organization_id").(string)
 	if userID == "" || orgID == "" {
 		return helper.BadRequestResponse(c, "missing user or organization context")
+	}
+
+	if req.ItemID == "" && req.ItemName == "" {
+		return helper.BadRequestResponse(c, "item_id or item_name is required")
+	}
+	if req.GarageID == "" {
+		return helper.BadRequestResponse(c, "garage_id is required")
+	}
+	if req.Quantity <= 0 {
+		return helper.BadRequestResponse(c, "quantity is required")
 	}
 
 	request, err := h.service.CreateRequest(orgID, userID, &req)
@@ -394,6 +466,94 @@ func (h *InventoryHandler) UpdateRequest(c *fiber.Ctx) error {
 		msg = "Request approved successfully"
 	}
 	return helper.SuccessResponse(c, fiber.StatusOK, msg, nil)
+}
+
+func (h *InventoryHandler) SubmitRequestOrders(c *fiber.Ctx) error {
+	var req model.SubmitRequestOrderRequest
+	if err := c.BodyParser(&req); err != nil {
+		raw := c.Body()
+		var m map[string]interface{}
+		if err2 := json.Unmarshal(raw, &m); err2 == nil {
+			if v, ok := m["request_id"].(string); ok {
+				req.RequestID = v
+			}
+			if v, ok := m["suplier_id"].(string); ok {
+				req.SupplierID = v
+			}
+			if v, ok := m["suplier_name"].(string); ok {
+				req.SupplierName = v
+			}
+			if v, ok := m["suplier_phone"].(string); ok {
+				req.SupplierPhone = v
+			}
+			if v, ok := m["item_price"]; ok {
+				req.ItemPrice = helper.ToFloat64(v)
+			}
+			if v, ok := m["quantity"]; ok {
+				req.Quantity = helper.ToInt(v)
+			}
+		}
+	}
+
+	userID, _ := c.Locals("user_id").(string)
+	orgID, _ := c.Locals("organization_id").(string)
+	if userID == "" || orgID == "" {
+		return helper.BadRequestResponse(c, "missing user or organization context")
+	}
+
+	if req.RequestID == "" {
+		return helper.BadRequestResponse(c, "request_id is required")
+	}
+	if req.ItemPrice <= 0 {
+		return helper.BadRequestResponse(c, "item_price is required")
+	}
+	if req.Quantity <= 0 {
+		return helper.BadRequestResponse(c, "quantity is required")
+	}
+	if req.SupplierID == "" && req.SupplierName == "" {
+		return helper.BadRequestResponse(c, "suplier_id or suplier_name is required")
+	}
+
+	order, err := h.service.SubmitRequestOrder(orgID, userID, &req)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Order created from request", fiber.Map{
+		"purchase_id": order.PurchaseID,
+	})
+}
+
+func (h *InventoryHandler) ReceiveOrder(c *fiber.Ctx) error {
+	var req struct {
+		PurchaseID string `json:"purchase_id"`
+	}
+	if err := c.BodyParser(&req); err != nil {
+		raw := c.Body()
+		var m map[string]interface{}
+		if err2 := json.Unmarshal(raw, &m); err2 == nil {
+			if v, ok := m["purchase_id"].(string); ok {
+				req.PurchaseID = v
+			}
+		}
+	}
+
+	userID, _ := c.Locals("user_id").(string)
+	orgID, _ := c.Locals("organization_id").(string)
+	if userID == "" || orgID == "" {
+		return helper.BadRequestResponse(c, "missing user or organization context")
+	}
+
+	if req.PurchaseID == "" {
+		return helper.BadRequestResponse(c, "purchase_id is required")
+	}
+
+	if err := h.service.ReceiveRequest(orgID, userID, &model.ReceiveInventoryOrderRequest{PurchaseID: req.PurchaseID}); err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Order received successfully", nil)
 }
 
 func (h *InventoryHandler) GetOrders(c *fiber.Ctx) error {

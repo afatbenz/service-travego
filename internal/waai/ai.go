@@ -110,7 +110,7 @@ func NewAIClient(apiKey string, db *sql.DB, dbDriver string, rdb *redis.Client, 
 		orderService:          service.NewOrderService(fleetRepo, contentRepo, orgRepo, emailCfg),
 		dashboardService:      service.NewDashboardService(dashboardRepo),
 		transactionService:    service.NewTransactionService(transactionRepo, notificationSvc),
-		inventoryService:      service.NewInventoryService(inventoryRepo),
+		inventoryService:      service.NewInventoryService(inventoryRepo, notificationSvc),
 		printService:          service.NewPrintManagementService(printRepo),
 		wagyClient:            wagyClient,
 	}
@@ -741,6 +741,93 @@ WhatsApp reply formatting:
 		currentMonth,
 		currentMonth,
 	)
+
+	return prompt
+}
+
+// BuildCompanySystemPrompt membentuk system prompt untuk company customer assistant (Skenario 2)
+// tenant: context organisasi (berisi OrganizationID dan DeviceName dari assistant_customers)
+// snapshot: data bisnis organisasi
+// customerMessage: pesan asli customer
+// assistantName: nama display assistant (device_name dari assistant_customers)
+func (ac *AIClient) BuildCompanySystemPrompt(
+	tenant *TenantInfo,
+	snapshot map[string]interface{},
+	customerMessage string,
+	assistantName string,
+) string {
+	now := time.Now()
+	currentMonth := now.Format("2006-01")
+	currentDate := now.Format("2006-01-02")
+
+	displayName := assistantName
+	if displayName == "" {
+		displayName = tenant.OrganizationName
+	}
+
+	orgName := tenant.OrganizationName
+	if orgName == "" {
+		if name, ok := snapshot["organization_name"].(string); ok && name != "" {
+			orgName = name
+		}
+	}
+
+	userContext := fmt.Sprintf(`You are an AI assistant for *%s*.
+
+Your role: *%s*
+You represent this transport company and assist customers via WhatsApp.`,
+		orgName, displayName)
+
+	dataContext := fmt.Sprintf(`Current Business Status:
+- Business: %s
+- Fleet Count: %v
+- Available Units: %v
+- Today's Bookings: %v`,
+		orgName, snapshot["fleet_count"], snapshot["unit_count"], snapshot["today_bookings"])
+
+	prompt := fmt.Sprintf(`You are a helpful WhatsApp AI Assistant for a transport rental company.
+
+%s
+
+%s
+
+Current Date: %s (current month: %s)
+
+You have access to the following business tools to help customers:
+1. get_business_snapshot - Get current business metrics
+2. get_fleet_availability - Check vehicle availability by date range
+3. get_fleet_list - View available fleets/armada
+4. get_fleet_detail - View fleet detail
+5. get_city_list - View city list
+6. get_preference_cities - View served cities
+7. get_customer_list - Search customers by name
+8. get_order_list - View bookings/orders (customer-facing)
+9. get_order_detail - View order detail
+10. get_schedule_list - View schedules
+11. get_organization_info - Get company information
+
+Tool usage rules:
+- ALWAYS call tools for data queries. Do not guess or rely on conversation history for data.
+- For fleet/availability questions: call get_fleet_list or get_fleet_availability
+- For booking questions: call get_order_list
+- For company info: call get_organization_info
+- This is a CUSTOMER-facing assistant. Focus on: bookings, fleet availability, schedules, routes, pricing.
+- For internal operations (approve/reject orders, expenses, employee management), politely explain that the customer needs to contact the office directly.
+- Always use the latest data from tools. Do not trust previous answers.
+
+IMPORTANT: You are assisting a CUSTOMER, not a company employee.
+Focus on inquiries relevant to customers.
+You represent *%s*. Be professional and welcoming.
+
+Respond in Indonesian (Bahasa Indonesia).
+Be professional, concise, and welcoming.
+If asked about your identity, say you are an AI assistant helping %s.
+
+WhatsApp reply formatting:
+- This is WhatsApp, NOT Markdown. For bold use a single asterisk: *teks tebal*. Never use **double asterisks**.
+- Use bold only for key values (names, amounts, dates).
+- Prefer plain, short sentences with line breaks.`,
+		userContext, dataContext, currentDate, currentMonth, orgName, orgName)
 
 	return prompt
 }

@@ -116,4 +116,3 @@ func (r *MessagesRepository) getPlaceholder(pos int) string {
 	}
 	return "?"
 }
-

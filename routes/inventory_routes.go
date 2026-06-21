@@ -10,9 +10,9 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-func SetupInventoryRoutes(api fiber.Router, db *sql.DB, driver string) {
+func SetupInventoryRoutes(api fiber.Router, db *sql.DB, driver string, notificationService *service.NotificationService) {
 	repo := repository.NewInventoryRepository(db, driver)
-	srv := service.NewInventoryService(repo)
+	srv := service.NewInventoryService(repo, notificationService)
 	h := handler.NewInventoryHandler(srv)
 
 	inventories := api.Group("/inventories")
@@ -32,6 +32,7 @@ func SetupInventoryRoutes(api fiber.Router, db *sql.DB, driver string) {
 	request.Post("/create", helper.JWTAuthorizationMiddleware(), h.CreateRequest)
 	request.Post("/detail", helper.JWTAuthorizationMiddleware(), h.GetRequestDetail)
 	request.Post("/update", helper.JWTAuthorizationMiddleware(), h.UpdateRequest)
+	request.Post("/submit-orders", helper.JWTAuthorizationMiddleware(), h.SubmitRequestOrders)
 
 	supliers := inventories.Group("/supliers")
 	supliers.Get("/list", helper.JWTAuthorizationMiddleware(), h.GetSuppliers)
@@ -43,4 +44,5 @@ func SetupInventoryRoutes(api fiber.Router, db *sql.DB, driver string) {
 	orders.Get("/list", helper.JWTAuthorizationMiddleware(), h.GetOrders)
 	orders.Post("/submit", helper.JWTAuthorizationMiddleware(), h.SubmitOrder)
 	orders.Post("/detail", helper.JWTAuthorizationMiddleware(), h.GetOrderDetail)
+	orders.Post("/received", helper.JWTAuthorizationMiddleware(), h.ReceiveOrder)
 }

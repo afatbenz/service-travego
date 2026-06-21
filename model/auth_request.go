@@ -2,11 +2,11 @@ package model
 
 // RegisterRequest represents registration request payload
 type RegisterRequest struct {
-    Username string `json:"username" validate:"omitempty,min=3,max=50"`
-    Fullname string `json:"fullname" validate:"required,min=3,max=100"`
-    Email    string `json:"email" validate:"required,email"`
-    Password string `json:"password" validate:"required,min=6"`
-    Phone    string `json:"phone" validate:"required"`
+	Username string `json:"username" validate:"omitempty,min=3,max=50"`
+	Fullname string `json:"fullname" validate:"required,min=3,max=100"`
+	Email    string `json:"email" validate:"required,email"`
+	Password string `json:"password" validate:"required,min=6"`
+	Phone    string `json:"phone" validate:"required"`
 }
 
 // VerifyOTPRequest represents verify OTP request payload
@@ -44,4 +44,3 @@ type UpdatePasswordRequest struct {
 type RefreshTokenRequest struct {
 	RefreshToken string `json:"refresh_token" validate:"required"`
 }
-

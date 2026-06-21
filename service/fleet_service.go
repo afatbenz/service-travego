@@ -1369,3 +1369,11 @@ func (s *FleetService) CancelPartnerOrderDetail(orgID string, userID string, ord
 	}
 	return res, nil
 }
+
+func (s *FleetService) GetFacilityList(orgID string) ([]model.FacilityItem, error) {
+	items, err := s.repo.GetFacilityList(orgID)
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to get facility list")
+	}
+	return items, nil
+}
