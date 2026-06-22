@@ -84,51 +84,88 @@ type InventoryRequest struct {
 	RequestID      string    `json:"request_id"`
 	RequestNumber  string    `json:"request_number"`
 	ItemID         string    `json:"item_id"`
+	ItemName       string    `json:"item_name"`
+	ItemUOM        string    `json:"item_uom"`
+	ItemCategory   int       `json:"item_category"`
 	GarageID       string    `json:"garage_id"`
 	Quantity       int       `json:"quantity"`
 	Status         int       `json:"status"`
 	OrganizationID string    `json:"organization_id"`
+	EmployeeID     string    `json:"employee_id"`
+	Notes          string    `json:"notes"`
 	CreatedAt      time.Time `json:"created_at"`
 	CreatedBy      string    `json:"created_by"`
 	ApproveAt      time.Time `json:"approve_at"`
 	ApproveBy      string    `json:"approve_by"`
+	ReceivedAt     time.Time `json:"received_at"`
+	ReceivedBy     string    `json:"received_by"`
 	UpdatedAt      time.Time `json:"updated_at"`
 	UpdatedBy      string    `json:"updated_by"`
 }
 
 type InventoryRequestWithLabel struct {
-	RequestID       string    `json:"request_id"`
-	RequestNumber   string    `json:"request_number"`
-	ItemID          string    `json:"item_id"`
-	ItemName        string    `json:"item_name"`
-	GarageID        string    `json:"garage_id"`
-	GarageName      string    `json:"garage_name"`
-	GarageCity      string    `json:"garage_city"`
-	GarageCityLabel string    `json:"garage_city_label"`
-	Quantity        int       `json:"quantity"`
-	Status          int       `json:"status"`
-	OrganizationID  string    `json:"organization_id"`
-	CreatedAt       time.Time `json:"created_at"`
-	CreatedBy       string    `json:"created_by"`
-	ApproveAt       time.Time `json:"approve_at"`
-	ApproveBy       string    `json:"approve_by"`
-	UpdatedAt       time.Time `json:"updated_at"`
-	UpdatedBy       string    `json:"updated_by"`
+	RequestID          string    `json:"request_id"`
+	RequestNumber      string    `json:"request_number"`
+	ItemID             string    `json:"item_id"`
+	ItemCategory       int       `json:"item_category"`
+	ItemCategoryLabel  string    `json:"item_category_label"`
+	ItemUOM            string    `json:"item_uom"`
+	ItemSKU            string    `json:"item_sku"`
+	ItemName           string    `json:"item_name"`
+	GarageID           string    `json:"garage_id"`
+	GarageName         string    `json:"garage_name"`
+	GarageCity         string    `json:"garage_city"`
+	GarageCityLabel    string    `json:"garage_city_label"`
+	Quantity           int       `json:"quantity"`
+	Status             int       `json:"status"`
+	RequestStatusLabel string    `json:"request_status_label"`
+	OrganizationID     string    `json:"organization_id"`
+	CreatedAt          time.Time `json:"created_at"`
+	CreatedBy          string    `json:"created_by"`
+	ApproveAt          time.Time `json:"approve_at"`
+	ApproveBy          string    `json:"approve_by"`
+	UpdatedAt          time.Time `json:"updated_at"`
+	UpdatedBy          string    `json:"updated_by"`
+	EmployeeName       string    `json:"employee_name"`
+	UnitID             string    `json:"unit_id"`
+	VehicleID          string    `json:"vehicle_id"`
+	PlateNumber        string    `json:"plate_number"`
+	PurchaseID         string    `json:"purchase_id"`
+	TransactionDate    string    `json:"transaction_date"`
+	OrderStatus        int       `json:"order_status"`
+	OrderStatusLabel   string    `json:"order_status_label"`
+	ReceivedAt         time.Time `json:"received_at"`
+	ReceivedBy         string    `json:"received_by"`
+	Stock              int       `json:"stock"`
 }
 
 type CreateInventoryRequestRequest struct {
-	RequestID string `json:"request_id"`
-	ItemID    string `json:"item_id"`
-	ItemName  string `json:"item_name"`
-	ItemPhone string `json:"item_phone"`
-	ItemURL   string `json:"item_url"`
-	GarageID  string `json:"garage_id"`
-	Quantity  int    `json:"quantity"`
+	RequestID    string `json:"request_id"`
+	ItemID       string `json:"item_id"`
+	ItemName     string `json:"item_name"`
+	ItemPhone    string `json:"item_phone"`
+	ItemURL      string `json:"item_url"`
+	GarageID     string `json:"garage_id"`
+	Quantity     int    `json:"quantity"`
+	ItemUOM      string `json:"item_uom"`
+	EmployeeID   string `json:"employee_id"`
+	ItemCategory int    `json:"item_category"`
+	UnitID       string `json:"unit_id"`
+	Notes        string `json:"notes"`
 }
 
 type UpdateInventoryRequestRequest struct {
 	RequestID string `json:"request_id"`
 	Action    string `json:"action"`
+}
+
+type ApproveInventoryRequestRequest struct {
+	RequestID string `json:"request_id"`
+	ItemID    string `json:"item_id"`
+}
+
+type RejectInventoryRequestRequest struct {
+	RequestID string `json:"request_id"`
 }
 
 type InventoryOrder struct {
@@ -148,6 +185,23 @@ type InventoryOrder struct {
 	CreatedBy       string    `json:"created_by"`
 	UpdatedAt       time.Time `json:"updated_at"`
 	UpdatedBy       string    `json:"updated_by"`
+}
+
+type InventoryHistory struct {
+	PurchaseID      string  `json:"purchase_id"`
+	RequestID       string  `json:"request_id"`
+	SupplierID      string  `json:"suplier_id"`
+	ItemID          string  `json:"item_id"`
+	ItemCategory    int     `json:"item_category"`
+	ItemPrice       float64 `json:"item_price"`
+	TotalAmount     float64 `json:"total_amount"`
+	GarageID        string  `json:"garage_id"`
+	Quantity        int     `json:"quantity"`
+	Amount          float64 `json:"amount"`
+	TransactionDate string  `json:"transaction_date"`
+	CompleteDate    string  `json:"complete_date"`
+	ReceivedBy      string  `json:"received_by"`
+	ReceivedAt      string  `json:"received_at"`
 }
 
 type InventoryOrderWithLabel struct {
@@ -205,6 +259,9 @@ type SubmitInventoryOrderRequest struct {
 
 type SubmitRequestOrderRequest struct {
 	RequestID     string  `json:"request_id"`
+	ItemID        string  `json:"item_id"`
+	ItemName      string  `json:"item_name"`
+	ItemUOM       string  `json:"item_uom"`
 	SupplierID    string  `json:"supplier_id"`
 	SupplierName  string  `json:"supplier_name"`
 	SupplierPhone string  `json:"supplier_phone"`
@@ -292,6 +349,7 @@ type GetItemMovementRequest struct {
 	ItemID    string `json:"item_id"`
 	StartDate string `json:"start_date"`
 	EndDate   string `json:"end_date"`
+	GarageID  string `json:"garage_id"`
 }
 
 type InventoryItemMovement struct {
@@ -322,4 +380,10 @@ type InventoryTransaction struct {
 	ReferenceID            string    `json:"reference_id"`
 	CreatedBy              string    `json:"created_by"`
 	CreatedAt              time.Time `json:"created_at"`
+}
+
+type GetItemOrderHistoryRequest struct {
+	ItemID    string `json:"item_id"`
+	StartDate string `json:"start_date"`
+	EndDate   string `json:"end_date"`
 }

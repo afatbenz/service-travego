@@ -69,8 +69,12 @@ func (r *InventoryRepository) ensureLocationsLoaded() {
 	}
 }
 
-func (r *InventoryRepository) GetAllItems(organizationID string) ([]model.InventoryItemWithLabel, error) {
+func (r *InventoryRepository) GetAllItems(organizationID string, itemCategory int) ([]model.InventoryItemWithLabel, error) {
 	var query string
+	var args []interface{}
+	args = append(args, organizationID)
+	pos := 2
+
 	if r.driver == "mysql" {
 		query = fmt.Sprintf(`
 			SELECT i.item_id, i.item_sku, i.item_name, i.item_uom, i.item_category, i.status, SUM(ig.stock) AS total_stock, GROUP_CONCAT(g.garage_name SEPARATOR ', ') AS garage_names, MAX(ig.created_at) AS created_at, MAX(ig.updated_at) AS updated_at
@@ -78,7 +82,6 @@ func (r *InventoryRepository) GetAllItems(organizationID string) ([]model.Invent
 			INNER JOIN inventory_item_garage ig ON ig.item_id = i.item_id
 			INNER JOIN garage g ON g.garage_id = ig.garage_id
 			WHERE i.organization_id = %s AND i.status = 1
-			GROUP BY i.item_id, i.item_sku, i.item_name, i.item_uom, i.item_category, i.status
 		`, r.getPlaceholder(1))
 	} else {
 		query = fmt.Sprintf(`
@@ -87,11 +90,18 @@ func (r *InventoryRepository) GetAllItems(organizationID string) ([]model.Invent
 			INNER JOIN inventory_item_garage ig ON ig.item_id = i.item_id
 			INNER JOIN garage g ON g.garage_id = ig.garage_id
 			WHERE i.organization_id = %s AND i.status = 1
-			GROUP BY i.item_id, i.item_sku, i.item_name, i.item_uom, i.item_category, i.status
 		`, r.getPlaceholder(1))
 	}
 
-	rows, err := database.Query(r.db, query, organizationID)
+	if itemCategory > 0 {
+		query += fmt.Sprintf(" AND i.item_category = %s", r.getPlaceholder(pos))
+		args = append(args, itemCategory)
+		pos++
+	}
+
+	query += " GROUP BY i.item_id, i.item_sku, i.item_name, i.item_uom, i.item_category, i.status"
+
+	rows, err := database.Query(r.db, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -307,13 +317,12 @@ func (r *InventoryRepository) DeleteItem(itemID, organizationID string) error {
 
 func (r *InventoryRepository) GetRequestList(organizationID string) ([]model.InventoryRequestWithLabel, error) {
 	query := `
-		SELECT ir.request_id, ir.request_number, ir.item_id, ir.garage_id, ir.quantity, ir.status, ir.organization_id,
-		       ir.created_at, ir.created_by, ir.approve_at, ir.approve_by, ir.updated_at, ir.updated_by,
-		       i.item_name, g.garage_name, g.garage_city
-		FROM inventory_request ir
-		LEFT JOIN inventory_items i ON ir.item_id = i.item_id
-		LEFT JOIN garage g ON ir.garage_id = g.garage_id
-		WHERE ir.organization_id = %s AND ir.status > 0
+		SELECT ir.request_id, ir.item_category, i.item_name, i.item_uom, i.item_sku, 
+		g.garage_name, ir.quantity, ir.status, e.fullname as employee_name
+		FROM inventory_request ir INNER JOIN inventory_items i ON i.item_id = ir.item_id
+		INNER JOIN garage g ON g.garage_id = ir.garage_id
+		INNER JOIN employee e ON e.uuid = ir.employee_id
+		WHERE ir.organization_id = %s 
 		ORDER BY ir.created_at DESC
 	`
 	query = fmt.Sprintf(query, r.getPlaceholder(1))
@@ -331,21 +340,14 @@ func (r *InventoryRepository) GetRequestList(organizationID string) ([]model.Inv
 		var garageCity string
 		if err := rows.Scan(
 			&item.RequestID,
-			&item.RequestNumber,
-			&item.ItemID,
-			&item.GarageID,
+			&item.ItemCategory,
+			&item.ItemName,
+			&item.ItemUOM,
+			&item.ItemSKU,
+			&item.GarageName,
 			&item.Quantity,
 			&item.Status,
-			&item.OrganizationID,
-			&item.CreatedAt,
-			&item.CreatedBy,
-			&item.ApproveAt,
-			&item.ApproveBy,
-			&item.UpdatedAt,
-			&item.UpdatedBy,
-			&item.ItemName,
-			&item.GarageName,
-			&garageCity,
+			&item.EmployeeName,
 		); err != nil {
 			return nil, err
 		}
@@ -361,35 +363,70 @@ func (r *InventoryRepository) GetRequestList(organizationID string) ([]model.Inv
 
 func (r *InventoryRepository) GetRequestByID(requestID, organizationID string) (*model.InventoryRequestWithLabel, error) {
 	query := `
-		SELECT ir.request_id, ir.request_number, ir.item_id, ir.garage_id, ir.quantity, ir.status, ir.organization_id,
-		       ir.created_at, ir.created_by, ir.approve_at, ir.approve_by, ir.updated_at, ir.updated_by,
-		       i.item_name, g.garage_name, g.garage_city
+		SELECT ir.request_id, ir.item_id, ir.garage_id, ir.organization_id, COALESCE(NULLIF(i.item_name, ''), ir.item_name) AS item_name, ir.item_category, i.item_sku, ir.quantity, ir.item_uom,
+			   g.garage_name, g.garage_city, ir.status as request_status,
+			   fu.unit_id, fu.vehicle_id, fu.plate_number,
+			   e.fullname as requested_by, io.purchase_id, io.transaction_date, io.status as order_status,
+			   ir.created_at, uc.fullname as created_by, ir.approve_at, ir.approve_by, ir.updated_at, uu.fullname as updated_by,
+			   ir.received_at, er.fullname as received_by
 		FROM inventory_request ir
+		INNER JOIN employee e ON e.uuid = ir.employee_id
+		INNER JOIN users uc ON uc.user_id = ir.created_by
+		LEFT JOIN users uu ON uu.user_id = ir.updated_by
+		LEFT JOIN employee er ON er.uuid = ir.received_by
 		LEFT JOIN inventory_items i ON ir.item_id = i.item_id
 		LEFT JOIN garage g ON ir.garage_id = g.garage_id
+		LEFT JOIN inventory_orders io ON io.request_id = ir.request_id
+		LEFT JOIN inventory_request_fleets if ON if.request_id = ir.request_id
+		LEFT JOIN fleet_units fu ON fu.unit_id = if.unit_id
 		WHERE ir.request_id = %s AND ir.organization_id = %s
 	`
 	query = fmt.Sprintf(query, r.getPlaceholder(1), r.getPlaceholder(2))
 
 	var item model.InventoryRequestWithLabel
 	var garageCity string
+	var itemSKU sql.NullString
+	var unitID sql.NullString
+	var vehicleID sql.NullString
+	var plateNumber sql.NullString
+	var createdByName sql.NullString
+	var approveByName sql.NullString
+	var updatedByName sql.NullString
+	var purchaseID sql.NullString
+	var transactionDate sql.NullString
+	var orderStatus sql.NullInt64
+	var receivedByName sql.NullString
+	var approveAt sql.NullTime
+	var receivedAt sql.NullTime
+
 	err := database.QueryRow(r.db, query, requestID, organizationID).Scan(
 		&item.RequestID,
-		&item.RequestNumber,
 		&item.ItemID,
 		&item.GarageID,
-		&item.Quantity,
-		&item.Status,
 		&item.OrganizationID,
-		&item.CreatedAt,
-		&item.CreatedBy,
-		&item.ApproveAt,
-		&item.ApproveBy,
-		&item.UpdatedAt,
-		&item.UpdatedBy,
 		&item.ItemName,
+		&item.ItemCategory,
+		&itemSKU,
+		&item.Quantity,
+		&item.ItemUOM,
 		&item.GarageName,
 		&garageCity,
+		&item.Status,
+		&unitID,
+		&vehicleID,
+		&plateNumber,
+		&item.EmployeeName,
+		&purchaseID,
+		&transactionDate,
+		&orderStatus,
+		&item.CreatedAt,
+		&createdByName,
+		&approveAt,
+		&approveByName,
+		&item.UpdatedAt,
+		&updatedByName,
+		&receivedAt,
+		&receivedByName,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -398,43 +435,138 @@ func (r *InventoryRepository) GetRequestByID(requestID, organizationID string) (
 		return nil, err
 	}
 
-	item.GarageCity = garageCity
+	if itemSKU.Valid {
+		item.ItemSKU = itemSKU.String
+	}
+	if unitID.Valid {
+		item.UnitID = unitID.String
+	}
+	if vehicleID.Valid {
+		item.VehicleID = vehicleID.String
+	}
+	if plateNumber.Valid {
+		item.PlateNumber = plateNumber.String
+	}
+	if createdByName.Valid {
+		item.CreatedBy = createdByName.String
+	}
+	if approveByName.Valid {
+		item.ApproveBy = approveByName.String
+	}
+	if updatedByName.Valid {
+		item.UpdatedBy = updatedByName.String
+	}
+	if purchaseID.Valid {
+		item.PurchaseID = purchaseID.String
+	}
+	if transactionDate.Valid {
+		item.TransactionDate = transactionDate.String
+	}
+	if orderStatus.Valid {
+		item.OrderStatus = int(orderStatus.Int64)
+	}
+	if receivedByName.Valid {
+		item.ReceivedBy = receivedByName.String
+	}
+	if approveAt.Valid {
+		item.ApproveAt = approveAt.Time
+	}
+	if receivedAt.Valid {
+		item.ReceivedAt = receivedAt.Time
+	}
+
 	r.ensureLocationsLoaded()
+	item.GarageCity = garageCity
 	if name, ok := r.cityMap[garageCity]; ok {
 		item.GarageCityLabel = name
+	}
+
+	switch item.Status {
+	case 1:
+		item.RequestStatusLabel = "Selesai / Diterima"
+	case 2:
+		item.RequestStatusLabel = "Menunggu Persetujuan"
+	case 3:
+		item.RequestStatusLabel = "Pesanan Diproses"
+	}
+
+	switch item.OrderStatus {
+	case 1:
+		item.OrderStatusLabel = "Selesai / Diterima"
+	case 2:
+		item.OrderStatusLabel = "Sedang Diproses"
+	case 0:
+		item.OrderStatusLabel = "Dibatalkan"
+	}
+
+	switch item.ItemCategory {
+	case 1:
+		item.ItemCategoryLabel = "Asset Armada"
+	case 2:
+		item.ItemCategoryLabel = "Asset Umum"
 	}
 
 	return &item, nil
 }
 
-func (r *InventoryRepository) CreateRequest(request *model.InventoryRequest) error {
-	if request.RequestID == "" {
-		request.RequestID = uuid.New().String()
+func (r *InventoryRepository) GetCurrentGarageItemStock(itemID, garageID, organizationID string) (int, error) {
+	query := fmt.Sprintf(`
+		SELECT stock FROM inventory_item_garage WHERE item_id = %s AND garage_id = %s AND organization_id = %s
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
+
+	var stock int
+	if err := database.QueryRow(r.db, query, itemID, garageID, organizationID).Scan(&stock); err != nil {
+		return 0, err
 	}
+	return stock, nil
+}
+
+func (r *InventoryRepository) CreateRequest(request *model.InventoryRequest) error {
 	now := time.Now()
 	request.CreatedAt = now
 	request.UpdatedAt = now
 
-	query := fmt.Sprintf(`
-		INSERT INTO inventory_request (request_id, request_number, item_id, garage_id, quantity, status, organization_id, created_at, created_by, updated_at, updated_by)
-		VALUES (%s, %s, %s, %s, %s, 2, %s, %s, %s, %s, %s)
-	`,
+	columns := "request_id, item_id, item_name, item_uom, item_category, garage_id, quantity, status, organization_id, employee_id, notes, created_at, created_by, updated_at, updated_by"
+	values := fmt.Sprintf("(%s, %s, %s, %s, %s, %s, %s, 2, %s, %s, %s, %s, %s, %s, %s)",
 		r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
-		r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10),
+		r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8),
+		r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12),
+		r.getPlaceholder(13), r.getPlaceholder(14),
 	)
+	query := fmt.Sprintf("INSERT INTO inventory_request (%s) VALUES %s", columns, values)
+	fmt.Println("CreateRequest query:", query)                      // Debugging line
+	fmt.Println("CreateRequest request id:", request.RequestNumber) // Debugging line
+	fmt.Println("CreateRequest ItemID, ", request.ItemID)
+	fmt.Println("CreateRequest GarageID, ", request.GarageID)
+	fmt.Println("CreateRequest GarageID, ", request.GarageID)
 
 	_, err := database.Exec(r.db, query,
-		request.RequestID,
 		request.RequestNumber,
 		request.ItemID,
+		request.ItemName,
+		request.ItemUOM,
+		request.ItemCategory,
 		request.GarageID,
 		request.Quantity,
 		request.OrganizationID,
+		request.EmployeeID,
+		request.Notes,
 		request.CreatedAt,
 		request.CreatedBy,
 		request.UpdatedAt,
 		request.UpdatedBy,
 	)
+
+	return err
+}
+
+func (r *InventoryRepository) CreateRequestFleet(requestNumber, unitID, createdBy string) error {
+	query := fmt.Sprintf(`
+		INSERT INTO inventory_request_fleets (request_id, unit_id, created_at, created_by)
+		VALUES (%s, %s, %s, %s)
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))
+
+	_, err := database.Exec(r.db, query, requestNumber, unitID, time.Now(), createdBy)
 	return err
 }
 
@@ -455,6 +587,143 @@ func (r *InventoryRepository) UpdateRequestApprove(requestID, organizationID, up
 
 	now := time.Now()
 	_, err := database.Exec(r.db, query, approveAt, updatedBy, now, updatedBy, requestID, organizationID)
+	return err
+}
+
+func (r *InventoryRepository) GetEmployeePhoneByUUID(employeeUUID string) (string, error) {
+	query := fmt.Sprintf(`
+		SELECT phone FROM employee WHERE uuid = %s LIMIT 1
+	`, r.getPlaceholder(1))
+
+	var phone string
+	if err := database.QueryRow(r.db, query, employeeUUID).Scan(&phone); err != nil {
+		if err == sql.ErrNoRows {
+			return "", nil
+		}
+		return "", err
+	}
+	return phone, nil
+}
+
+func (r *InventoryRepository) GetRequestForApprove(requestID, organizationID string) (*model.InventoryRequest, error) {
+	query := fmt.Sprintf(`
+		SELECT ir.request_id, ir.item_id, ir.item_name, ir.garage_id, ir.quantity, ir.employee_id, ir.organization_id
+		FROM inventory_request ir
+		WHERE ir.request_id = %s AND ir.organization_id = %s
+		LIMIT 1
+	`, r.getPlaceholder(1), r.getPlaceholder(2))
+
+	var req model.InventoryRequest
+	err := database.QueryRow(r.db, query, requestID, organizationID).Scan(
+		&req.RequestID,
+		&req.ItemID,
+		&req.ItemName,
+		&req.GarageID,
+		&req.Quantity,
+		&req.EmployeeID,
+		&req.OrganizationID,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, sql.ErrNoRows
+		}
+		return nil, err
+	}
+	return &req, nil
+}
+
+func (r *InventoryRepository) ApproveInventoryRequest(requestID, organizationID, itemID, employeeID, updatedBy string) error {
+	req, err := r.GetRequestForApprove(requestID, organizationID)
+	if err != nil {
+		return err
+	}
+
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+
+	rollback := true
+	defer func() {
+		if rollback {
+			_ = tx.Rollback()
+		}
+	}()
+
+	now := time.Now()
+	quantity := req.Quantity
+	fmt.Println("check itemid here ... ", req.ItemID)
+	fmt.Println("check garageid here ... ", req.GarageID)
+
+	if req.ItemID != "" {
+		currentStock, stockErr := r.GetItemGarageStock(req.ItemID, req.GarageID, organizationID)
+		fmt.Println("check currentStock here ... ", currentStock)
+		fmt.Println("check quantity here ... ", quantity)
+
+		if stockErr != nil && stockErr != sql.ErrNoRows {
+			fmt.Println("error get item garage stock ", stockErr)
+			return stockErr
+		}
+		if stockErr == sql.ErrNoRows {
+			currentStock = 0
+		}
+		newStock := currentStock - quantity
+		if newStock < 0 {
+			newStock = 0
+		}
+		fmt.Println("check newStock here ... ", newStock)
+		stockQuery := fmt.Sprintf(`
+			UPDATE inventory_item_garage SET stock = %s, updated_at = %s, updated_by = %s
+			WHERE item_id = %s AND garage_id = %s AND organization_id = %s
+		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6))
+		if _, err := database.TxExec(tx, stockQuery, newStock, now, updatedBy, req.ItemID, req.GarageID, organizationID); err != nil {
+			fmt.Println("error insert item_garage ", err)
+			return err
+		}
+		fmt.Println("check movement here ... ")
+		movementQuery := fmt.Sprintf(`
+			INSERT INTO inventory_movement (movement_id, item_id, garage_id, quantity, stock_before, stock_final, movement_type, notes, organization_id, created_at, created_by)
+			VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11))
+		if _, err := database.TxExec(tx, movementQuery, uuid.New().String(), req.ItemID, req.GarageID, quantity, currentStock, newStock, 3, "Request approved", organizationID, now, updatedBy); err != nil {
+			fmt.Println("error insert movement ", err)
+			return err
+		}
+		fmt.Println("check updateQuery here ... ")
+		updateQuery := fmt.Sprintf(`
+			UPDATE inventory_request SET item_id = %s, status = 1, received_at = %s, received_by = %s, updated_at = %s, updated_by = %s
+			WHERE request_id = %s AND organization_id = %s
+		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7))
+		_, err = database.TxExec(tx, updateQuery, req.ItemID, now, employeeID, now, updatedBy, requestID, organizationID)
+		if err != nil {
+			fmt.Println("error update inventory_request ", err)
+			return err
+		}
+	} else {
+		fmt.Println("check updateQuery here ... ")
+		updateQuery := fmt.Sprintf(`
+			UPDATE inventory_request SET status = 1, received_at = %s, received_by = %s, updated_at = %s, updated_by = %s
+			WHERE request_id = %s AND organization_id = %s
+		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6))
+		_, err = database.TxExec(tx, updateQuery, now, employeeID, now, updatedBy, requestID, organizationID)
+	}
+
+	if err != nil {
+		return err
+	}
+
+	rollback = false
+	return tx.Commit()
+}
+
+func (r *InventoryRepository) RejectInventoryRequest(requestID, organizationID, updatedBy string) error {
+	query := fmt.Sprintf(`
+		UPDATE inventory_request SET status = 0, updated_at = %s, updated_by = %s
+		WHERE request_id = %s AND organization_id = %s
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))
+
+	now := time.Now()
+	_, err := database.Exec(r.db, query, now, updatedBy, requestID, organizationID)
 	return err
 }
 
@@ -534,13 +803,14 @@ func (r *InventoryRepository) GetOrderByPurchaseID(purchaseID, organizationID st
 		SELECT io.purchase_id, io.request_id, io.quantity, io.item_price, io.total_amount, io.status,
 		       s.suplier_name, s.suplier_city,
 			   io.item_id, i.item_name, i.item_sku, i.item_uom, i.item_category, io.transaction_date, 
-			   g.garage_name, g.garage_city, io.created_at, u.fullname as create_by, t.invoice_number
+			   g.garage_name, g.garage_city, io.created_at, u.fullname as create_by, u2.fullname as updated_by, io.updated_at, t.invoice_number
 		FROM inventory_orders io
 		LEFT JOIN supliers s ON io.suplier_id = s.suplier_id
 		LEFT JOIN inventory_request ir ON io.request_id = ir.request_id
 		LEFT JOIN inventory_items i ON io.item_id = i.item_id
 		LEFT JOIN garage g ON io.garage_id = g.garage_id
 		INNER JOIN users u ON u.user_id = io.created_by
+		INNER JOIN users u2 ON u.user_id = io.updated_by
 		INNER JOIN transactions t ON t.reference_id = io.purchase_id
 		WHERE io.purchase_id = %s AND io.organization_id = %s
 	`
@@ -551,6 +821,8 @@ func (r *InventoryRepository) GetOrderByPurchaseID(purchaseID, organizationID st
 	var garageCity string
 	var itemCategory int
 	var itemSKU sql.NullString
+	var updateBy sql.NullString
+	var updatedAt sql.NullTime
 	err := database.QueryRow(r.db, query, purchaseID, organizationID).Scan(
 		&item.PurchaseID,
 		&item.RequestID,
@@ -570,6 +842,8 @@ func (r *InventoryRepository) GetOrderByPurchaseID(purchaseID, organizationID st
 		&garageCity,
 		&item.CreatedAt,
 		&item.CreatedBy,
+		&updateBy,
+		&updatedAt,
 		&item.InvoiceNumber,
 	)
 	if err != nil {
@@ -581,6 +855,12 @@ func (r *InventoryRepository) GetOrderByPurchaseID(purchaseID, organizationID st
 
 	if itemSKU.Valid {
 		item.ItemSKU = itemSKU.String
+	}
+	if updateBy.Valid {
+		item.UpdatedBy = updateBy.String
+	}
+	if updatedAt.Valid {
+		item.UpdatedAt = updatedAt.Time
 	}
 	item.ItemCategory = itemCategory
 	switch item.ItemCategory {
@@ -1032,6 +1312,7 @@ func (r *InventoryRepository) ReceivePurchaseOrder(purchaseID, organizationID, u
 	}()
 
 	var currentStock int
+	currentStock = 0
 	stockQuery := fmt.Sprintf(`
 		SELECT stock FROM inventory_item_garage 
 		WHERE item_id = %s AND garage_id = %s AND organization_id = %s
@@ -1238,7 +1519,7 @@ func (r *InventoryRepository) GetAdminAccountNumber(organizationID string) (stri
 	query := fmt.Sprintf(`
 		SELECT aa.account_number
 		FROM assistant_accounts aa
-		WHERE aa.user_type = 2
+		WHERE aa.user_type = 1
 		  AND aa.status = 1
 		  AND %s
 		LIMIT 1
@@ -1252,6 +1533,19 @@ func (r *InventoryRepository) GetAdminAccountNumber(organizationID string) (stri
 		return "", err
 	}
 	return accountNumber, nil
+}
+
+func (r *InventoryRepository) IsAdminByAccountNumber(accountNumber string) (bool, error) {
+	query := fmt.Sprintf(`
+		SELECT COUNT(1) FROM assistant_accounts
+		WHERE account_number = %s AND user_type = 1 AND status = 1
+	`, r.getPlaceholder(1))
+
+	var count int
+	if err := database.QueryRow(r.db, query, accountNumber).Scan(&count); err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 func (r *InventoryRepository) CreatePurchaseOrder(order *model.InventoryOrder) error {
@@ -1402,7 +1696,7 @@ func (r *InventoryRepository) GetItemDetail(itemID string) (*model.InventoryItem
 	return &item, nil
 }
 
-func (r *InventoryRepository) GetItemMovements(organizationID, itemID, startDate, endDate string) ([]model.InventoryItemMovement, error) {
+func (r *InventoryRepository) GetItemMovements(organizationID, itemID, startDate, endDate, garageID string) ([]model.InventoryItemMovement, error) {
 	query := `
 		SELECT im.movement_id, g.garage_name, mt.label as movement_type, im.quantity, im.stock_before, im.stock_final, i.item_uom, im.notes, im.created_at as movement_date
 		FROM inventory_movement im
@@ -1426,8 +1720,14 @@ func (r *InventoryRepository) GetItemMovements(organizationID, itemID, startDate
 		args = append(args, endDate)
 		pos++
 	}
+	if garageID != "" {
+		query += fmt.Sprintf(" AND im.garage_id = %s", r.getPlaceholder(pos))
+		args = append(args, garageID)
+		pos++
+	}
+
 	query += " ORDER BY im.created_at DESC"
-	fmt.Println("GetItemMovements query: ", query, organizationID, itemID, startDate, endDate)
+	fmt.Println("GetItemMovements query: ", query, organizationID, itemID, startDate, endDate, garageID)
 
 	rows, err := database.Query(r.db, query, args...)
 	if err != nil {
@@ -1468,4 +1768,101 @@ func (r *InventoryRepository) GetItemMovements(organizationID, itemID, startDate
 	}
 
 	return movements, nil
+}
+
+func (r *InventoryRepository) GetItemOrderHistory(organizationID, itemID, startDate, endDate string) ([]model.InventoryHistory, error) {
+	query := `
+		SELECT io.request_id, io.purchase_id, io.quantity, io.item_price, io.total_amount, io.transaction_date, io.complete_date, e.fullname as received_by, ir.received_at 
+		FROM inventory_orders io
+		LEFT JOIN inventory_request ir ON ir.request_id = io.request_id
+		LEFT JOIN employee e ON e.uuid = ir.received_by
+		WHERE io.organization_id = $1 AND io.item_id = $2 AND io.status = 1
+	`
+
+	var args []interface{}
+	args = append(args, organizationID, itemID)
+	pos := 3
+
+	if startDate != "" {
+		query += fmt.Sprintf(" AND DATE(io.transaction_date) >= %s", r.getPlaceholder(pos))
+		args = append(args, startDate)
+		pos++
+	}
+	if endDate != "" {
+		query += fmt.Sprintf(" AND DATE(io.transaction_date) <= %s", r.getPlaceholder(pos))
+		args = append(args, endDate)
+		pos++
+	}
+	query += " ORDER BY io.transaction_date DESC"
+	fmt.Println("GetItemOrderHistory query: ", query, organizationID, itemID, startDate, endDate)
+
+	rows, err := database.Query(r.db, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var histories []model.InventoryHistory
+	for rows.Next() {
+		var o model.InventoryHistory
+		var receivedBy sql.NullString
+		var receivedAt sql.NullTime
+		var completeDate sql.NullString
+		if err := rows.Scan(
+			&o.RequestID,
+			&o.PurchaseID,
+			&o.Quantity,
+			&o.ItemPrice,
+			&o.TotalAmount,
+			&o.TransactionDate,
+			&completeDate,
+			&receivedBy,
+			&receivedAt,
+		); err != nil {
+			return nil, err
+		}
+		if completeDate.Valid {
+			o.CompleteDate = completeDate.String
+		} else {
+			o.CompleteDate = ""
+		}
+		if receivedBy.Valid {
+			o.ReceivedBy = receivedBy.String
+		} else {
+			o.ReceivedBy = ""
+		}
+		if receivedAt.Valid {
+			o.ReceivedAt = receivedAt.Time.Format("2006-01-02 15:04:05")
+		} else {
+			o.ReceivedAt = ""
+		}
+		histories = append(histories, o)
+	}
+	return histories, nil
+}
+
+func (r *InventoryRepository) CancelPurchaseOrder(purchaseID, organizationID, updatedBy string) error {
+	query := `
+		UPDATE inventory_orders
+		SET updated_at = $1, updated_by = $2, status = 0
+		WHERE purchase_id = $3 AND organization_id = $4
+	`
+	_, err := r.db.Exec(query, time.Now().Format("2006-01-02 15:04:05"), updatedBy, purchaseID, organizationID)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *InventoryRepository) CancelInventoryTransaction(organizationID, updatedBy, purchaseID string) error {
+	query := `
+		UPDATE transactions
+		SET updated_at = $1, updated_by = $2, status = 0
+		WHERE reference_id = $3 AND organization_id = $4
+	`
+	_, err := r.db.Exec(query, time.Now().Format("2006-01-02 15:04:05"), updatedBy, purchaseID, organizationID)
+	if err != nil {
+		return err
+	}
+	return nil
 }

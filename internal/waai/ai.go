@@ -49,6 +49,7 @@ type AIClient struct {
 	dashboardService      *service.DashboardService
 	transactionService    *service.TransactionService
 	inventoryService      *service.InventoryService
+	garageService         *service.GarageService
 	printService          *service.PrintManagementService
 	wagyClient            *WagyClient
 }
@@ -81,6 +82,7 @@ func NewAIClient(apiKey string, db *sql.DB, dbDriver string, rdb *redis.Client, 
 	transactionRepo := repository.NewTransactionRepository(db, dbDriver)
 	printRepo := repository.NewPrintManagementRepository(db, dbDriver)
 	inventoryRepo := repository.NewInventoryRepository(db, dbDriver)
+	garageRepo := repository.NewGarageRepository(db, dbDriver)
 
 	// Load minimal email config for OrderService
 	emailCfg := &configs.EmailConfig{
@@ -111,6 +113,7 @@ func NewAIClient(apiKey string, db *sql.DB, dbDriver string, rdb *redis.Client, 
 		dashboardService:      service.NewDashboardService(dashboardRepo),
 		transactionService:    service.NewTransactionService(transactionRepo, notificationSvc),
 		inventoryService:      service.NewInventoryService(inventoryRepo, notificationSvc),
+		garageService:         service.NewGarageService(garageRepo),
 		printService:          service.NewPrintManagementService(printRepo),
 		wagyClient:            wagyClient,
 	}
@@ -682,6 +685,16 @@ You have access to the following functions to help users:
 37. get_inventory_items - View inventory item list with total stock per item and garage names
 38. get_inventory_detail - View inventory item detail by item_id, including stock per garage/location
 39. get_inventory_stock - Check stock count for an inventory item, either total stock or stock in a specific garage
+40. get_garage_list - Get garage/garasi list, optionally filtered by item_id
+41. get_item_suppliers - Get supplier list for inventory purchase orders
+42. get_item_movements - Get item inventory movement history, filterable by garage_id and date range
+43. get_item_order_history - Get item inventory order/purchase history by item_id and date range
+44. get_item_stock_distribution - Get stock distribution per garage/location from item detail locations[]
+45. get_purchase_order_list - Get inventory purchase order list
+46. get_purchase_order_detail - Get inventory purchase order detail by purchase_id
+47. complete_purchase_order - Mark inventory purchase order as completed/received
+48. cancel_purchase_order - Cancel/reject inventory purchase order
+49. create_new_item - Create new inventory item or add/update item stock; SKU is generated automatically when empty
 
 Tool usage rules:
 - [CRITICAL] Data dalam database dapat BERUBAH sewaktu-waktu. JANGAN PERCAYA jawaban Anda dari riwayat percakapan sebelumnya. Selalu PANGGIL TOOL setiap kali user menanyakan data (pesanan, pelanggan, jadwal, armada, dll.) untuk mendapatkan data TERBARU dari database.
@@ -696,7 +709,24 @@ Tool usage rules:
   1. Call get_inventory_items to check the inventory list or find item_id from item name/SKU.
   2. Call get_inventory_detail when the user asks for inventory item detail.
   3. Call get_inventory_stock when the user asks for jumlah stok / total stock, with item_id and optional garage_id.
-  4. If the user provides only an item name, first call get_inventory_items to find the matching item_id before calling get_inventory_detail or get_inventory_stock.
+  4. Call get_item_stock_distribution when the user asks for distribusi stok per garage/location.
+  5. Call get_item_movements when the user asks for riwayat movement item.
+  6. Call get_item_order_history when the user asks for riwayat order / purchase history item.
+  7. If the user provides only an item name, first call get_inventory_items to find the matching item_id before calling get_inventory_detail, get_inventory_stock, get_item_movements, get_item_order_history, or get_item_stock_distribution.
+- For garage/garasi-related inventory questions, call get_garage_list. If the user wants to create or update item stock and only mentions garage name/city, call get_garage_list first to get the correct garage_id.
+- For purchase order inventory questions, use get_purchase_order_list or get_purchase_order_detail. Use complete_purchase_order only when the user explicitly confirms barang sudah diterima. Use cancel_purchase_order only when the user explicitly asks to cancel/reject a purchase order.
+- For supplier questions in inventory/purchase order context, call get_item_suppliers to get supplier_id before calling create_new_item with transaction_type = 2.
+- When the user asks to create/request item baru, tambah stok item, atau buat item inventory baru:
+  - Use create_new_item.
+  - Before calling, ensure parameters are complete. If any required parameter is missing, ask the user for the missing parameter(s) instead of guessing.
+  - Required for all create_new_item calls: item_name or existing item_id, item_uom, item_category, stock, garage_id, transaction_type.
+  - Required when transaction_type = 2: item_price, transaction_date (YYYY-MM-DD), and supplier_id or supplier_name.
+  - item_sku is optional. If the user does not provide item_sku, call create_new_item with item_sku omitted/empty so the service generates SKU automatically.
+  - item_uom examples: Pcs, Box, Liter, Unit.
+  - item_category mapping: 1 = Kebutuhan Armada, 2 = kebutuhan kantor.
+  - transaction_type mapping: 1 = tambah stok yang ada, 2 = update stock sesuai input (tidak menambahkan stock yang sudah ada).
+  - If garage_id is unknown, call get_garage_list first or ask the user which garage/garasi to use.
+  - If supplier_id is unknown for transaction_type = 2, call get_item_suppliers first or ask the user for supplier details.
 - When the user asks about pesanan/order (e.g. "ada pesanan bulan ini?", "berapa order bulan Juni?"), you MUST call get_order_list with period set to the relevant YYYY-MM (use %s for "bulan ini"). Answer ONLY from the tool result summary (total_orders, paid, unpaid, revenue). Never guess from Today's Bookings — that number is for today only.
 - For order detail by order_id, call get_order_detail — JANGAN PERCAYA jawaban sebelumnya, selalu panggil tool untuk data terbaru.
 - For itinerary of order detail by order_id, call get_order_detail, get orders.itinerary[].
@@ -967,7 +997,7 @@ func (ac *AIClient) executeTool(ctx context.Context, toolName string, input json
 		return data
 
 	case "get_inventory_items":
-		items, err := ac.inventoryService.GetItems(orgID)
+		items, err := ac.inventoryService.GetItems(orgID, 0)
 		if err != nil {
 			return map[string]interface{}{"error": err.Error()}
 		}
@@ -1072,6 +1102,135 @@ func (ac *AIClient) executeTool(ctx context.Context, toolName string, input json
 			"total_stock":   totalStock,
 			"locations":     detail.Locations,
 		}
+
+	case "get_garage_list":
+		itemID := getStringParam(params, "item_id")
+		garages, err := ac.garageService.GetGarages(orgID, itemID)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		return garages
+
+	case "get_item_suppliers":
+		suppliers, err := ac.inventoryService.GetSuppliers(orgID)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		return suppliers
+
+	case "get_item_movements":
+		itemID := getStringParam(params, "item_id")
+		if itemID == "" {
+			return map[string]interface{}{"error": "item_id is required"}
+		}
+		movements, err := ac.inventoryService.GetItemMovements(orgID, itemID, getStringParam(params, "start_date"), getStringParam(params, "end_date"), getStringParam(params, "garage_id"))
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		return map[string]interface{}{
+			"movements": movements,
+			"count":     len(movements),
+		}
+
+	case "get_item_order_history":
+		itemID := getStringParam(params, "item_id")
+		if itemID == "" {
+			return map[string]interface{}{"error": "item_id is required"}
+		}
+		history, err := ac.inventoryService.GetItemOrderHistory(orgID, itemID, getStringParam(params, "start_date"), getStringParam(params, "end_date"))
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		return map[string]interface{}{
+			"history": history,
+			"count":   len(history),
+		}
+
+	case "get_item_stock_distribution":
+		itemID := getStringParam(params, "item_id")
+		if itemID == "" {
+			return map[string]interface{}{"error": "item_id is required"}
+		}
+		detail, err := ac.inventoryService.GetItemDetail(itemID)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+
+		totalStock := 0
+		for _, location := range detail.Locations {
+			totalStock += location.Stock
+		}
+
+		return map[string]interface{}{
+			"item_id":       detail.ItemID,
+			"item_sku":      detail.ItemSKU,
+			"item_name":     detail.ItemName,
+			"item_uom":      detail.ItemUOM,
+			"item_category": detail.ItemCategory,
+			"total_stock":   totalStock,
+			"locations":     detail.Locations,
+		}
+
+	case "get_purchase_order_list":
+		orders, err := ac.inventoryService.GetOrders(orgID)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		return map[string]interface{}{
+			"orders": orders,
+			"count":  len(orders),
+		}
+
+	case "get_purchase_order_detail":
+		purchaseID := getStringParam(params, "purchase_id")
+		if purchaseID == "" {
+			return map[string]interface{}{"error": "purchase_id is required"}
+		}
+		order, err := ac.inventoryService.GetOrder(purchaseID, orgID)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		return order
+
+	case "complete_purchase_order":
+		purchaseID := getStringParam(params, "purchase_id")
+		if purchaseID == "" {
+			return map[string]interface{}{"error": "purchase_id is required"}
+		}
+		if err := ac.inventoryService.ReceiveRequest(orgID, userID, &model.ReceiveInventoryOrderRequest{PurchaseID: purchaseID}); err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		return map[string]interface{}{
+			"status":      "success",
+			"message":     "Purchase order completed successfully",
+			"purchase_id": purchaseID,
+		}
+
+	case "cancel_purchase_order":
+		purchaseID := getStringParam(params, "purchase_id")
+		if purchaseID == "" {
+			return map[string]interface{}{"error": "purchase_id is required"}
+		}
+		if err := ac.inventoryService.CancelOrder(orgID, userID, purchaseID); err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		return map[string]interface{}{
+			"status":      "success",
+			"message":     "Purchase order cancelled successfully",
+			"purchase_id": purchaseID,
+		}
+
+	case "create_new_item":
+		return ac.createNewItem(ctx, orgID, userID, params)
+
+	case "create_inventory_request":
+		return ac.createInventoryRequest(ctx, orgID, userID, params)
+
+	case "approve_inventory_request":
+		return ac.approveInventoryRequest(ctx, orgID, userID, params)
+
+	case "reject_inventory_request":
+		return ac.rejectInventoryRequest(ctx, orgID, userID, params)
 
 	case "get_booking_list":
 		status := getStringParam(params, "status")
@@ -1572,6 +1731,120 @@ func (ac *AIClient) getFleetUnits(orgID string, params map[string]interface{}) i
 	return items
 }
 
+func (ac *AIClient) createNewItem(ctx context.Context, orgID, userID string, params map[string]interface{}) interface{} {
+	itemID := getStringParam(params, "item_id")
+	itemName := getStringParam(params, "item_name")
+	itemSKU := getStringParam(params, "item_sku")
+	itemUOM := getStringParam(params, "item_uom")
+	itemCategory := getIntParam(params, "item_category")
+	stock := getIntParam(params, "stock")
+	garageID := getStringParam(params, "garage_id")
+	transactionType := getStringParam(params, "transaction_type")
+	transactionDate := getStringParam(params, "transaction_date")
+	itemPrice := getFloatParam(params, "item_price")
+	supplierID := getStringParam(params, "supplier_id")
+	supplierName := getStringParam(params, "supplier_name")
+	supplierPhone := getStringParam(params, "supplier_phone")
+	supplierURL := getStringParam(params, "supplier_url")
+	supplierPrice := getFloatParam(params, "supplier_price")
+	notes := getStringParam(params, "notes")
+
+	missing := make([]string, 0)
+	if itemID == "" && itemName == "" {
+		missing = append(missing, "item_id or item_name")
+	}
+	if itemUOM == "" {
+		missing = append(missing, "item_uom")
+	}
+	if itemCategory == 0 {
+		missing = append(missing, "item_category")
+	} else if itemCategory != 1 && itemCategory != 2 {
+		missing = append(missing, "item_category must be 1 or 2")
+	}
+	if stock <= 0 {
+		missing = append(missing, "stock")
+	}
+	if garageID == "" {
+		missing = append(missing, "garage_id")
+	}
+	if transactionType == "" {
+		missing = append(missing, "transaction_type")
+	} else if transactionType != "1" && transactionType != "2" {
+		missing = append(missing, "transaction_type must be 1 or 2")
+	}
+	if transactionType == "2" {
+		if itemPrice <= 0 {
+			missing = append(missing, "item_price")
+		}
+		if transactionDate == "" {
+			missing = append(missing, "transaction_date")
+		}
+		if supplierID == "" && supplierName == "" {
+			missing = append(missing, "supplier_id or supplier_name")
+		}
+	}
+
+	if len(missing) > 0 {
+		return map[string]interface{}{
+			"error":             "missing required parameters",
+			"missing_required":  missing,
+			"item_uom_examples": []string{"Pcs", "Box", "Liter", "Unit"},
+			"item_category": map[string]string{
+				"1": "Kebutuhan Armada",
+				"2": "kebutuhan kantor",
+			},
+			"transaction_type": map[string]string{
+				"1": "tambah stok yang ada",
+				"2": "update stock sesuai input (tidak menambahkan stock yang sudah ada)",
+			},
+		}
+	}
+
+	if itemSKU == "" {
+		generatedSKU, err := ac.inventoryService.GenerateItemSKU(orgID)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		itemSKU = generatedSKU
+	}
+
+	req := &model.CreateInventoryItemRequest{
+		ItemID:          itemID,
+		ItemSKU:         itemSKU,
+		ItemName:        itemName,
+		ItemUOM:         itemUOM,
+		ItemCategory:    itemCategory,
+		Stock:           stock,
+		GarageID:        garageID,
+		TransactionType: transactionType,
+		TransactionDate: transactionDate,
+		SupplierID:      supplierID,
+		SupplierName:    supplierName,
+		SupplierPhone:   supplierPhone,
+		SupplierURL:     supplierURL,
+		SupplierPrice:   supplierPrice,
+		Notes:           notes,
+	}
+
+	item, err := ac.inventoryService.CreateItem(orgID, userID, req)
+	if err != nil {
+		return map[string]interface{}{"error": err.Error()}
+	}
+
+	return map[string]interface{}{
+		"status":           "success",
+		"message":          "Item created successfully",
+		"item_id":          item.ItemID,
+		"item_sku":         itemSKU,
+		"item_name":        itemName,
+		"item_uom":         itemUOM,
+		"item_category":    itemCategory,
+		"stock":            stock,
+		"garage_id":        garageID,
+		"transaction_type": transactionType,
+	}
+}
+
 type waaiContextKey string
 
 const (
@@ -1897,4 +2170,118 @@ func monthPeriodToOrderDateRange(period string) (string, string, bool) {
 	start := time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.Local)
 	end := start.AddDate(0, 1, 0).Add(-time.Second)
 	return start.Format("2006-01-02") + " 00:00:00", end.Format("2006-01-02") + " 23:59:59", true
+}
+
+func (ac *AIClient) requireAdmin(ctx context.Context) error {
+	phone, _ := ctx.Value(phoneKey).(string)
+	phone = strings.TrimSpace(phone)
+	if phone == "" {
+		return fmt.Errorf("unauthorized: admin access required")
+	}
+	isAdmin, err := ac.inventoryService.IsAdminByAccountNumber(phone)
+	if err != nil {
+		return fmt.Errorf("failed to verify admin: %w", err)
+	}
+	if !isAdmin {
+		return fmt.Errorf("unauthorized: only admin can perform this action")
+	}
+	return nil
+}
+
+func (ac *AIClient) createInventoryRequest(ctx context.Context, orgID, userID string, params map[string]interface{}) interface{} {
+	itemID := getStringParam(params, "item_id")
+	itemName := getStringParam(params, "item_name")
+	quantity := getIntParam(params, "quantity")
+	garageID := getStringParam(params, "garage_id")
+	employeeID := getStringParam(params, "employee_id")
+	itemUOM := getStringParam(params, "item_uom")
+	itemCategory := getIntParam(params, "item_category")
+	notes := getStringParam(params, "notes")
+
+	if itemID != "" && itemName != "" {
+		return map[string]interface{}{"error": "send item_id or item_name, not both"}
+	}
+	if itemID == "" && itemName == "" {
+		return map[string]interface{}{"error": "item_id or item_name is required"}
+	}
+	if quantity <= 0 {
+		return map[string]interface{}{"error": "quantity must be greater than 0"}
+	}
+	if garageID == "" {
+		return map[string]interface{}{"error": "garage_id is required"}
+	}
+
+	req := &model.CreateInventoryRequestRequest{
+		ItemID:       itemID,
+		ItemName:     itemName,
+		Quantity:     quantity,
+		GarageID:     garageID,
+		EmployeeID:   employeeID,
+		ItemUOM:      itemUOM,
+		ItemCategory: itemCategory,
+		Notes:        notes,
+	}
+
+	request, err := ac.inventoryService.CreateRequest(orgID, userID, req)
+	if err != nil {
+		return map[string]interface{}{"error": err.Error()}
+	}
+
+	return map[string]interface{}{
+		"status":         "success",
+		"message":        "Inventory request created",
+		"request_id":     request.RequestID,
+		"request_number": request.RequestNumber,
+	}
+}
+
+func (ac *AIClient) approveInventoryRequest(ctx context.Context, orgID, userID string, params map[string]interface{}) interface{} {
+	if err := ac.requireAdmin(ctx); err != nil {
+		return map[string]interface{}{"error": err.Error()}
+	}
+
+	requestID := getStringParam(params, "request_id")
+	itemID := getStringParam(params, "item_id")
+
+	if requestID == "" {
+		return map[string]interface{}{"error": "request_id is required"}
+	}
+
+	req := &model.ApproveInventoryRequestRequest{
+		RequestID: requestID,
+		ItemID:    itemID,
+	}
+
+	if err := ac.inventoryService.ApproveRequest(orgID, userID, req); err != nil {
+		return map[string]interface{}{"error": err.Error()}
+	}
+
+	return map[string]interface{}{
+		"status":  "success",
+		"message": "Inventory request approved successfully",
+	}
+}
+
+func (ac *AIClient) rejectInventoryRequest(ctx context.Context, orgID, userID string, params map[string]interface{}) interface{} {
+	if err := ac.requireAdmin(ctx); err != nil {
+		return map[string]interface{}{"error": err.Error()}
+	}
+
+	requestID := getStringParam(params, "request_id")
+	if requestID == "" {
+		return map[string]interface{}{"error": "request_id is required"}
+	}
+
+	req := &model.RejectInventoryRequestRequest{
+		RequestID: requestID,
+	}
+
+	if err := ac.inventoryService.RejectRequest(orgID, userID, req); err != nil {
+		return map[string]interface{}{"error": err.Error()}
+	}
+
+	return map[string]interface{}{
+		"status":  "success",
+		"message": "Inventory request rejected successfully",
+	}
 }
