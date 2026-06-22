@@ -2,20 +2,28 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"service-travego/helper"
+	"service-travego/internal/waai"
 	"service-travego/model"
 	"service-travego/service"
+	"strconv"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
 )
 
 type InventoryHandler struct {
-	service *service.InventoryService
+	service    *service.InventoryService
+	wagyClient *waai.WagyClient
 }
 
 func NewInventoryHandler(s *service.InventoryService) *InventoryHandler {
 	return &InventoryHandler{service: s}
+}
+
+func (h *InventoryHandler) SetWagyClient(wagyClient *waai.WagyClient) {
+	h.wagyClient = wagyClient
 }
 
 func (h *InventoryHandler) GetItems(c *fiber.Ctx) error {
@@ -24,7 +32,15 @@ func (h *InventoryHandler) GetItems(c *fiber.Ctx) error {
 		return helper.BadRequestResponse(c, "missing organization context")
 	}
 
-	items, err := h.service.GetItems(orgID)
+	itemCategoryStr := c.Query("item_category", "")
+	itemCategory := 0
+	if itemCategoryStr != "" {
+		if v, err := strconv.Atoi(itemCategoryStr); err == nil {
+			itemCategory = v
+		}
+	}
+
+	items, err := h.service.GetItems(orgID, itemCategory)
 	if err != nil {
 		code := service.GetStatusCode(err)
 		return helper.SendErrorResponse(c, code, err.Error())
@@ -303,8 +319,8 @@ func (h *InventoryHandler) GetItemDetail(c *fiber.Ctx) error {
 	return helper.SuccessResponse(c, fiber.StatusOK, "Item detail loaded", item)
 }
 
-func (h *InventoryHandler) GetItemMovements(c *fiber.Ctx) error {
-	var req model.GetItemMovementRequest
+func (h *InventoryHandler) GetItemOrderHistory(c *fiber.Ctx) error {
+	var req model.GetItemOrderHistoryRequest
 	if err := c.BodyParser(&req); err != nil {
 		raw := c.Body()
 		var m map[string]interface{}
@@ -330,7 +346,45 @@ func (h *InventoryHandler) GetItemMovements(c *fiber.Ctx) error {
 		return helper.BadRequestResponse(c, "missing organization context")
 	}
 
-	movements, err := h.service.GetItemMovements(orgID, req.ItemID, req.StartDate, req.EndDate)
+	histories, err := h.service.GetItemOrderHistory(orgID, req.ItemID, req.StartDate, req.EndDate)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Order history loaded", histories)
+}
+
+func (h *InventoryHandler) GetItemMovements(c *fiber.Ctx) error {
+	var req model.GetItemMovementRequest
+	if err := c.BodyParser(&req); err != nil {
+		raw := c.Body()
+		var m map[string]interface{}
+		if err2 := json.Unmarshal(raw, &m); err2 == nil {
+			if v, ok := m["item_id"].(string); ok {
+				req.ItemID = v
+			}
+			if v, ok := m["start_date"].(string); ok {
+				req.StartDate = v
+			}
+			if v, ok := m["end_date"].(string); ok {
+				req.EndDate = v
+			}
+			if v, ok := m["garage_id"].(string); ok {
+				req.GarageID = v
+			}
+		}
+	}
+
+	if req.ItemID == "" {
+		return helper.BadRequestResponse(c, "item_id is required")
+	}
+
+	orgID, _ := c.Locals("organization_id").(string)
+	if orgID == "" {
+		return helper.BadRequestResponse(c, "missing organization context")
+	}
+
+	movements, err := h.service.GetItemMovements(orgID, req.ItemID, req.StartDate, req.EndDate, req.GarageID)
 	if err != nil {
 		code := service.GetStatusCode(err)
 		return helper.SendErrorResponse(c, code, err.Error())
@@ -379,6 +433,66 @@ func (h *InventoryHandler) CreateRequest(c *fiber.Ctx) error {
 			if v, ok := m["quantity"]; ok {
 				req.Quantity = helper.ToInt(v)
 			}
+			if v, ok := m["item_uom"].(string); ok {
+				req.ItemUOM = v
+			}
+			if v, ok := m["employee_id"].(string); ok {
+				req.EmployeeID = v
+			}
+			if v, ok := m["item_category"]; ok {
+				req.ItemCategory = helper.ToInt(v)
+			}
+			if v, ok := m["unit_id"].(string); ok {
+				req.UnitID = v
+			}
+			if v, ok := m["notes"].(string); ok {
+				req.Notes = v
+			}
+		}
+	}
+
+	if req.ItemID != "" && req.ItemName != "" {
+		return helper.BadRequestResponse(c, "send item_id or item_name, not both")
+	}
+
+	userID, _ := c.Locals("user_id").(string)
+	orgID, _ := c.Locals("organization_id").(string)
+	if userID == "" || orgID == "" {
+		return helper.BadRequestResponse(c, "missing user or organization context")
+	}
+
+	request, err := h.service.CreateRequest(orgID, userID, &req)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	if h.wagyClient != nil {
+		adminPhone, phoneErr := h.service.GetAdminPhone(orgID)
+		if phoneErr == nil && adminPhone != "" {
+			normalized := service.NormalizeAssistantAccountNumber(adminPhone)
+			message := fmt.Sprintf("Ada permintaan item %s untuk garasi dengan jumlah %d", request.ItemName, request.Quantity)
+			go h.wagyClient.SendMessage(normalized, message)
+		}
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Request created", fiber.Map{
+		"request_id": request.RequestID,
+	})
+}
+
+func (h *InventoryHandler) ApproveRequest(c *fiber.Ctx) error {
+	var req model.ApproveInventoryRequestRequest
+	if err := c.BodyParser(&req); err != nil {
+		raw := c.Body()
+		var m map[string]interface{}
+		if err2 := json.Unmarshal(raw, &m); err2 == nil {
+			if v, ok := m["request_id"].(string); ok {
+				req.RequestID = v
+			}
+			if v, ok := m["item_id"].(string); ok {
+				req.ItemID = v
+			}
 		}
 	}
 
@@ -388,24 +502,49 @@ func (h *InventoryHandler) CreateRequest(c *fiber.Ctx) error {
 		return helper.BadRequestResponse(c, "missing user or organization context")
 	}
 
-	if req.ItemID == "" && req.ItemName == "" {
-		return helper.BadRequestResponse(c, "item_id or item_name is required")
-	}
-	if req.GarageID == "" {
-		return helper.BadRequestResponse(c, "garage_id is required")
-	}
-	if req.Quantity <= 0 {
-		return helper.BadRequestResponse(c, "quantity is required")
-	}
-
-	request, err := h.service.CreateRequest(orgID, userID, &req)
-	if err != nil {
+	if err := h.service.ApproveRequest(orgID, userID, &req); err != nil {
 		code := service.GetStatusCode(err)
 		return helper.SendErrorResponse(c, code, err.Error())
 	}
-	return helper.SuccessResponse(c, fiber.StatusOK, "Request created", fiber.Map{
-		"request_id": request.RequestID,
-	})
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Request approved successfully", nil)
+}
+
+func (h *InventoryHandler) RejectRequest(c *fiber.Ctx) error {
+	var req model.RejectInventoryRequestRequest
+	if err := c.BodyParser(&req); err != nil {
+		raw := c.Body()
+		var m map[string]interface{}
+		if err2 := json.Unmarshal(raw, &m); err2 == nil {
+			if v, ok := m["request_id"].(string); ok {
+				req.RequestID = v
+			}
+		}
+	}
+
+	userID, _ := c.Locals("user_id").(string)
+	orgID, _ := c.Locals("organization_id").(string)
+	if userID == "" || orgID == "" {
+		return helper.BadRequestResponse(c, "missing user or organization context")
+	}
+
+	if err := h.service.RejectRequest(orgID, userID, &req); err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	if h.wagyClient != nil {
+		inventoryReq, getErr := h.service.GetRequestForApprove(req.RequestID, orgID)
+		if getErr == nil && inventoryReq.EmployeeID != "" {
+			phone, phoneErr := h.service.GetEmployeePhone(inventoryReq.EmployeeID)
+			if phoneErr == nil && phone != "" {
+				message := fmt.Sprintf("Permintaan dengan request_id %s telah ditolak", req.RequestID)
+				go h.wagyClient.SendMessage(phone, message)
+			}
+		}
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Request rejected successfully", nil)
 }
 
 func (h *InventoryHandler) GetRequestDetail(c *fiber.Ctx) error {
@@ -501,17 +640,11 @@ func (h *InventoryHandler) SubmitRequestOrders(c *fiber.Ctx) error {
 		return helper.BadRequestResponse(c, "missing user or organization context")
 	}
 
-	if req.RequestID == "" {
-		return helper.BadRequestResponse(c, "request_id is required")
+	if req.ItemID == "" && req.ItemName == "" {
+		return helper.BadRequestResponse(c, "item_id or item_name is required")
 	}
-	if req.ItemPrice <= 0 {
-		return helper.BadRequestResponse(c, "item_price is required")
-	}
-	if req.Quantity <= 0 {
-		return helper.BadRequestResponse(c, "quantity is required")
-	}
-	if req.SupplierID == "" && req.SupplierName == "" {
-		return helper.BadRequestResponse(c, "suplier_id or suplier_name is required")
+	if req.ItemName != "" && req.ItemUOM == "" {
+		return helper.BadRequestResponse(c, "item_uom is required when item_name is provided")
 	}
 
 	order, err := h.service.SubmitRequestOrder(orgID, userID, &req)
@@ -524,7 +657,7 @@ func (h *InventoryHandler) SubmitRequestOrders(c *fiber.Ctx) error {
 	})
 }
 
-func (h *InventoryHandler) ReceiveOrder(c *fiber.Ctx) error {
+func (h *InventoryHandler) CompleteOrder(c *fiber.Ctx) error {
 	var req struct {
 		PurchaseID string `json:"purchase_id"`
 	}
@@ -719,4 +852,31 @@ func (h *InventoryHandler) DeleteSupplier(c *fiber.Ctx) error {
 		return helper.SendErrorResponse(c, code, err.Error())
 	}
 	return helper.SuccessResponse(c, fiber.StatusOK, "Supplier deleted", nil)
+}
+
+func (h *InventoryHandler) CancelOrder(c *fiber.Ctx) error {
+	var req struct {
+		PurchaseID string `json:"purchase_id"`
+	}
+	if err := c.BodyParser(&req); err != nil {
+		raw := c.Body()
+		var m map[string]interface{}
+		if err2 := json.Unmarshal(raw, &m); err2 == nil {
+			if v, ok := m["purchase_id"].(string); ok {
+				req.PurchaseID = v
+			}
+		}
+	}
+
+	userID, _ := c.Locals("user_id").(string)
+	orgID, _ := c.Locals("organization_id").(string)
+	if userID == "" || orgID == "" {
+		return helper.BadRequestResponse(c, "missing user or organization context")
+	}
+
+	if err := h.service.CancelOrder(orgID, userID, req.PurchaseID); err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Order canceled", nil)
 }

@@ -4,16 +4,19 @@ import (
 	"database/sql"
 	"service-travego/handler"
 	"service-travego/helper"
+	"service-travego/internal/waai"
 	"service-travego/repository"
 	"service-travego/service"
 
 	"github.com/gofiber/fiber/v2"
 )
 
-func SetupInventoryRoutes(api fiber.Router, db *sql.DB, driver string, notificationService *service.NotificationService) {
+func SetupInventoryRoutes(api fiber.Router, db *sql.DB, driver string, notificationService *service.NotificationService, wagyClient *waai.WagyClient) {
 	repo := repository.NewInventoryRepository(db, driver)
 	srv := service.NewInventoryService(repo, notificationService)
+
 	h := handler.NewInventoryHandler(srv)
+	h.SetWagyClient(wagyClient)
 
 	inventories := api.Group("/inventories")
 
@@ -25,6 +28,7 @@ func SetupInventoryRoutes(api fiber.Router, db *sql.DB, driver string, notificat
 	items.Post("/delete", helper.JWTAuthorizationMiddleware(), h.DeleteItem)
 	items.Post("/transfer", helper.JWTAuthorizationMiddleware(), h.TransferItem)
 	items.Post("/detail", helper.JWTAuthorizationMiddleware(), h.GetItemDetail)
+	items.Post("/order-history", helper.JWTAuthorizationMiddleware(), h.GetItemOrderHistory)
 	items.Post("/movement", helper.JWTAuthorizationMiddleware(), h.GetItemMovements)
 
 	request := inventories.Group("/request")
@@ -33,6 +37,8 @@ func SetupInventoryRoutes(api fiber.Router, db *sql.DB, driver string, notificat
 	request.Post("/detail", helper.JWTAuthorizationMiddleware(), h.GetRequestDetail)
 	request.Post("/update", helper.JWTAuthorizationMiddleware(), h.UpdateRequest)
 	request.Post("/submit-orders", helper.JWTAuthorizationMiddleware(), h.SubmitRequestOrders)
+	request.Post("/approve", helper.JWTAuthorizationMiddleware(), h.ApproveRequest)
+	request.Post("/reject", helper.JWTAuthorizationMiddleware(), h.RejectRequest)
 
 	supliers := inventories.Group("/supliers")
 	supliers.Get("/list", helper.JWTAuthorizationMiddleware(), h.GetSuppliers)
@@ -44,5 +50,6 @@ func SetupInventoryRoutes(api fiber.Router, db *sql.DB, driver string, notificat
 	orders.Get("/list", helper.JWTAuthorizationMiddleware(), h.GetOrders)
 	orders.Post("/submit", helper.JWTAuthorizationMiddleware(), h.SubmitOrder)
 	orders.Post("/detail", helper.JWTAuthorizationMiddleware(), h.GetOrderDetail)
-	orders.Post("/received", helper.JWTAuthorizationMiddleware(), h.ReceiveOrder)
+	orders.Post("/completed", helper.JWTAuthorizationMiddleware(), h.CompleteOrder)
+	orders.Post("/canceled", helper.JWTAuthorizationMiddleware(), h.CancelOrder)
 }

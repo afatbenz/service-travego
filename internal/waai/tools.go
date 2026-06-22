@@ -264,6 +264,343 @@ func GetToolDefinitions() []ToolDefinition {
 		},
 		{
 			Type: "function",
+			Name: "get_garage_list",
+			Function: FunctionDefinition{
+				Name:        "get_garage_list",
+				Description: "Get daftar garage/garasi untuk organization. Gunakan untuk mencari garage_id saat membuat item atau cek stok per garage.",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"item_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional item ID to filter garages that have this item",
+						},
+					},
+					"required": []string{},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Name: "get_item_suppliers",
+			Function: FunctionDefinition{
+				Name:        "get_item_suppliers",
+				Description: "Get daftar supplier untuk purchase order item inventory.",
+				Parameters: map[string]interface{}{
+					"type":       "object",
+					"properties": map[string]interface{}{},
+					"required":   []string{},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Name: "get_item_movements",
+			Function: FunctionDefinition{
+				Name:        "get_item_movements",
+				Description: "Get riwayat movement item inventory. Bisa filter by item_id, start_date, end_date, dan garage_id.",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"item_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Inventory item ID",
+						},
+						"start_date": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional start date in YYYY-MM-DD format",
+						},
+						"end_date": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional end date in YYYY-MM-DD format",
+						},
+						"garage_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional garage ID filter",
+						},
+					},
+					"required": []string{"item_id"},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Name: "get_item_order_history",
+			Function: FunctionDefinition{
+				Name:        "get_item_order_history",
+				Description: "Get riwayat purchase order / history untuk item inventory.",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"item_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Inventory item ID",
+						},
+						"start_date": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional start date in YYYY-MM-DD format",
+						},
+						"end_date": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional end date in YYYY-MM-DD format",
+						},
+					},
+					"required": []string{"item_id"},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Name: "get_item_stock_distribution",
+			Function: FunctionDefinition{
+				Name:        "get_item_stock_distribution",
+				Description: "Get distribusi stok item per garage/location dari inventory item detail locations[].",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"item_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Inventory item ID",
+						},
+					},
+					"required": []string{"item_id"},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Name: "get_purchase_order_list",
+			Function: FunctionDefinition{
+				Name:        "get_purchase_order_list",
+				Description: "Get daftar purchase order inventory.",
+				Parameters: map[string]interface{}{
+					"type":       "object",
+					"properties": map[string]interface{}{},
+					"required":   []string{},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Name: "get_purchase_order_detail",
+			Function: FunctionDefinition{
+				Name:        "get_purchase_order_detail",
+				Description: "Get detail purchase order inventory by purchase_id.",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"purchase_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Purchase order ID / purchase_id",
+						},
+					},
+					"required": []string{"purchase_id"},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Name: "complete_purchase_order",
+			Function: FunctionDefinition{
+				Name:        "complete_purchase_order",
+				Description: "Set purchase order inventory menjadi completed/received. Gunakan hanya setelah barang diterima.",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"purchase_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Purchase order ID / purchase_id",
+						},
+					},
+					"required": []string{"purchase_id"},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Name: "cancel_purchase_order",
+			Function: FunctionDefinition{
+				Name:        "cancel_purchase_order",
+				Description: "Cancel/reject purchase order inventory. Gunakan hanya ketika user meminta membatalkan atau menolak PO.",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"purchase_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Purchase order ID / purchase_id",
+						},
+					},
+					"required": []string{"purchase_id"},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Name: "create_new_item",
+			Function: FunctionDefinition{
+				Name:        "create_new_item",
+				Description: "Create inventory item baru atau tambah/update stok item. Jika item_sku kosong, SKU akan digenerate otomatis. item_category: 1 = Kebutuhan Armada, 2 = kebutuhan kantor. transaction_type: 1 = tambah stok yang ada, 2 = update stock sesuai input (tidak menambahkan stock yang sudah ada).",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"item_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional existing item ID. Required only when updating existing item instead of creating by name",
+						},
+						"item_name": map[string]interface{}{
+							"type":        "string",
+							"description": "Nama item. Required jika item_id tidak diberikan atau membuat item baru",
+						},
+						"item_sku": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional SKU item. Jika kosong, sistem akan generate otomatis",
+						},
+						"item_uom": map[string]interface{}{
+							"type":        "string",
+							"description": "Satuan item, contoh: Pcs, Box, Liter, Unit",
+						},
+						"item_category": map[string]interface{}{
+							"type":        "integer",
+							"description": "Kategori item: 1 = Kebutuhan Armada, 2 = kebutuhan kantor",
+						},
+						"stock": map[string]interface{}{
+							"type":        "integer",
+							"description": "Jumlah stok. Untuk transaction_type 1 = stok yang ditambahkan. Untuk transaction_type 2 = stok akhir sesuai input",
+						},
+						"garage_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Garage ID lokasi stok",
+						},
+						"transaction_type": map[string]interface{}{
+							"type":        "string",
+							"description": "1 = tambah stok yang ada, 2 = update stock sesuai input (tidak menambahkan stock yang sudah ada)",
+							"enum":        []string{"1", "2"},
+						},
+						"transaction_date": map[string]interface{}{
+							"type":        "string",
+							"description": "Tanggal transaksi dalam format YYYY-MM-DD. Required untuk transaction_type 2",
+						},
+						"item_price": map[string]interface{}{
+							"type":        "number",
+							"description": "Harga per unit item. Required untuk transaction_type 2",
+						},
+						"supplier_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional supplier ID. Gunakan get_item_suppliers untuk mencari supplier_id",
+						},
+						"supplier_name": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional supplier name. Required jika supplier_id kosong saat transaction_type 2",
+						},
+						"supplier_phone": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional supplier phone untuk membuat supplier baru jika supplier_id tidak ditemukan",
+						},
+						"supplier_url": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional supplier URL",
+						},
+						"supplier_price": map[string]interface{}{
+							"type":        "number",
+							"description": "Optional harga supplier",
+						},
+						"notes": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional catatan untuk transaksi",
+						},
+					},
+					"required": []string{"item_uom", "item_category", "stock", "garage_id", "transaction_type"},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Name: "create_inventory_request",
+			Function: FunctionDefinition{
+				Name:        "create_inventory_request",
+				Description: "Buat permintaan inventory request. Kirim item_id atau item_name (tidak boleh keduanya), quantity, garage_id, dan optional employee_id, item_uom, item_category, notes. request_number dan status (default 2) di-generate otomatis.",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"item_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional item ID. Kirim item_id atau item_name, tidak boleh keduanya",
+						},
+						"item_name": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional item name. Kirim item_id atau item_name, tidak boleh keduanya",
+						},
+						"quantity": map[string]interface{}{
+							"type":        "integer",
+							"description": "Jumlah yang diminta",
+						},
+						"garage_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Garage ID tujuan permintaan",
+						},
+						"employee_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional employee ID karyawan yang meminta",
+						},
+						"item_uom": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional satuan item",
+						},
+						"item_category": map[string]interface{}{
+							"type":        "integer",
+							"description": "Optional kategori item: 1 = Kebutuhan Armada, 2 = kebutuhan kantor",
+						},
+						"notes": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional catatan untuk permintaan",
+						},
+					},
+					"required": []string{"quantity", "garage_id"},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Name: "approve_inventory_request",
+			Function: FunctionDefinition{
+				Name:        "approve_inventory_request",
+				Description: "Setujui (approve) inventory request. Hanya admin yang bisa menggunakan tool ini. Akan mengurangi stok di inventory_item_garage jika item_id diberikan.",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"request_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Request ID yang akan disetujui",
+						},
+						"item_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional item ID untuk update stock di garage",
+						},
+					},
+					"required": []string{"request_id"},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Name: "reject_inventory_request",
+			Function: FunctionDefinition{
+				Name:        "reject_inventory_request",
+				Description: "Tolak (reject) inventory request. Hanya admin yang bisa menggunakan tool ini.",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"request_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Request ID yang akan ditolak",
+						},
+					},
+					"required": []string{"request_id"},
+				},
+			},
+		},
+		{
+			Type: "function",
 			Name: "get_booking_list",
 			Function: FunctionDefinition{
 				Name:        "get_booking_list",
