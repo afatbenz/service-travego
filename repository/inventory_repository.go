@@ -321,7 +321,7 @@ func (r *InventoryRepository) GetRequestList(organizationID string) ([]model.Inv
 		g.garage_name, ir.quantity, ir.status, e.fullname as employee_name
 		FROM inventory_request ir INNER JOIN inventory_items i ON i.item_id = ir.item_id
 		INNER JOIN garage g ON g.garage_id = ir.garage_id
-		INNER JOIN employee e ON e.uuid = ir.employee_id
+		LEFT JOIN employee e ON e.uuid = ir.employee_id
 		WHERE ir.organization_id = %s 
 		ORDER BY ir.created_at DESC
 	`
@@ -338,6 +338,7 @@ func (r *InventoryRepository) GetRequestList(organizationID string) ([]model.Inv
 	for rows.Next() {
 		var item model.InventoryRequestWithLabel
 		var garageCity string
+		var employeeName sql.NullString
 		if err := rows.Scan(
 			&item.RequestID,
 			&item.ItemCategory,
@@ -347,13 +348,16 @@ func (r *InventoryRepository) GetRequestList(organizationID string) ([]model.Inv
 			&item.GarageName,
 			&item.Quantity,
 			&item.Status,
-			&item.EmployeeName,
+			&employeeName,
 		); err != nil {
 			return nil, err
 		}
 		item.GarageCity = garageCity
 		if name, ok := r.cityMap[garageCity]; ok {
 			item.GarageCityLabel = name
+		}
+		if employeeName.Valid {
+			item.EmployeeName = employeeName.String
 		}
 		items = append(items, item)
 	}
@@ -370,7 +374,7 @@ func (r *InventoryRepository) GetRequestByID(requestID, organizationID string) (
 			   ir.created_at, uc.fullname as created_by, ir.approve_at, ir.approve_by, ir.updated_at, uu.fullname as updated_by,
 			   ir.received_at, er.fullname as received_by
 		FROM inventory_request ir
-		INNER JOIN employee e ON e.uuid = ir.employee_id
+		LEFT JOIN employee e ON e.uuid = ir.employee_id
 		INNER JOIN users uc ON uc.user_id = ir.created_by
 		LEFT JOIN users uu ON uu.user_id = ir.updated_by
 		LEFT JOIN employee er ON er.uuid = ir.received_by
@@ -398,6 +402,7 @@ func (r *InventoryRepository) GetRequestByID(requestID, organizationID string) (
 	var receivedByName sql.NullString
 	var approveAt sql.NullTime
 	var receivedAt sql.NullTime
+	var employeeName sql.NullString
 
 	err := database.QueryRow(r.db, query, requestID, organizationID).Scan(
 		&item.RequestID,
@@ -415,7 +420,7 @@ func (r *InventoryRepository) GetRequestByID(requestID, organizationID string) (
 		&unitID,
 		&vehicleID,
 		&plateNumber,
-		&item.EmployeeName,
+		&employeeName,
 		&purchaseID,
 		&transactionDate,
 		&orderStatus,
@@ -479,6 +484,10 @@ func (r *InventoryRepository) GetRequestByID(requestID, organizationID string) (
 	item.GarageCity = garageCity
 	if name, ok := r.cityMap[garageCity]; ok {
 		item.GarageCityLabel = name
+	}
+
+	if employeeName.Valid {
+		item.EmployeeName = employeeName.String
 	}
 
 	switch item.Status {
@@ -685,7 +694,7 @@ func (r *InventoryRepository) ApproveInventoryRequest(requestID, organizationID,
 			INSERT INTO inventory_movement (movement_id, item_id, garage_id, quantity, stock_before, stock_final, movement_type, notes, organization_id, created_at, created_by)
 			VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 		`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9), r.getPlaceholder(10), r.getPlaceholder(11))
-		if _, err := database.TxExec(tx, movementQuery, uuid.New().String(), req.ItemID, req.GarageID, quantity, currentStock, newStock, 3, "Request approved", organizationID, now, updatedBy); err != nil {
+		if _, err := database.TxExec(tx, movementQuery, uuid.New().String(), req.ItemID, req.GarageID, quantity, currentStock, newStock, 2, "Request approved", organizationID, now, updatedBy); err != nil {
 			fmt.Println("error insert movement ", err)
 			return err
 		}

@@ -399,8 +399,8 @@ func (s *InventoryService) GetRequest(requestID, organizationID string) (*model.
 		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to get request")
 	}
 	currentStock, err := s.repo.GetCurrentGarageItemStock(req.ItemID, req.GarageID, organizationID)
-	if err != nil {
-		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to get current stock")
+	if err == sql.ErrNoRows {
+		req.Stock = 0
 	}
 	if currentStock != 0 {
 		req.Stock = currentStock
