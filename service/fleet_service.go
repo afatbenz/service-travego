@@ -78,6 +78,15 @@ func (s *FleetService) CreateFleet(createdBy, organizationID string, req *model.
 	}
 	req.CreatedBy = createdBy
 	req.OrganizationID = organizationID
+
+	if len(req.Facilities) > 0 {
+		facilityIDs, err := s.repo.InsertFacilities(organizationID, req.Facilities)
+		if err != nil {
+			return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create facilities")
+		}
+		req.FacilityIDs = append(req.FacilityIDs, facilityIDs...)
+	}
+
 	id, err := s.repo.CreateFleet(req)
 	if err != nil {
 		return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create fleet")
@@ -91,6 +100,24 @@ func (s *FleetService) UpdateFleet(updatedBy, organizationID string, req *model.
 	}
 	req.OrganizationID = organizationID
 	req.UpdatedBy = updatedBy
+
+	if len(req.Facilities) > 0 || len(req.FacilityIDs) > 0 {
+		facilityIDs := make([]string, 0, len(req.Facilities)+len(req.FacilityIDs))
+		for _, it := range req.Facilities {
+			if strings.TrimSpace(it.UUID) == "" && strings.TrimSpace(it.Facility) != "" {
+				newIDs, err := s.repo.InsertFacilities(organizationID, []string{it.Facility})
+				if err != nil {
+					return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create facility")
+				}
+				facilityIDs = append(facilityIDs, newIDs...)
+			} else if strings.TrimSpace(it.UUID) != "" {
+				facilityIDs = append(facilityIDs, strings.TrimSpace(it.UUID))
+			}
+		}
+		facilityIDs = append(facilityIDs, req.FacilityIDs...)
+		req.FacilityIDs = dedupeStrings(facilityIDs)
+	}
+
 	if err := s.repo.UpdateFleet(req); err != nil {
 		if err == sql.ErrNoRows {
 			return NewServiceError(ErrNotFound, http.StatusNotFound, "fleet not found")
@@ -1376,4 +1403,24 @@ func (s *FleetService) GetFacilityList(orgID string) ([]model.FacilityItem, erro
 		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to get facility list")
 	}
 	return items, nil
+}
+
+func dedupeStrings(in []string) []string {
+	if len(in) == 0 {
+		return in
+	}
+	seen := make(map[string]struct{}, len(in))
+	out := make([]string, 0, len(in))
+	for _, v := range in {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			continue
+		}
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	return out
 }

@@ -247,6 +247,46 @@ func DualAuthMiddleware(orgRepo *repository.OrganizationRepository) fiber.Handle
 	}
 }
 
+// StaticApiKeyMiddleware validates a static API key from environment for public endpoints
+// This middleware is useful for landing page or public API access
+func StaticApiKeyMiddleware() fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		apiKey := c.Get("x-api-key")
+		if apiKey == "" {
+			apiKey = c.Get("X-Api-Key")
+		}
+		if apiKey == "" {
+			apiKey = c.Get("API-KEY")
+		}
+
+		expectedKey := os.Getenv("STATIC_API_KEY")
+		if expectedKey == "" {
+			expectedKey = "trv-lasoa30sal&1ajshdkahsd012-12"
+		}
+
+		if apiKey == "" {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"status":         "error",
+				"message":        "API key required. Provide x-api-key header.",
+				"data":           nil,
+				"transaction_id": GetTransactionID(c),
+			})
+		}
+
+		if apiKey != expectedKey {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"status":         "error",
+				"message":        "Invalid API key",
+				"data":           nil,
+				"transaction_id": GetTransactionID(c),
+			})
+		}
+
+		c.Locals("role", "public")
+		return c.Next()
+	}
+}
+
 // AuthRateLimiter creates a rate limiting middleware for sensitive auth endpoints (login, register)
 // Default limit: 5 requests per 1 minute per IP
 func AuthRateLimiter() fiber.Handler {

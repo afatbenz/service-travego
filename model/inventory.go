@@ -168,6 +168,11 @@ type RejectInventoryRequestRequest struct {
 	RequestID string `json:"request_id"`
 }
 
+type ReceiveInventoryRequest struct {
+	RequestID  string `json:"request_id"`
+	EmployeeID string `json:"employee_id"`
+}
+
 type InventoryOrder struct {
 	PurchaseID      string    `json:"purchase_id"`
 	RequestID       string    `json:"request_id"`

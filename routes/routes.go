@@ -43,8 +43,9 @@ func SetupRoutes(app *fiber.App, cfg *configs.Config) {
 	// Initialize services
 	notificationSvc := service.NewNotificationService(db, cfg.Database.Driver)
 
-	// Setup route groups
+// Setup route groups
 	SetupNotificationRoutes(app, db, cfg.Database.Driver) // Register public routes first
+	SetupPricingRoutes(app, db, cfg.Database.Driver)      // Public pricing endpoint - must be before other /services routes
 	SetupGeneralRoutes(api, db, cfg.Database.Driver)
 	SetupAuthRoutes(api, db, cfg.Database.Driver, cfg)
 	SetupBookingRoutes(api)

@@ -795,6 +795,7 @@ CREATE TABLE public.fleets (
     fuel_type character varying(10),
     transmission character varying(20),
     is_public integer,
+    views integer,
     status integer,
     created_at timestamp with time zone,
     created_by uuid,
@@ -804,6 +805,19 @@ CREATE TABLE public.fleets (
 
 
 ALTER TABLE public.fleets OWNER TO postgres;
+
+CREATE TABLE public.travego_reviews
+(
+    review_id uuid,
+    user_id uuid,
+    stars integer,
+    review text,
+    created_at timestamp with time zone,
+    created_by uuid
+);
+
+ALTER TABLE IF EXISTS public.travego_reviews
+    OWNER to postgres;
 
 --
 -- TOC entry 290 (class 1259 OID 43276)
@@ -2147,6 +2161,19 @@ INSERT INTO public.organization_types (id, name) VALUES (6, 'Angkutan Ekspedisi 
 ALTER TABLE ONLY public.bank_list
     ADD CONSTRAINT bank_list_pkey PRIMARY KEY (code);
 
+
+-- Table: public.travego_visitor
+-- DROP TABLE IF EXISTS public.travego_visitor;
+
+CREATE TABLE IF NOT EXISTS public.travego_visitor
+(
+    count numeric
+)
+
+TABLESPACE pg_default;
+
+ALTER TABLE IF EXISTS public.travego_visitor
+    OWNER to postgres;
 
 --
 -- TOC entry 5116 (class 2606 OID 17230)

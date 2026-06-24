@@ -226,6 +226,24 @@ func (r *FleetRepository) ListFleets(req *model.ListFleetRequest) ([]model.Fleet
 	return items, nil
 }
 
+func (r *FleetRepository) InsertFacilities(orgID string, facilityNames []string) ([]string, error) {
+	if len(facilityNames) == 0 {
+		return nil, nil
+	}
+	query := fmt.Sprintf("INSERT INTO facilities (facility_id, facility_name, facility_icon, organization_id) VALUES (%s, %s, %s, %s)",
+		r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))
+	ids := make([]string, 0, len(facilityNames))
+	for _, name := range facilityNames {
+		facID := uuid2()
+		_, err := database.Exec(r.db, query, facID, name, "Check", orgID)
+		if err != nil {
+			return nil, err
+		}
+		ids = append(ids, facID)
+	}
+	return ids, nil
+}
+
 func (r *FleetRepository) CreateFleet(req *model.CreateFleetRequest) (string, error) {
 	id := uuid2()
 	now := time.Now()
@@ -262,12 +280,12 @@ func (r *FleetRepository) CreateFleet(req *model.CreateFleetRequest) (string, er
 	}
 
 	// Insert facilities
-	if len(req.Facilities) > 0 {
-		fQuery := fmt.Sprintf("INSERT INTO fleet_facilities (uuid, fleet_id, facility) VALUES (%s, %s, %s)",
+	if len(req.FacilityIDs) > 0 {
+		fQuery := fmt.Sprintf("INSERT INTO fleet_facilities (uuid, fleet_id, facility_id) VALUES (%s, %s, %s)",
 			r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
-		for _, fac := range req.Facilities {
+		for _, facID := range req.FacilityIDs {
 			fID := uuid2()
-			_, err := database.Exec(r.db, fQuery, fID, id, fac)
+			_, err := database.Exec(r.db, fQuery, fID, id, facID)
 			if err != nil {
 				return "", err
 			}
@@ -381,40 +399,16 @@ func (r *FleetRepository) UpdateFleet(req *model.UpdateFleetRequest) error {
 		return sql.ErrNoRows
 	}
 
-	if req.Facilities != nil {
-		keepIDs := make([]string, 0, len(req.Facilities))
-		for _, it := range req.Facilities {
-			if it.UUID == "" {
-				newID := uuid2()
-				insertQuery := fmt.Sprintf("INSERT INTO fleet_facilities (uuid, fleet_id, facility) VALUES (%s, %s, %s)", r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
-				if _, err := database.TxExec(tx, insertQuery, newID, req.FleetID, it.Facility); err != nil {
-					return err
-				}
-				keepIDs = append(keepIDs, newID)
-				continue
-			}
-			updateQuery := fmt.Sprintf("UPDATE fleet_facilities SET facility = %s WHERE uuid = %s AND fleet_id = %s", r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
-			if _, err := database.TxExec(tx, updateQuery, it.Facility, it.UUID, req.FleetID); err != nil {
-				return err
-			}
-			keepIDs = append(keepIDs, it.UUID)
+	if len(req.FacilityIDs) > 0 {
+		delQuery := fmt.Sprintf("DELETE FROM fleet_facilities WHERE fleet_id = %s", r.getPlaceholder(1))
+		if _, err := database.TxExec(tx, delQuery, req.FleetID); err != nil {
+			return err
 		}
-
-		if len(keepIDs) == 0 {
-			delQuery := fmt.Sprintf("DELETE FROM fleet_facilities WHERE fleet_id = %s", r.getPlaceholder(1))
-			if _, err := database.TxExec(tx, delQuery, req.FleetID); err != nil {
-				return err
-			}
-		} else {
-			in := make([]string, 0, len(keepIDs))
-			args := make([]interface{}, 0, 1+len(keepIDs))
-			args = append(args, req.FleetID)
-			for i, id := range keepIDs {
-				in = append(in, r.getPlaceholder(i+2))
-				args = append(args, id)
-			}
-			delQuery := fmt.Sprintf("DELETE FROM fleet_facilities WHERE fleet_id = %s AND uuid NOT IN (%s)", r.getPlaceholder(1), strings.Join(in, ","))
-			if _, err := database.TxExec(tx, delQuery, args...); err != nil {
+		fQuery := fmt.Sprintf("INSERT INTO fleet_facilities (uuid, fleet_id, facility_id) VALUES (%s, %s, %s)",
+			r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
+		for _, facID := range req.FacilityIDs {
+			fID := uuid2()
+			if _, err := database.TxExec(tx, fQuery, fID, req.FleetID, facID); err != nil {
 				return err
 			}
 		}

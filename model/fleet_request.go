@@ -41,6 +41,7 @@ type CreateFleetRequest struct {
 	IsPublic       bool                 `json:"is_public"`
 	Pickup         []FleetPickupRequest `json:"pickup"`
 	Facilities     []string             `json:"fascilities"`
+	FacilityIDs    []string             `json:"facility_ids"`
 	Pricing        []FleetPriceRequest  `json:"pricing"`
 	Addon          []FleetAddonRequest  `json:"addon"`
 	Thumbnail      string               `json:"thumbnail"`
@@ -166,6 +167,7 @@ type UpdateFleetRequest struct {
 	Active         bool                      `json:"active"`
 	Thumbnail      string                    `json:"thumbnail"`
 	Facilities     []FleetFacilityUpsertItem `json:"fascilities"`
+	FacilityIDs    []string                  `json:"facility_ids"`
 	Pickup         []FleetPickupUpsertItem   `json:"pickup"`
 	Pricing        []FleetPriceUpsertItem    `json:"pricing"`
 	Addon          []FleetAddonUpsertItem    `json:"addon"`

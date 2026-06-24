@@ -48,6 +48,28 @@ func (h *InventoryHandler) GetItems(c *fiber.Ctx) error {
 	return helper.SuccessResponse(c, fiber.StatusOK, "Items loaded", items)
 }
 
+func (h *InventoryHandler) GetAllItems(c *fiber.Ctx) error {
+	orgID, _ := c.Locals("organization_id").(string)
+	if orgID == "" {
+		return helper.BadRequestResponse(c, "missing organization context")
+	}
+
+	itemCategoryStr := c.Query("item_category", "")
+	itemCategory := 0
+	if itemCategoryStr != "" {
+		if v, err := strconv.Atoi(itemCategoryStr); err == nil {
+			itemCategory = v
+		}
+	}
+
+	items, err := h.service.GetAllItems(orgID, itemCategory, "all")
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Items loaded", items)
+}
+
 func (h *InventoryHandler) GenerateSKU(c *fiber.Ctx) error {
 	orgID, _ := c.Locals("organization_id").(string)
 	if orgID == "" {
@@ -508,6 +530,37 @@ func (h *InventoryHandler) ApproveRequest(c *fiber.Ctx) error {
 	}
 
 	return helper.SuccessResponse(c, fiber.StatusOK, "Request approved successfully", nil)
+}
+
+func (h *InventoryHandler) CompleteRequest(c *fiber.Ctx) error {
+	var req model.ReceiveInventoryRequest
+	if err := c.BodyParser(&req); err != nil {
+		raw := c.Body()
+		var m map[string]interface{}
+		if err2 := json.Unmarshal(raw, &m); err2 == nil {
+			if v, ok := m["request_id"].(string); ok {
+				req.RequestID = v
+			}
+			if v, ok := m["employee_id"].(string); ok {
+				req.EmployeeID = v
+			}
+		}
+	}
+	if req.RequestID == "" {
+		return helper.BadRequestResponse(c, "missing request_id")
+	}
+	orgID, _ := c.Locals("organization_id").(string)
+	userID, _ := c.Locals("user_id").(string)
+	if userID == "" || orgID == "" {
+		return helper.BadRequestResponse(c, "missing user or organization context")
+	}
+
+	if err := h.service.ReceiveRequestItem(orgID, userID, req.EmployeeID, req.RequestID); err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Request completed successfully", nil)
 }
 
 func (h *InventoryHandler) RejectRequest(c *fiber.Ctx) error {

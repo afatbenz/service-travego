@@ -22,6 +22,7 @@ func SetupInventoryRoutes(api fiber.Router, db *sql.DB, driver string, notificat
 
 	items := inventories.Group("/items")
 	items.Get("/", helper.JWTAuthorizationMiddleware(), h.GetItems)
+	items.Get("/all", helper.JWTAuthorizationMiddleware(), h.GetAllItems)
 	items.Get("/generate-sku", helper.JWTAuthorizationMiddleware(), h.GenerateSKU)
 	items.Post("/create", helper.JWTAuthorizationMiddleware(), h.CreateItem)
 	items.Post("/update", helper.JWTAuthorizationMiddleware(), h.UpdateItem)
@@ -38,6 +39,7 @@ func SetupInventoryRoutes(api fiber.Router, db *sql.DB, driver string, notificat
 	request.Post("/update", helper.JWTAuthorizationMiddleware(), h.UpdateRequest)
 	request.Post("/submit-orders", helper.JWTAuthorizationMiddleware(), h.SubmitRequestOrders)
 	request.Post("/approve", helper.JWTAuthorizationMiddleware(), h.ApproveRequest)
+	request.Post("/completed", helper.JWTAuthorizationMiddleware(), h.CompleteRequest)
 	request.Post("/reject", helper.JWTAuthorizationMiddleware(), h.RejectRequest)
 
 	supliers := inventories.Group("/supliers")
