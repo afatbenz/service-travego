@@ -18,4 +18,5 @@ func SetupPricingRoutes(app *fiber.App, db *sql.DB, driver string) {
 
 	app.Get("/api/services/packages/pricing", helper.StaticApiKeyMiddleware(), h.GetPackages)
 	app.Get("/api/services/reviews", helper.StaticApiKeyMiddleware(), h.GetReviews)
+	app.Post("/api/services/contact/submit", helper.StaticApiKeyMiddleware(), h.SubmitContact)
 }

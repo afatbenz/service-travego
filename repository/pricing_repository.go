@@ -7,6 +7,7 @@ import (
 	"os"
 	"service-travego/model"
 	"sync"
+	"time"
 )
 
 type PricingRepository struct {
@@ -79,4 +80,19 @@ func (r *PricingRepository) GetReviews() ([]model.Review, error) {
 		reviews = append(reviews, r)
 	}
 	return reviews, nil
+}
+
+func (r *PricingRepository) SubmitContact(contact model.ContactSubmission) error {
+	query := fmt.Sprintf(`INSERT INTO travego_messages (topic_id, fullname, company_name, email, whatsapp, scale, messages, created_at, is_read)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)`,
+		r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9))
+
+	_, err := r.db.Exec(query, contact.TopicID, contact.FullName, contact.CompanyName,
+		contact.Email, contact.WhatsApp, contact.BusinessScale,
+		contact.Messages, time.Now(), false)
+
+	if err != nil {
+		return fmt.Errorf("gagal insert ke travego_messages: %w", err)
+	}
+	return nil
 }

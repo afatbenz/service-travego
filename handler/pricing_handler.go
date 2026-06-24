@@ -2,6 +2,7 @@ package handler
 
 import (
 	"service-travego/helper"
+	"service-travego/model"
 	"service-travego/service"
 
 	"github.com/gofiber/fiber/v2"
@@ -29,4 +30,15 @@ func (h *PricingHandler) GetReviews(c *fiber.Ctx) error {
 		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, err.Error())
 	}
 	return helper.SuccessResponse(c, fiber.StatusOK, "Reviews loaded", reviews)
+}
+
+func (h *PricingHandler) SubmitContact(c *fiber.Ctx) error {
+	var contact model.ContactSubmission
+	if err := c.BodyParser(&contact); err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusBadRequest, "Invalid request body")
+	}
+	if err := h.service.SubmitContact(contact); err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Contact submitted", nil)
 }

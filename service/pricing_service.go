@@ -1,6 +1,7 @@
 package service
 
 import (
+	"service-travego/helper"
 	"service-travego/model"
 	"service-travego/repository"
 )
@@ -21,8 +22,9 @@ func (s *PricingService) GetPackages() ([]model.PackageResponse, error) {
 
 	resp := make([]model.PackageResponse, len(packages))
 	for i, p := range packages {
+		encryptedID, _ := helper.EncryptString(p.PackageID)
 		resp[i] = model.PackageResponse{
-			PackageID:            p.PackageID,
+			PackageID:            encryptedID,
 			PackageName:          p.PackageName,
 			PackageDescription:   p.PackageDescription,
 			PackageNotes:         p.PackageNotes,
@@ -53,4 +55,8 @@ func (s *PricingService) GetReviews() ([]model.Review, error) {
 		}
 	}
 	return resp, nil
+}
+
+func (s *PricingService) SubmitContact(contact model.ContactSubmission) error {
+	return s.repo.SubmitContact(contact)
 }

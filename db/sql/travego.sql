@@ -819,6 +819,22 @@ CREATE TABLE public.travego_reviews
 ALTER TABLE IF EXISTS public.travego_reviews
     OWNER to postgres;
 
+CREATE TABLE public.travego_messages
+(
+    message_id uuid,
+    topic_id integer,
+    fullname character varying(50),
+    company_name character varying(50),
+    email character varying(50),
+    whatsapp character varying(20),
+    scale character varying(10),
+    messages text,
+    created_at timestamp with time zone,
+    is_read boolean
+);
+
+ALTER TABLE IF EXISTS public.travego_messages
+    OWNER to postgres;
 --
 -- TOC entry 290 (class 1259 OID 43276)
 -- Name: garage; Type: TABLE; Schema: public; Owner: postgres

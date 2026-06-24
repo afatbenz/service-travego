@@ -33,3 +33,13 @@ type Review struct {
 	CreatedBy   string    `json:"created_by"`
 	CompanyName string    `json:"company_name"`
 }
+
+type ContactSubmission struct {
+	TopicID       string `json:"topic_id"`
+	FullName      string `json:"full_name"`
+	CompanyName   string `json:"company_name"`
+	Email         string `json:"email"`
+	WhatsApp      string `json:"whatsapp"`
+	BusinessScale string `json:"business_scale"`
+	Messages      string `json:"messages"`
+}
