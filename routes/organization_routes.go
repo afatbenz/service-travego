@@ -6,6 +6,7 @@ import (
 	"service-travego/handler"
 	"service-travego/helper"
 	"service-travego/internal/waai"
+	"service-travego/internal/wagy"
 	"service-travego/repository"
 	"service-travego/service"
 
@@ -41,7 +42,7 @@ func SetupOrganizationRoutes(api fiber.Router, db *sql.DB, driver string, cfg *c
 	// Set WagyClient if config is available
 	waaiCfg := waai.LoadConfig()
 	if waaiCfg.WagyDeviceID != "" && waaiCfg.WagyToken != "" {
-		wagyClient := waai.NewWagyClient(waaiCfg.WagyDeviceID, waaiCfg.WagyToken)
+		wagyClient := wagy.NewWagyClient(waaiCfg.WagyDeviceID, waaiCfg.WagyToken)
 		orgHandler.SetWagyClient(wagyClient)
 	}
 

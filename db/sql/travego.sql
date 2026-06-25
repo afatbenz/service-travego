@@ -115,6 +115,7 @@ CREATE TABLE public._subscription (
     activate_date date,
     expiry_date date,
     subscription_type integer,
+    package_price numeric,
     status integer,
     created_at timestamp with time zone,
     updated_at timestamp with time zone
@@ -835,6 +836,28 @@ CREATE TABLE public.travego_messages
 
 ALTER TABLE IF EXISTS public.travego_messages
     OWNER to postgres;
+
+--
+-- TOC entry 290 (class 1259 OID 43276)
+-- Name: travego_transactions; Type: TABLE; Schema: public; Owner: postgres
+--
+CREATE TABLE public.travego_transactions
+(
+    transaction_id uuid,
+    transaction_date timestamp with time zone,
+    invoice_number character varying(30),
+    package_id character varying(10),
+    start_date timestamp with time zone,
+    expiry_date timestamp with time zone,
+    payment_method character varying(20),
+    status integer,
+    user_id uuid,
+    organization_id uuid,
+    created_at timestamp with time zone,
+    created_by uuid
+);
+
+ALTER TABLE IF EXISTS public.travego_transactions OWNER to postgres;
 --
 -- TOC entry 290 (class 1259 OID 43276)
 -- Name: garage; Type: TABLE; Schema: public; Owner: postgres

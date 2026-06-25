@@ -96,3 +96,19 @@ func (r *PricingRepository) SubmitContact(contact model.ContactSubmission) error
 	}
 	return nil
 }
+
+func (r *PricingRepository) GetSubscriptionByOrgID(orgID string) (*model.Subscription, error) {
+	query := fmt.Sprintf(`SELECT package_id, activate_date, expiry_date FROM _subscription WHERE organization_id = %s`,
+		r.getPlaceholder(1))
+	row := r.db.QueryRow(query, orgID)
+	
+	var sub model.Subscription
+	err := row.Scan(&sub.PackageID, &sub.ActivateDate, &sub.ExpiryDate)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &sub, nil
+}

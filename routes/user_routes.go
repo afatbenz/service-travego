@@ -41,4 +41,5 @@ func SetupUserRoutes(api fiber.Router, db *sql.DB, driver string) {
 	profile.Get("/update-password/validate", helper.JWTAuthorizationMiddleware(), userHandler.ValidateUpdatePassword)
 	profile.Post("/check-password", helper.JWTAuthorizationMiddleware(), userHandler.CheckPassword)
 	profile.Get("/detail", helper.JWTAuthorizationMiddleware(), userHandler.GetProfile)
+
 }

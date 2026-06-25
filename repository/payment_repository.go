@@ -26,8 +26,13 @@ type PaymentRepository interface {
 	GetLatestPaymentOrderRemainingAmount(orderID string, organizationID string, orderType int64) (remainingAmount sql.NullFloat64, err error)
 	GetFleetOrderEmailData(orderID string, organizationID string) (customerName string, customerEmail string, fleetName string, pickupLocation string, startDate time.Time, endDate time.Time, destination string, err error)
 	TransactionExistsByInvoice(organizationID string, invoiceNumber string) (bool, error)
-	InsertTransactionMidtrans(transactionID string, orderType int64, invoiceNumber string, description string, transactionDate time.Time, paymentType int64, paymentMethod int64, amount float64, organizationID string, transactionCategory string, createdAt time.Time, customerID string, orderID string) error
+	InsertTransactionMidtrans(transactionID string, orderType int64, invoiceNumber string, description string, transactionDate time.Time, paymentType int64, paymentMethod int64, amount float64, organizationID string, transactionCategory string, createdAt time.Time, createdBy string, orderID string) error
 	GetNextInvoiceNumber(organizationID string, orderType int) (string, error)
+	GetSubscriptionDetail(invoiceNumber string) (transactionID string, packageID string, startDate time.Time, expiryDate time.Time, userID string, organizationID string, paymentMethod sql.NullString, createdAt time.Time, paymentAmount sql.NullFloat64, err error)
+	UpdateTravegoTransactionStatus(invoiceNumber string, paymentMethod string, grossAmount float64) error
+	GetSubscriptionByOrganization(organizationID string) (exists bool, err error)
+	UpdateSubscription(organizationID string, packageID string, activateDate time.Time, expiryDate time.Time, packagePrice float64) error
+	InsertSubscription(subscriptionID string, organizationID string, packageID string, activateDate time.Time, expiryDate time.Time, packagePrice float64, createdAt time.Time) error
 }
 
 type paymentRepository struct {
@@ -445,4 +450,46 @@ func (r *paymentRepository) getPlaceholder(n int) string {
 		return fmt.Sprintf("$%d", n)
 	}
 	return "?"
+}
+
+func (r *paymentRepository) GetSubscriptionDetail(invoiceNumber string) (transactionID string, packageID string, startDate time.Time, expiryDate time.Time, userID string, organizationID string, paymentMethod sql.NullString, createdAt time.Time, paymentAmount sql.NullFloat64, err error) {
+	query := fmt.Sprintf("SELECT transaction_id, package_id, start_date, expiry_date, user_id, organization_id, payment_method, created_at, payment_amount FROM travego_transactions WHERE invoice_number = %s LIMIT 1", r.getPlaceholder(1))
+	var tID, pID, uID, oID sql.NullString
+	var sDate, eDate, cDate sql.NullTime
+	err = database.QueryRow(r.db, query, invoiceNumber).Scan(&tID, &pID, &sDate, &eDate, &uID, &oID, &paymentMethod, &cDate, &paymentAmount)
+	if err != nil {
+		return "", "", time.Time{}, time.Time{}, "", "", sql.NullString{}, time.Time{}, sql.NullFloat64{}, err
+	}
+	return tID.String, pID.String, sDate.Time, eDate.Time, uID.String, oID.String, paymentMethod, cDate.Time, paymentAmount, nil
+}
+
+func (r *paymentRepository) UpdateTravegoTransactionStatus(invoiceNumber string, paymentMethod string, grossAmount float64) error {
+	query := fmt.Sprintf("UPDATE travego_transactions SET status = 1, payment_method = %s, payment_amount = %s, updated_at = NOW() WHERE status = 2 AND invoice_number = %s", r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
+	_, err := database.Exec(r.db, query, paymentMethod, grossAmount, invoiceNumber)
+	return err
+}
+
+func (r *paymentRepository) GetSubscriptionByOrganization(organizationID string) (exists bool, err error) {
+	query := fmt.Sprintf("SELECT 1 FROM _subscription WHERE organization_id = %s ORDER BY created_at DESC LIMIT 1", r.getPlaceholder(1))
+	var one int
+	err = database.QueryRow(r.db, query, organizationID).Scan(&one)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+func (r *paymentRepository) UpdateSubscription(organizationID string, packageID string, activateDate time.Time, expiryDate time.Time, packagePrice float64) error {
+	query := fmt.Sprintf("UPDATE _subscription SET package_id = %s, activate_date = %s, expiry_date = %s, updated_at = NOW(), package_price = %s WHERE organization_id = %s", r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5))
+	_, err := database.Exec(r.db, query, packageID, activateDate, expiryDate, packagePrice, organizationID)
+	return err
+}
+
+func (r *paymentRepository) InsertSubscription(subscriptionID string, organizationID string, packageID string, activateDate time.Time, expiryDate time.Time, packagePrice float64, createdAt time.Time) error {
+	query := fmt.Sprintf("INSERT INTO _subscription (subscription_id, organization_id, package_id, activate_date, expiry_date, subscription_type, created_at, package_price, status) VALUES (%s, %s, %s, %s, %s, 1, %s, %s, 1)", r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7))
+	_, err := database.Exec(r.db, query, subscriptionID, organizationID, packageID, activateDate, expiryDate, createdAt, packagePrice)
+	return err
 }

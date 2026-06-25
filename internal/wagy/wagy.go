@@ -1,4 +1,4 @@
-package waai
+package wagy
 
 import (
 	"bytes"
@@ -13,6 +13,38 @@ import (
 	"service-travego/helper"
 	"strings"
 )
+
+// SendMessageRequest represents the request body for sending a message
+type SendMessageRequest struct {
+	Phone   string `json:"phone"`
+	Message string `json:"message"`
+}
+
+// SendDocumentRequest represents the request body for sending a document
+type SendDocumentRequest struct {
+	Phone     string `json:"phone"`
+	Document  string `json:"document,omitempty"`  // base64 encoded file
+	Filename  string `json:"filename,omitempty"`  // filename for document
+	Caption   string `json:"caption,omitempty"`   // optional caption
+	MediaType string `json:"media_type"`          // "document" or "image"
+	MediaURL  string `json:"media_url,omitempty"` // URL to the media file
+}
+
+// SendImageRequest represents the request body for sending an image (optional, alias for SendDocumentRequest)
+type SendImageRequest = SendDocumentRequest
+
+// SendMessageResponse represents the response from Wagy
+type SendMessageResponse struct {
+	Status string `json:"status"`
+	Data   struct {
+		MessageID int64  `json:"message_id"`
+		Timestamp string `json:"timestamp"`
+	} `json:"data"`
+	Error *struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	} `json:"error"`
+}
 
 // WagyClient handles communication with Wagy API
 type WagyClient struct {

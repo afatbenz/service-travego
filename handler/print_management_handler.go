@@ -82,3 +82,25 @@ func (h *PrintManagementHandler) GenerateFleetTripsDocument(c *fiber.Ctx) error 
 	c.Set("Content-Disposition", "inline; filename=fleet-trips-"+scheduleNumber+".pdf")
 	return c.Send(pdf)
 }
+
+func (h *PrintManagementHandler) GenerateSubscriptionDocument(c *fiber.Ctx) error {
+	var req model.PrintSubscriptionRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.BadRequestResponse(c, "Invalid payload")
+	}
+
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusUnauthorized, "Organization not found")
+	}
+
+	pdf, err := h.service.GenerateSubscriptionPDF(orgID, req.InvoiceNumber)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	c.Set("Content-Type", "application/pdf")
+	c.Set("Content-Disposition", "inline; filename=subscription-"+req.InvoiceNumber+".pdf")
+	return c.Send(pdf)
+}

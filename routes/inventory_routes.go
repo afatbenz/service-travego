@@ -4,14 +4,14 @@ import (
 	"database/sql"
 	"service-travego/handler"
 	"service-travego/helper"
-	"service-travego/internal/waai"
+	"service-travego/internal/wagy"
 	"service-travego/repository"
 	"service-travego/service"
 
 	"github.com/gofiber/fiber/v2"
 )
 
-func SetupInventoryRoutes(api fiber.Router, db *sql.DB, driver string, notificationService *service.NotificationService, wagyClient *waai.WagyClient) {
+func SetupInventoryRoutes(api fiber.Router, db *sql.DB, driver string, notificationService *service.NotificationService, wagyClient *wagy.WagyClient) {
 	repo := repository.NewInventoryRepository(db, driver)
 	srv := service.NewInventoryService(repo, notificationService)
 

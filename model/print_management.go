@@ -8,3 +8,7 @@ type PrintFleetInvoiceRequest struct {
 	OrderID       string  `json:"order_id"`
 	InvoiceNumber *string `json:"invoice_number"`
 }
+
+type PrintSubscriptionRequest struct {
+	InvoiceNumber string `json:"invoice_number"`
+}

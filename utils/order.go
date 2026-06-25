@@ -179,3 +179,34 @@ func GeneratePurchaseOrderID(db *sql.DB, driver, organizationID string) (string,
 	datePart := now.Format("06-01")
 	return fmt.Sprintf("PO-00%s-%s", seqStr, datePart), nil
 }
+
+// GenerateSubsInvoiceID generates invoice ID for subscription with format TRV-{2digitrandom}{sequence}-{MMYY}
+func GenerateSubsInvoiceID(db *sql.DB, driver string) (string, error) {
+	query := "SELECT COUNT(1) FROM travego_transactions"
+	var count int
+	if err := database.QueryRow(db, query).Scan(&count); err != nil {
+		return "", err
+	}
+	seq := count + 1
+
+	// Generate 2 random digits
+	rand1 := time.Now().UnixNano() % 100
+	randPart := fmt.Sprintf("%02d", rand1)
+
+	// Sequence as 000{count+1}
+	var seqStr string
+	if seq > 9999 {
+		seqStr = fmt.Sprintf("%d", seq)
+	} else if seq > 999 {
+		seqStr = fmt.Sprintf("0%d", seq)
+	} else if seq > 99 {
+		seqStr = fmt.Sprintf("00%d", seq)
+	} else {
+		seqStr = fmt.Sprintf("000%d", seq)
+	}
+
+	// Date as MMYY
+	datePart := time.Now().Format("0106")
+
+	return fmt.Sprintf("TRV-%s%s-%s", randPart, seqStr, datePart), nil
+}

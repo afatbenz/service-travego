@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Invoice Langganan — TraveGo</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@700;800&display=swap');
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #F0F4FA;
+      font-family: 'Inter', sans-serif;
+      color: #1A2340;
+      padding: 40px 20px;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    .invoice-wrapper {
+      max-width: 780px;
+      margin: 0 auto;
+      background: #fff;
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 8px 40px rgba(30, 60, 140, 0.10);
+    }
+
+    /* ── HEADER ── */
+    .invoice-header {
+      background: #0F2166;
+      padding: 36px 48px 32px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .brand {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .brand-name {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      font-size: 28px;
+      font-weight: 800;
+      color: #fff;
+      letter-spacing: -0.5px;
+    }
+
+    .brand-name span {
+      color: #FF6B00;
+    }
+
+    .brand-tagline {
+      font-size: 12px;
+      color: rgba(255,255,255,0.55);
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .invoice-badge {
+      text-align: right;
+    }
+
+    .invoice-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.45);
+      margin-bottom: 6px;
+    }
+
+    .invoice-number {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      font-size: 20px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .invoice-status {
+      display: inline-block;
+      margin-top: 8px;
+      padding: 4px 14px;
+      border-radius: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.5);
+      color: #ffffff;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+
+    /* ── ORANGE ACCENT STRIP ── */
+    .accent-strip {
+      height: 4px;
+      background: linear-gradient(90deg, #FF6B00 0%, #FF9A40 50%, #0F2166 100%);
+    }
+
+    /* ── META ROW ── */
+    .meta-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: stretch;
+      padding: 28px 48px;
+      border-bottom: 1px solid #EEF1F8;
+      gap: 24px;
+    }
+
+    .meta-block {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .meta-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: #8A96B0;
+    }
+
+    .meta-value {
+      font-size: 12px;
+      font-weight: 600;
+      color: #1A2340;
+    }
+
+    .meta-value.accent {
+      color: #FF6B00;
+    }
+
+    .meta-divider {
+      width: 1px;
+      background: #EEF1F8;
+      align-self: stretch;
+    }
+
+    /* ── BILLED TO / FROM ── */
+    .parties {
+      display: flex;
+      gap: 0;
+      padding: 28px 48px;
+      border-bottom: 1px solid #EEF1F8;
+      margin-bottom: 20px;
+    }
+
+    .party {
+      flex: 1;
+    }
+
+    .party + .party {
+      padding-left: 40px;
+      border-left: 1px solid #EEF1F8;
+    }
+
+    .party-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: #8A96B0;
+      margin-bottom: 10px;
+    }
+
+    .party-name {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      font-size: 16px;
+      font-weight: 700;
+      color: #1A2340;
+      margin-bottom: 4px;
+    }
+
+    .party-detail {
+      font-size: 12px;
+      color: #454d61;
+      line-height: 1.6;
+    }
+
+    /* ── TABLE ── */
+    .table-section {
+      padding: 28px 48px;
+    }
+
+    .section-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: #8A96B0;
+      margin-bottom: 16px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    thead tr {
+      background: #F5F7FF;
+    }
+
+    thead th {
+      padding: 10px 14px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: #8A96B0;
+      text-align: left;
+    }
+
+    thead th:last-child { text-align: right; }
+
+    tbody tr {
+      border-bottom: 1px solid #F0F2FA;
+    }
+
+    tbody tr:last-child { border-bottom: none; }
+
+    tbody td {
+      padding: 14px;
+      font-size: 13.5px;
+      color: #2A3450;
+      vertical-align: top;
+    }
+
+    tbody td:last-child {
+      text-align: right;
+      font-weight: 600;
+    }
+
+    .item-name {
+      font-weight: 600;
+      color: #1A2340;
+      margin-bottom: 2px;
+    }
+
+    .item-desc {
+      font-size: 11px;
+      color: #8A96B0;
+      line-height: 1,5rem;
+    }
+
+    .badge-duration {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 20px;
+      background: #EEF1FF;
+      color: #0F2166;
+      font-size: 10px;
+      font-weight: 500;
+      margin-left: 6px;
+    }
+
+    /* ── TOTALS ── */
+    .totals {
+      padding: 0 48px 32px;
+    }
+
+    .totals-box {
+      background: #F7F9FF;
+      border-radius: 12px;
+      padding: 20px 24px;
+      margin-left: auto;
+      max-width: 320px;
+    }
+
+    .totals-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+      color: #5A6580;
+      padding: 6px 0;
+    }
+
+    .totals-row.discount .val { color: #16A34A; font-weight: 600; }
+
+    .totals-divider {
+      height: 1px;
+      background: #DDE2F0;
+      margin: 8px 0;
+    }
+
+    .totals-row.total {
+      font-size: 14px;
+      font-weight: 700;
+      color: #1A2340;
+    }
+
+    .totals-row.total .val {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      font-size: 14px;
+      color: #240f01;
+    }
+
+    .tax-note {
+      font-size: 11px;
+      color: #8A96B0;
+      text-align: right;
+      margin-top: 6px;
+    }
+
+    /* ── PAYMENT INFO ── */
+    .payment-info {
+      margin: 70px 48px 32px;
+      display: flex;
+      gap: 16px;
+    }
+
+    .payment-card {
+      flex: 1;
+      border: 1.5px solid #EEF1F8;
+      border-radius: 12px;
+      padding: 16px 20px;
+    }
+
+    .payment-card-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: #8A96B0;
+      margin-bottom: 8px;
+    }
+
+    .payment-card-value {
+      font-size: 11px;
+      font-weight: 600;
+      color: #1A2340;
+      line-height: 1.5;
+    }
+
+    .payment-card-value span {
+      display: block;
+      font-size: 10px;
+      color: #8A96B0;
+      font-weight: 400;
+    }
+
+    /* ── FOOTER ── */
+    .invoice-footer {
+      background: #0F2166;
+      padding: 24px 48px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .item-table {
+      color: #555454;
+      font-size: 13px;
+      line-height: 1.6;
+      padding-top: 1rem
+    }
+
+    .item-originalprice {
+      color: #656565;
+      font-size: 12px;
+      line-height: 1.6;
+      text-decoration:line-through
+    }
+
+    .footer-note {
+      font-size: 11px;
+      color: rgba(225, 235, 254, 0.45);
+      max-width: 360px;
+      line-height: 1.6;
+    }
+
+    .footer-contact {
+      text-align: right;
+      font-size: 12px;
+      color: rgba(255,255,255,0.55);
+      line-height: 1.7;
+    }
+
+    .footer-contact a {
+      color: #FFAA66;
+      text-decoration: none;
+    }
+
+    .column-item {
+      width: 50%;
+      color: #878686;
+    }
+
+    /* ── PRINT ── */
+    @media print {
+      body { background: #fff; padding: 0; }
+      .invoice-wrapper { box-shadow: none; border-radius: 0; }
+    }
+
+    @media (max-width: 600px) {
+      .invoice-header,
+      .meta-row,
+      .parties,
+      .table-section,
+      .totals,
+      .payment-info,
+      .invoice-footer { padding-left: 24px; padding-right: 24px; }
+      .meta-row { flex-wrap: wrap; }
+      .meta-divider { display: none; }
+      .parties { flex-direction: column; gap: 20px; }
+      .party + .party { padding-left: 0; border-left: none; border-top: 1px solid #EEF1F8; padding-top: 20px; }
+      .payment-info { flex-direction: column; }
+      .invoice-footer { flex-direction: column; text-align: center; }
+      .footer-contact { text-align: center; }
+    }
+  </style>
+</head>
+<body>
+<div class="invoice-wrapper">
+
+  <!-- HEADER -->
+  <div class="invoice-header">
+    <div class="brand">
+      <div class="brand-name">trave<span>go</span></div>
+      <div class="brand-tagline">Transportation Business Solutions</div>
+    </div>
+    <div class="invoice-badge">
+      <div class="invoice-label">Invoice</div>
+      <div class="invoice-number">{{ invoice_number }}</div>
+      <div class="invoice-status">✓ Lunas</div>
+    </div>
+  </div>
+
+  <div class="accent-strip"></div>
+
+  <!-- META ROW -->
+  <div class="meta-row">
+    <div class="meta-block">
+      <div class="meta-label">Tanggal Invoice</div>
+      <div class="meta-value">{{ invoice_date }}</div>
+    </div>
+    <div class="meta-divider"></div>
+    <div class="meta-divider"></div>
+    <div class="meta-block">
+      <div class="meta-label">Periode Aktif</div>
+      <div class="meta-value accent">{{ active_period }}</div>
+    </div>
+  </div>
+
+  <!-- PARTIES -->
+  <div class="parties">
+    <div class="party">
+      <div class="party-label">Ditagihkan Kepada</div>
+      <div class="party-name">{{ organization_name }}</div>
+      <div class="party-detail">
+        {{ organization_email }}<br>
+        {{ company_name }}<br>
+        {{ company_address }}<br>
+      </div>
+    </div>
+    <div class="party">
+      <div class="party-label">Dikeluarkan Oleh</div>
+      <div class="party-name">TraveGo</div>
+      <div class="party-detail">
+        hallo@travego.id<br>
+        TraveGo - Transportation Business Solutions<br>
+        Jl. Gedongkuning, Kota Yogyakarta, D.I. Yogyakarta
+      </div>
+    </div>
+  </div>
+
+  <!-- TABLE -->
+  <div class="table-section">
+    <div class="section-title">Detail Layanan</div>
+    <table>
+      <thead>
+        <tr>
+          <th class="column-item">Layanan</th>
+          <th>Periode</th>
+          <th>Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>
+            <div class="item-name">
+              {{ package_name }}
+              <span class="badge-duration">{{ package_duration }} Hari</span>
+            </div>
+            <div class="item-desc">{{ package_description }}</div>
+          </td>
+          <td class="item-table">{{ active_period }}</td>
+          <td class="item-table">Rp {{ package_original_price }}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- TOTALS -->
+  <div class="totals">
+    <div class="totals-box">
+      <div class="totals-row">
+        <span>Subtotal</span>
+        <span class="val">Rp {{ package_original_price }}</span>
+      </div>
+      <div class="totals-row discount">
+        <span>Diskon Promo</span>
+        <span class="val">− Rp {{ package_discount_price }}</span>
+      </div>
+      <div class="totals-divider"></div>
+      <div class="totals-row total">
+        <span>Total Dibayar</span>
+        <span class="val">Rp {{ package_price }}</span>
+      </div>
+    </div>
+    <!-- <div class="tax-note">Harga sudah termasuk PPN 11%</div> -->
+  </div>
+
+  <!-- PAYMENT INFO -->
+  <div class="payment-info">
+    <div class="payment-card">
+      <div class="payment-card-label">Pembayaran</div>
+      <div class="payment-card-value">
+        {{ payment_method }}
+        <span>via Midtrans Payment Gateway</span>
+        <span>{{ payment_date }}</span>
+      </div>
+    </div>
+    <div class="payment-card">
+      <div class="payment-card-label">Referensi Transaksi</div>
+      <div class="payment-card-value">
+        {{ invoice_number }}
+        <span>{{ payment_method }}</span>
+        <span>Diverifikasi otomatis ✓</span>
+      </div>
+    </div>
+    <div class="payment-card">
+      <div class="payment-card-label">Status Langganan</div>
+      <div class="payment-card-value">
+        Aktif
+        <span>Berlaku hingga {{ expiration_date }}</span>
+        <span>Auto-renewal: Nonaktif</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="invoice-footer">
+    <div class="footer-note">
+      Dokumen ini merupakan bukti pembayaran yang sah. Simpan invoice ini sebagai arsip langganan Anda. Untuk pertanyaan terkait tagihan, hubungi tim kami.
+    </div>
+    <div class="footer-contact">
+      <strong style="color:#fff">TraveGo - Support Team</strong><br>
+      <a href="mailto:hallo@travego.id">hallo@travego.id</a><br>
+      +62 851-9591-1626
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

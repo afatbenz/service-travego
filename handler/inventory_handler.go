@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"service-travego/helper"
-	"service-travego/internal/waai"
+	"service-travego/internal/wagy"
 	"service-travego/model"
 	"service-travego/service"
 	"strconv"
@@ -15,14 +15,14 @@ import (
 
 type InventoryHandler struct {
 	service    *service.InventoryService
-	wagyClient *waai.WagyClient
+	wagyClient *wagy.WagyClient
 }
 
 func NewInventoryHandler(s *service.InventoryService) *InventoryHandler {
 	return &InventoryHandler{service: s}
 }
 
-func (h *InventoryHandler) SetWagyClient(wagyClient *waai.WagyClient) {
+func (h *InventoryHandler) SetWagyClient(wagyClient *wagy.WagyClient) {
 	h.wagyClient = wagyClient
 }
 

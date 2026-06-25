@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"service-travego/internal/wagy"
 	"strings"
 	"time"
 
@@ -16,7 +17,7 @@ import (
 // Handler handles all WhatsApp AI webhook requests
 type Handler struct {
 	config         *Config
-	wagyClient     *WagyClient
+	wagyClient     *wagy.WagyClient
 	aiClient       *AIClient
 	tenantRepo     *TenantRepository
 	sessionMgr     *SessionManager
@@ -27,7 +28,7 @@ type Handler struct {
 // NewHandler creates a new webhook handler
 func NewHandler(cfg *Config, db *sql.DB, dbDriver string, rdb *redis.Client) *Handler {
 	authMgr := NewAuthManager(rdb)
-	wagyClient := NewWagyClient(cfg.WagyDeviceID, cfg.WagyToken)
+	wagyClient := wagy.NewWagyClient(cfg.WagyDeviceID, cfg.WagyToken)
 
 	return &Handler{
 		config:         cfg,
@@ -214,7 +215,7 @@ func (h *Handler) processCompanyMessageAsync(customerPhone, messageText string, 
 	log.Printf("[WAAI][Company] Reply sent | device=%s | to=%s", asstCust.AssistantDeviceID, customerPhone)
 }
 
-func (h *Handler) sendMessageWithClient(phone, message string, client *WagyClient) error {
+func (h *Handler) sendMessageWithClient(phone, message string, client *wagy.WagyClient) error {
 	if client == nil {
 		return fmt.Errorf("WagyClient is nil")
 	}

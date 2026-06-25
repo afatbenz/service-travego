@@ -22,6 +22,13 @@ type PackageResponse struct {
 	PackageOriginalPrice int      `json:"package_original_price"`
 	PackageDuration      int      `json:"package_duration"`
 	Features             []string `json:"features"`
+	IsCurrentPackage     bool     `json:"is_current_package"`
+}
+
+type PackageDetail struct {
+	Package
+	Features         []string `json:"features"`
+	IsCurrentPackage bool     `json:"is_current_package"`
 }
 
 type Review struct {
@@ -42,4 +49,10 @@ type ContactSubmission struct {
 	WhatsApp      string `json:"whatsapp"`
 	BusinessScale string `json:"business_scale"`
 	Messages      string `json:"messages"`
+}
+
+type Subscription struct {
+	PackageID    string    `json:"package_id"`
+	ActivateDate time.Time `json:"activate_date"`
+	ExpiryDate   time.Time `json:"expiry_date"`
 }
