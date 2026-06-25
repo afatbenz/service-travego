@@ -193,7 +193,7 @@ func (h *AuthHandler) RequestResetPassword(c *fiber.Ctx) error {
 	// Get reset password URL from environment or use default
 	resetPasswordURL := os.Getenv("RESET_PASSWORD_URL")
 	if resetPasswordURL == "" {
-		resetPasswordURL = "http://localhost:3000/reset-password" // Default URL
+		resetPasswordURL = os.Getenv("APP_BASE_URL") + "/auth/reset-password" // Default URL
 	}
 
 	// Get expiry minutes from environment or use default (60 minutes)
