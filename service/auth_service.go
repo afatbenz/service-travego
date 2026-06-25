@@ -296,6 +296,7 @@ func (s *AuthService) Login(email, phone, password, userID string) (*LoginRespon
 		}
 	} else {
 		if email != "" {
+
 			user, err = s.userRepo.FindByEmail(email)
 			if err != nil {
 				if err == sql.ErrNoRows {
@@ -331,15 +332,13 @@ func (s *AuthService) Login(email, phone, password, userID string) (*LoginRespon
 	}
 
 	organizationID := ""
-	organizationRole := 0
 	organizationName := ""
-	if s.orgUserRepo != nil {
-		orgID, role, err := s.orgUserRepo.GetOrganizationAndRoleByUserID(user.UserID)
+	if s.orgUserRepo != nil && !user.IsAdmin {
+		orgID, _, err := s.orgUserRepo.GetOrganizationAndRoleByUserID(user.UserID)
 		if err != nil && err != sql.ErrNoRows {
 			log.Printf("[ERROR] Error getting organization and role - UserID: %s, Error: %v", user.UserID, err)
 		} else if err == nil {
 			organizationID = orgID
-			organizationRole = role
 		}
 
 		orgCode, orgName, _, _, _, err := s.orgUserRepo.GetOrganizationWithJoinDateByUserID(user.UserID)
@@ -349,11 +348,14 @@ func (s *AuthService) Login(email, phone, password, userID string) (*LoginRespon
 		}
 	}
 
+	if user.IsAdmin {
+		organizationID = "00"
+		organizationName = "SuperAdmin"
+	}
+
 	sensitive := helper.AuthSensitiveData{
-		OrganizationID:   organizationID,
-		UserID:           user.UserID,
-		OrganizationRole: organizationRole,
-		IsAdmin:          user.IsAdmin,
+		OrganizationID: organizationID,
+		IsAdmin:        user.IsAdmin,
 	}
 	encToken, errEnc := helper.EncryptAuthSensitiveData(sensitive)
 	if errEnc != nil {

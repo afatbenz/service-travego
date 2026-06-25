@@ -218,6 +218,9 @@ func (r *UserRepository) FindByEmail(email string) (*model.User, error) {
 	if dateOfBirth.Valid {
 		user.DateOfBirth = &dateOfBirth.Time
 	}
+	if isAdmin.Valid {
+		user.IsAdmin = isAdmin.Bool
+	}
 
 	return &user, nil
 }

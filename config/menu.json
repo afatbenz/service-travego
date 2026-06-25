@@ -1,0 +1,38 @@
+[
+    {
+        "label": "Home",
+        "items": [
+            {
+                "label": "Dashboard",
+                "icon": "Home",
+                "url": "/dashboard",
+                "access": ["admin", "members"]
+            },
+            {
+                "label": "Performance",
+                "icon": "Gauge",
+                "url": "/performance",
+                "access": ["superadmin"]
+            }
+        ],
+        "access": ["admin", "members", "superadmin"]
+    },
+    {
+        "label": "Orders",
+        "items": [
+            {
+                "label": "Armada Pariwisata",
+                "icon": "Car",
+                "url": "/dashboard/orders/fleet",
+                "access": ["admin", "members"]
+            },
+            {
+                "label": "Packages",
+                "icon": "User",
+                "url": "/dashboard/orders/packages",
+                "access": ["superadmin"]
+            }
+        ],
+        "access": ["admin", "members", "superadmin"]
+    }
+]
