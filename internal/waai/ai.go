@@ -12,6 +12,7 @@ import (
 	"os"
 	"regexp"
 	"service-travego/configs"
+	"service-travego/internal/wagy"
 	"service-travego/model"
 	"service-travego/repository"
 	"service-travego/service"
@@ -51,11 +52,11 @@ type AIClient struct {
 	inventoryService      *service.InventoryService
 	garageService         *service.GarageService
 	printService          *service.PrintManagementService
-	wagyClient            *WagyClient
+	wagyClient            *wagy.WagyClient
 }
 
 // NewAIClient creates a new AI client
-func NewAIClient(apiKey string, db *sql.DB, dbDriver string, rdb *redis.Client, wagyClient *WagyClient) *AIClient {
+func NewAIClient(apiKey string, db *sql.DB, dbDriver string, rdb *redis.Client, wagyClient *wagy.WagyClient) *AIClient {
 	model := os.Getenv("ANTHROPIC_MODEL")
 	if model == "" {
 		model = "claude-sonnet-4-6"

@@ -730,6 +730,131 @@ func (s *PrintManagementService) GenerateFleetTripsPDF(organizationID, scheduleN
 	return pdf, nil
 }
 
+func (s *PrintManagementService) GenerateSubscriptionPDF(organizationID, invoiceNumber string) ([]byte, error) {
+	invoiceNumber = strings.TrimSpace(invoiceNumber)
+	if invoiceNumber == "" {
+		return nil, NewServiceError(ErrInvalidInput, http.StatusBadRequest, "invoice_number is required")
+	}
+
+	// Get subscription transaction details
+	_, packageID, startDate, expiryDate, _, organizationID, paymentMethod, createdAt, paymentAmount, err := s.repo.GetSubscriptionDetailByInvoice(invoiceNumber)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, NewServiceError(ErrNotFound, http.StatusNotFound, "subscription transaction not found")
+		}
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to fetch subscription details")
+	}
+
+	// Get organization info
+	org, err := s.repo.GetOrganizationInfo(organizationID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, NewServiceError(ErrNotFound, http.StatusNotFound, "organization not found")
+		}
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to fetch organization")
+	}
+
+	// Load and parse packages.json
+	var packages struct {
+		Packages []model.Package `json:"packages"`
+	}
+	packagesFile, err := os.Open("config/packages.json")
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to open packages.json")
+	}
+	defer packagesFile.Close()
+	if err := json.NewDecoder(packagesFile).Decode(&packages); err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to parse packages.json")
+	}
+
+	// Find the selected package
+	var selectedPackage *model.Package
+	for _, pkg := range packages.Packages {
+		if pkg.PackageID == packageID {
+			selectedPackage = &pkg
+			break
+		}
+	}
+	if selectedPackage == nil {
+		return nil, NewServiceError(ErrNotFound, http.StatusNotFound, "package not found")
+	}
+
+	// Prepare variables for template
+	s.ensureLocationsLoaded()
+	companyCityLabel := s.cities[org.CompanyCity]
+	if companyCityLabel == "" {
+		companyCityLabel = org.CompanyCity
+	}
+
+	// Prepare company address
+	var companyAddress string
+	if org.CompanyAddress != "" {
+		companyAddress = org.CompanyAddress
+		if companyCityLabel != "" {
+			companyAddress += ", " + companyCityLabel
+		}
+	}
+
+	// Prepare active period
+	activePeriod := fmt.Sprintf("%s - %s", formatDateTravel(startDate), formatDateTravel(expiryDate))
+
+	// Prepare payment method
+	pm := "-"
+	if paymentMethod.Valid && paymentMethod.String != "" {
+		pm = paymentMethod.String
+	}
+
+	// Prepare payment amount
+	var pa float64
+	if paymentAmount.Valid {
+		pa = paymentAmount.Float64
+	}
+
+	// Calculate discount price
+	packageDiscountPrice := float64(selectedPackage.OriginalPrice) - pa
+
+	// Prepare company name
+	companyName := org.CompanyName
+	if strings.TrimSpace(companyName) == "" {
+		companyName = org.OrganizationName
+	}
+
+	// Read template
+	tplPath := filepath.FromSlash("docs/print/template/subscription.html")
+	rawTpl, err := os.ReadFile(tplPath)
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to read template")
+	}
+
+	vars := map[string]string{
+		"invoice_number":         html.EscapeString(invoiceNumber),
+		"invoice_date":           html.EscapeString(formatDateLong(createdAt)),
+		"payment_date":           html.EscapeString(formatDateTimeLong(createdAt)),
+		"payment_method":         html.EscapeString(pm),
+		"active_period":          html.EscapeString(activePeriod),
+		"organization_name":      html.EscapeString(org.OrganizationName),
+		"organization_email":     html.EscapeString(org.CompanyEmail),
+		"company_name":           html.EscapeString(companyName),
+		"company_address":        html.EscapeString(companyAddress),
+		"package_name":           html.EscapeString(selectedPackage.PackageName),
+		"package_description":    html.EscapeString(selectedPackage.PackageDescription),
+		"package_duration":       strconv.Itoa(selectedPackage.PackageDuration),
+		"package_original_price": html.EscapeString(formatThousand(int64(selectedPackage.OriginalPrice))),
+		"package_price":          html.EscapeString(formatThousand(int64(pa))),
+		"package_discount_price": html.EscapeString(formatThousand(int64(packageDiscountPrice))),
+		"expiration_date":        html.EscapeString(formatDateLong(expiryDate)),
+	}
+
+	fmt.Println(vars)
+
+	htmlDoc := applyTemplateVars(string(rawTpl), vars)
+	pdf, err := renderHTMLToPDF(htmlDoc)
+	if err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to render pdf")
+	}
+	return pdf, nil
+}
+
 func applyTemplateVars(tpl string, vars map[string]string) string {
 	re := regexp.MustCompile(`\{\{\s*([a-zA-Z0-9_]+)\s*\}\}`)
 	return re.ReplaceAllStringFunc(tpl, func(m string) string {

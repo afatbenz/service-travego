@@ -7,6 +7,7 @@ import (
 	"service-travego/database"
 	"service-travego/helper"
 	"service-travego/internal/waai"
+	"service-travego/internal/wagy"
 	"service-travego/service"
 
 	"github.com/gofiber/fiber/v2"
@@ -45,6 +46,7 @@ func SetupRoutes(app *fiber.App, cfg *configs.Config) {
 
 	// Setup route groups
 	SetupNotificationRoutes(app, db, cfg.Database.Driver) // Register public routes first
+	SetupPricingRoutes(app, db, cfg.Database.Driver)      // Public pricing endpoint - must be before other /services routes
 	SetupGeneralRoutes(api, db, cfg.Database.Driver)
 	SetupAuthRoutes(api, db, cfg.Database.Driver, cfg)
 	SetupBookingRoutes(api)
@@ -52,6 +54,7 @@ func SetupRoutes(app *fiber.App, cfg *configs.Config) {
 	SetupTeamRoutes(api, db, cfg.Database.Driver)
 	SetupEmployeeRoutes(api, db, cfg.Database.Driver)
 	SetupUserRoutes(api, db, cfg.Database.Driver)
+	SetupSubscriptionRoutes(api, db, cfg.Database.Driver, midtransCfg)
 	SetupUploadRoutes(api, db, cfg.Database.Driver)
 	SetupFleetRoutes(api, db, cfg.Database.Driver)
 	SetupFleetUnitRoutes(api, db, cfg.Database.Driver)
@@ -71,9 +74,9 @@ func SetupRoutes(app *fiber.App, cfg *configs.Config) {
 	SetupPreferenceCityRoutes(api, db, cfg.Database.Driver)
 
 	waaiCfg := waai.LoadConfig()
-	var wagyClient *waai.WagyClient
+	var wagyClient *wagy.WagyClient
 	if waaiCfg.WagyDeviceID != "" && waaiCfg.WagyToken != "" {
-		wagyClient = waai.NewWagyClient(waaiCfg.WagyDeviceID, waaiCfg.WagyToken)
+		wagyClient = wagy.NewWagyClient(waaiCfg.WagyDeviceID, waaiCfg.WagyToken)
 	}
 
 	SetupInventoryRoutes(api, db, cfg.Database.Driver, notificationSvc, wagyClient)

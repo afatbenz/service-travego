@@ -9,6 +9,7 @@ import (
 	"service-travego/config"
 	"service-travego/configs"
 	"service-travego/helper"
+	"service-travego/internal/wagy"
 	"service-travego/model"
 	"service-travego/repository"
 	"strconv"
@@ -44,6 +45,82 @@ func NewPaymentService(repo repository.PaymentRepository, orgRepo *repository.Or
 
 func (s *paymentService) ProcessPaymentNotification(req *model.MidtransWebhookRequest) error {
 	if req.StatusCode != "200" {
+		return nil
+	}
+
+	paymentMethod := determinePaymentMethod(req)
+
+	// Check if it's a subscription order (starts with TRV)
+	if strings.HasPrefix(req.OrderID, "TRV") {
+		// Get subscription detail
+		_, packageID, _, expiryDate, _, organizationID, _, _, _, err := s.repo.GetSubscriptionDetail(req.OrderID)
+		if err != nil {
+			return fmt.Errorf("failed to get subscription detail: %w", err)
+		}
+
+		grossAmount, err := strconv.ParseFloat(req.GrossAmount, 64)
+		// Update travego_transactions
+		if err := s.repo.UpdateTravegoTransactionStatus(req.OrderID, paymentMethod, grossAmount); err != nil {
+			return fmt.Errorf("failed to update travego transaction: %w", err)
+		}
+
+		// Parse gross amount
+		if err != nil {
+			return fmt.Errorf("invalid gross amount: %w", err)
+		}
+
+		// Check if subscription exists
+		subscriptionExists, err := s.repo.GetSubscriptionByOrganization(organizationID)
+		if err != nil {
+			return fmt.Errorf("failed to check subscription existence: %w", err)
+		}
+
+		activateDate := time.Now()
+		if subscriptionExists {
+			// Update existing subscription
+			if err := s.repo.UpdateSubscription(organizationID, packageID, activateDate, expiryDate, grossAmount); err != nil {
+				return fmt.Errorf("failed to update subscription: %w", err)
+			}
+		} else {
+			// Insert new subscription
+			subscriptionID, err := uuid.NewV7()
+			if err != nil {
+				return fmt.Errorf("failed to generate subscription ID: %w", err)
+			}
+			if err := s.repo.InsertSubscription(subscriptionID.String(), organizationID, packageID, activateDate, expiryDate, grossAmount, activateDate); err != nil {
+				return fmt.Errorf("failed to insert subscription: %w", err)
+			}
+		}
+
+		// Get organization name
+		_, orgName, _, err := s.orgRepo.GetOrganizationEmailAndName(organizationID)
+		if err != nil {
+			fmt.Printf("warning: failed to get organization name: %v\n", err)
+		}
+
+		// Send WhatsApp notification
+		go func() {
+			waClient := wagy.NewWagyClient(os.Getenv("WAGY_DEVICE_ID"), os.Getenv("WAGY_TOKEN"))
+			phone := os.Getenv("ADMINISTRATOR_PHONE")
+			if phone == "" {
+				fmt.Printf("warning: ADMINISTRATOR_PHONE environment variable not set\n")
+				return
+			}
+			message := fmt.Sprintf(
+				"[PAYMENT SUCCESS]\n"+
+					"Organization: %s\n"+
+					"Invoice: %s\n"+
+					"Amount: Rp %s\n"+
+					"Thank you!",
+				orgName,
+				req.OrderID,
+				helper.FormatRupiah(grossAmount),
+			)
+			if _, err := waClient.SendMessage(phone, message); err != nil {
+				fmt.Printf("warning: failed to send WhatsApp notification: %v\n", err)
+			}
+		}()
+
 		return nil
 	}
 
@@ -214,6 +291,13 @@ func (s *paymentService) ProcessPaymentNotification(req *model.MidtransWebhookRe
 	}
 
 	return nil
+}
+
+func determinePaymentMethod(req *model.MidtransWebhookRequest) string {
+	if len(req.VaNumbers) > 0 && req.VaNumbers[0].Bank != "" {
+		return fmt.Sprintf("Midtrans - Virtual Account - %s", req.VaNumbers[0].Bank)
+	}
+	return fmt.Sprintf("Midtrans - %s", req.PaymentType)
 }
 
 func formatPaymentDate(t time.Time) string {

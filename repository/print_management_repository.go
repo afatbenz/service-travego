@@ -659,3 +659,15 @@ func (r *PrintManagementRepository) CountPaymentOrdersByOrganization(organizatio
 func (r *PrintManagementRepository) GenerateInvoiceNumber(orderType int, organizationID string, now time.Time) (string, error) {
 	return utils.GenerateInvoiceNumber(r.db, r.driver, organizationID, orderType, now)
 }
+
+// GetSubscriptionDetailByInvoice retrieves subscription transaction details by invoice number
+func (r *PrintManagementRepository) GetSubscriptionDetailByInvoice(invoiceNumber string) (transactionID string, packageID string, startDate time.Time, expiryDate time.Time, userID string, organizationID string, paymentMethod sql.NullString, createdAt time.Time, paymentAmount sql.NullFloat64, err error) {
+	query := fmt.Sprintf("SELECT transaction_id, package_id, start_date, expiry_date, user_id, organization_id, payment_method, created_at, payment_amount FROM travego_transactions WHERE invoice_number = %s LIMIT 1", r.placeholder(1))
+	var tID, pID, uID, oID sql.NullString
+	var sDate, eDate, cDate sql.NullTime
+	err = database.QueryRow(r.db, query, invoiceNumber).Scan(&tID, &pID, &sDate, &eDate, &uID, &oID, &paymentMethod, &cDate, &paymentAmount)
+	if err != nil {
+		return "", "", time.Time{}, time.Time{}, "", "", sql.NullString{}, time.Time{}, sql.NullFloat64{}, err
+	}
+	return tID.String, pID.String, sDate.Time, eDate.Time, uID.String, oID.String, paymentMethod, cDate.Time, paymentAmount, nil
+}

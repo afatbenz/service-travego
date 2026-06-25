@@ -2,24 +2,25 @@ package waai
 
 import (
 	"log"
+	"service-travego/internal/wagy"
 	"sync"
 )
 
 // WagyClientRegistry manages WagyClient per device (thread-safe, lazy init)
 type WagyClientRegistry struct {
 	mu      sync.RWMutex
-	clients map[string]*WagyClient
+	clients map[string]*wagy.WagyClient
 }
 
 func NewWagyClientRegistry() *WagyClientRegistry {
 	return &WagyClientRegistry{
-		clients: make(map[string]*WagyClient),
+		clients: make(map[string]*wagy.WagyClient),
 	}
 }
 
 // GetClient mengembalikan WagyClient untuk assistant_device_id tertentu.
 // Membuat client baru (lazy) jika belum ada di cache.
-func (r *WagyClientRegistry) GetClient(assistantDeviceID, deviceToken string) *WagyClient {
+func (r *WagyClientRegistry) GetClient(assistantDeviceID, deviceToken string) *wagy.WagyClient {
 	if assistantDeviceID == "" || deviceToken == "" {
 		log.Printf("[WAAI][Registry] Empty assistantDeviceID or deviceToken, cannot create client")
 		return nil
@@ -40,7 +41,7 @@ func (r *WagyClientRegistry) GetClient(assistantDeviceID, deviceToken string) *W
 		return client
 	}
 
-	client = NewWagyClient(assistantDeviceID, deviceToken)
+	client = wagy.NewWagyClient(assistantDeviceID, deviceToken)
 	r.clients[assistantDeviceID] = client
 
 	log.Printf("[WAAI][Registry] Registered WagyClient for device: %s", assistantDeviceID)

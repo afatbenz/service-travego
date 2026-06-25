@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"service-travego/helper"
-	"service-travego/internal/waai"
+	"service-travego/internal/wagy"
 	"service-travego/model"
 	"service-travego/service"
 	"strconv"
@@ -20,7 +20,7 @@ type OrganizationHandler struct {
 	orgJoinService *service.OrganizationJoinService
 	orgTypeService *service.OrganizationTypeService
 	authService    *service.AuthService
-	wagyClient     *waai.WagyClient
+	wagyClient     *wagy.WagyClient
 }
 
 func NewOrganizationHandler(orgService *service.OrganizationService) *OrganizationHandler {
@@ -44,7 +44,7 @@ func (h *OrganizationHandler) SetAuthService(authService *service.AuthService) {
 }
 
 // SetWagyClient sets the wagy client
-func (h *OrganizationHandler) SetWagyClient(wagyClient *waai.WagyClient) {
+func (h *OrganizationHandler) SetWagyClient(wagyClient *wagy.WagyClient) {
 	h.wagyClient = wagyClient
 }
 

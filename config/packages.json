@@ -1,49 +1,52 @@
 {
     "packages": [
         {
-            "id": "trave01",
+            "package_id": "trave01",
             "package_name": "Basic Class",
             "package_description": "Untuk pengguna baru dan bisnis skala kecil yang ingin mencoba layanan TraveGo.",
+            "package_notes": "Uji coba gratis selama 30 hari",
             "package_price": 0,
-            "original_price": 79000,
+            "original_price": 114000,
             "package_duration": 30,
             "features": [
                 "Akses Semua Fitur",
                 "Report Data to Excel & Googlesheet",
                 "Akses AI Assistant terbatas untuk kelola bisnis",
                 "1 pengguna dashboard",
-                "1 pengguna AI Assistant",
-                "1 Armada Terdaftar",
-                "3 Unit Armada Terdaftar",
-                "1 Mitra KSO Terdaftar"
+                "5 pengguna AI Assistant",
+                "3 Armada Terdaftar",
+                "10 Unit Armada Terdaftar",
+                "3 Mitra KSO Terdaftar"
             ]
         },
         {
-            "id": "trave02",
+            "package_id": "trave02",
             "package_name": "Silver Class",
             "package_description": "Untuk bisnis skala menengah yang ingin mengembangkan layanan dengan TraveGo.",
-            "package_price": 449000,
-            "original_price": 799000,
-            "package_duration": 365,
+            "package_notes": "Cocok untuk bisnis skala menengah",
+            "package_price": 89000,
+            "original_price": 999000,
+            "package_duration": 180,
             "features": [
                 "Akses Semua Fitur",
                 "Report Data Excel & Googlesheet",
                 "AI Assistant untuk kelola bisnis",
                 "AI Assistant untuk pelanggan",
                 "Customer Relationship Management (CRM)",
-                "Open API untuk website sendiri",
-                "2 pengguna dashboard",
-                "5 pengguna AI Assistant",
+                "Akses Open API",
+                "5 pengguna dashboard",
+                "10 pengguna AI Assistant",
                 "5 Armada Terdaftar",
                 "20 Unit Armada Terdaftar",
                 "5 Mitra KSO Terdaftar"
             ]
         },
         {
-            "id": "trave03",
+            "package_id": "trave03",
             "package_name": "Diamond Class",
             "package_description": "Untuk optimalisasi bisnis skala besar dengan akses lebih banyak.",
-            "package_price": 2490000,
+            "package_notes": "Tahun berikutnya mulai Rp 1.500.000/tahun",
+            "package_price": 5790000,
             "original_price": 8599000,
             "package_duration": 365,
             "features": [
@@ -51,7 +54,7 @@
                 "Report Data Excel & Googlesheet",
                 "Akses AI Assistant",
                 "Akses AI Assistant untuk pelanggan",
-                "Open API untuk integrasi dengan website sendiri",
+                "Akses Open API",
                 "Customer Relationship Management (CRM)",
                 "Integrasi Payment Gateway",
                 "Free Website Profil & Catalog",

@@ -36,7 +36,11 @@ func (s *InventoryService) GetMovementNotes(movementType int) string {
 }
 
 func (s *InventoryService) GetItems(organizationID string, itemCategory int) ([]model.InventoryItemWithLabel, error) {
-	return s.repo.GetAllItems(organizationID, itemCategory)
+	return s.repo.GetAllItems(organizationID, itemCategory, "")
+}
+
+func (s *InventoryService) GetAllItems(organizationID string, itemCategory int, status string) ([]model.InventoryItemWithLabel, error) {
+	return s.repo.GetAllItems(organizationID, itemCategory, status)
 }
 
 func (s *InventoryService) GenerateItemSKU(organizationID string) (string, error) {
@@ -244,6 +248,10 @@ func (s *InventoryService) createItemTransactionType2(organizationID, createdBy 
 		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to generate invoice number")
 	}
 
+	if req.TransactionDate == "" {
+		req.TransactionDate = time.Now().Format("2006-01-02")
+	}
+
 	transaction := &model.InventoryTransaction{
 		TransactionID:       uuid.New().String(),
 		InvoiceNumber:       invoiceNumber,
@@ -260,6 +268,7 @@ func (s *InventoryService) createItemTransactionType2(organizationID, createdBy 
 		Status:              0,
 	}
 	if err := s.repo.CreateInventoryTransaction(organizationID, transaction); err != nil {
+		fmt.Println("err create transaction ", err)
 		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create transaction")
 	}
 
@@ -712,6 +721,21 @@ func (s *InventoryService) ReceiveRequest(organizationID, updatedBy string, req 
 	return nil
 }
 
+func (s *InventoryService) ReceiveRequestItem(organizationID, userID string, employeeID string, requestID string) error {
+	if requestID == "" {
+		return NewServiceError(ErrInvalidInput, http.StatusBadRequest, "request_id is required")
+	}
+
+	if err := s.repo.ReceiveOrderItem(organizationID, userID, employeeID, requestID); err != nil {
+		if err == sql.ErrNoRows {
+			return NewServiceError(ErrNotFound, http.StatusNotFound, "order not found")
+		}
+		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to receive purchase order item")
+	}
+
+	return nil
+}
+
 func (s *InventoryService) SubmitRequestOrder(organizationID, userID string, req *model.SubmitRequestOrderRequest) (*model.InventoryOrder, error) {
 	inventoryReq, err := s.repo.GetRequestByID(req.RequestID, organizationID)
 	if err != nil {
@@ -765,6 +789,7 @@ func (s *InventoryService) SubmitRequestOrder(organizationID, userID string, req
 		UpdatedBy:      userID,
 	}
 	if err := s.repo.CreatePurchaseOrder(order); err != nil {
+		fmt.Println("err==== ", err)
 		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create purchase order")
 	}
 
@@ -785,10 +810,15 @@ func (s *InventoryService) SubmitRequestOrder(organizationID, userID string, req
 		ReferenceID:         purchaseID,
 		CreatedBy:           userID,
 		CreatedAt:           time.Now(),
+		TransactionDateStr:  time.Now().Format("2006-01-02"),
 		Status:              0,
 	}
 	if err := s.repo.CreateInventoryTransaction(organizationID, transaction); err != nil {
 		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create transaction")
+	}
+
+	if err := s.repo.UpdateRequestOrderStatus(req.RequestID, organizationID, userID, 3); err != nil {
+		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to update request order status")
 	}
 
 	return order, nil

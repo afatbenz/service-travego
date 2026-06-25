@@ -152,6 +152,37 @@ func DualAuthMiddleware(orgRepo *repository.OrganizationRepository) fiber.Handle
 			var orgID string
 			var userID string
 
+			/// Public
+			expectedKey := os.Getenv("STATIC_API_KEY")
+			if expectedKey == "" {
+				expectedKey = "trv-lasoa30sal&1ajshdkahsd012-12"
+			}
+
+			if apiKey == "" {
+				return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+					"status":         "error",
+					"message":        "API key required. Provide x-api-key header.",
+					"data":           nil,
+					"transaction_id": GetTransactionID(c),
+				})
+			}
+
+			if apiKey != expectedKey {
+				return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+					"status":         "error",
+					"message":        "Invalid API key",
+					"data":           nil,
+					"transaction_id": GetTransactionID(c),
+				})
+			}
+
+			fmt.Println("API API Key:", apiKey, " - Expected Key:", expectedKey)
+
+			if apiKey == expectedKey {
+				c.Locals("role", "public")
+				return c.Next()
+			}
+
 			// Try multiple decryption methods
 			// 1. Try DecryptAuthSensitiveData (JSON with organization_id)
 			if data, err := DecryptAuthSensitiveData(apiKey); err == nil {
@@ -244,6 +275,47 @@ func DualAuthMiddleware(orgRepo *repository.OrganizationRepository) fiber.Handle
 			"data":           nil,
 			"transaction_id": GetTransactionID(c),
 		})
+	}
+}
+
+// StaticApiKeyMiddleware validates a static API key from environment for public endpoints
+// This middleware is useful for landing page or public API access
+func StaticApiKeyMiddleware() fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		authHeader := c.Get("Authorization")
+		apiKey := c.Get("x-api-key")
+		if apiKey == "" {
+			apiKey = c.Get("X-Api-Key")
+		}
+		if apiKey == "" {
+			apiKey = c.Get("API-KEY")
+		}
+
+		expectedKey := os.Getenv("STATIC_API_KEY")
+		if expectedKey == "" {
+			expectedKey = "trv-lasoa30sal&1ajshdkahsd012-12"
+		}
+
+		if apiKey == "" && authHeader == "" {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"status":         "error",
+				"message":        "API key required. Provide x-api-key header.",
+				"data":           nil,
+				"transaction_id": GetTransactionID(c),
+			})
+		}
+
+		if apiKey != expectedKey && authHeader == "" {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"status":         "error",
+				"message":        "Invalid API key",
+				"data":           nil,
+				"transaction_id": GetTransactionID(c),
+			})
+		}
+
+		c.Locals("role", "public")
+		return c.Next()
 	}
 }
 

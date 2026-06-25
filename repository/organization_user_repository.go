@@ -110,8 +110,8 @@ func (r *OrganizationUserRepository) CreateSubscriptionWithDuration(orgID string
 
 	query := fmt.Sprintf(`
 		INSERT INTO _subscription (
-			subscription_id, organization_id, package_id, activate_date, expiry_date, created_at, subscription_type, status
-		) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+			subscription_id, organization_id, package_id, activate_date, expiry_date, created_at, subscription_type, package_price, status
+		) VALUES (%s, %s, %s, %s, %s, %s, %s, 0, %s)
 	`,
 		r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4),
 		r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8),
