@@ -397,9 +397,9 @@ func DecryptResetPasswordToken(token string) (email, userID string, expiryMinute
 // AuthSensitiveData represents sensitive auth data to be encrypted
 type AuthSensitiveData struct {
 	OrganizationID   string `json:"organization_id"`
+	IsAdmin          bool   `json:"is_admin"`
 	UserID           string `json:"user_id"`
 	OrganizationRole int    `json:"organization_role"`
-	IsAdmin          bool   `json:"is_admin"`
 }
 
 // EncryptAuthSensitiveData encrypts sensitive auth data into a token (AES-256-GCM, base64url)

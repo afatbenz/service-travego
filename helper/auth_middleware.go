@@ -90,11 +90,17 @@ func JWTAuthorizationMiddleware() fiber.Handler {
 			// Decrypt sensitive token to populate locals
 			if claims.Token != "" {
 				data, derr := DecryptAuthSensitiveData(claims.Token)
+				isAdmin := data.IsAdmin
+				isSuperAdmin := data.OrganizationID == "00"
+				if isSuperAdmin {
+					isAdmin = false
+				}
 				if derr == nil {
 					c.Locals("user_id", data.UserID)
 					c.Locals("organization_id", data.OrganizationID)
 					c.Locals("organization_role", data.OrganizationRole)
-					c.Locals("is_admin", data.IsAdmin)
+					c.Locals("is_admin", isAdmin)
+					c.Locals("is_superadmin", isSuperAdmin)
 				}
 			}
 			return c.Next()
@@ -175,8 +181,6 @@ func DualAuthMiddleware(orgRepo *repository.OrganizationRepository) fiber.Handle
 					"transaction_id": GetTransactionID(c),
 				})
 			}
-
-			fmt.Println("API API Key:", apiKey, " - Expected Key:", expectedKey)
 
 			if apiKey == expectedKey {
 				c.Locals("role", "public")

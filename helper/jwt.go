@@ -25,7 +25,7 @@ type AuthTokenClaims struct {
 
 // GenerateAuthToken generates a JWT token for authentication with configurable expiry
 // expiryMinutes: token expiry in minutes (default: 90 if 0 or from AUTH_TOKEN_EXPIRY env)
-func GenerateAuthToken(fullname string, organizationName string, organizationID string, isAdmin bool, email string, username string, encToken string, expiryMinutes int) (string, error) {
+func GenerateAuthToken(fullname string, organizationName string, organizationID string, email string, username string, encToken string, expiryMinutes int) (string, error) {
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
 		secret = "your-secret-key-change-in-production" // Default for development
@@ -41,7 +41,6 @@ func GenerateAuthToken(fullname string, organizationName string, organizationID 
 		Fullname:         fullname,
 		OrganizationName: organizationName,
 		OrganizationID:   organizationID,
-		IsAdmin:          isAdmin,
 		Email:            email,
 		Username:         username,
 		Token:            encToken,

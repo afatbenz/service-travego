@@ -72,6 +72,7 @@ func SetupRoutes(app *fiber.App, cfg *configs.Config) {
 	SetupPrintManagementRoutes(api, db, cfg.Database.Driver)
 	SetupPaymentRoutes(api, db, cfg.Database.Driver, midtransCfg)
 	SetupPreferenceCityRoutes(api, db, cfg.Database.Driver)
+	SetupSystemRoutes(api, db, cfg.Database.Driver)
 
 	waaiCfg := waai.LoadConfig()
 	var wagyClient *wagy.WagyClient

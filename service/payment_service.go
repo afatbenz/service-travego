@@ -234,7 +234,7 @@ func (s *paymentService) ProcessPaymentNotification(req *model.MidtransWebhookRe
 		dashboardOrderDetailUrl := ""
 
 		orgEmail, orgName, domainURL, oerr := s.orgRepo.GetOrganizationEmailAndName(orgID)
-		dashboardOrderDetailUrl = fmt.Sprintf("%s/dashboard/partner/orders/fleet/detail/%s", baseURL, req.OrderID)
+		dashboardOrderDetailUrl = fmt.Sprintf("%s/dashboard/orders/fleet/detail/%s", baseURL, req.OrderID)
 		if terr == nil && strings.TrimSpace(token) != "" && strings.TrimSpace(domainURL) != "" {
 			orderDetailUrl = fmt.Sprintf("%s/order/detail/armada/%s", domainURL, token)
 		}

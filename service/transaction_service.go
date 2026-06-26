@@ -186,7 +186,7 @@ func (s *TransactionService) SubmitFleetTripExpense(orgID, userID, transactionIt
 				_, _ = s.notificationService.CreateNotification(orgID, NotificationPayload{
 					Title:   "Pengeluaran Reimbursement Baru",
 					Message: fmt.Sprintf("Ada pengeluaran reimbursement sebesar %.2f untuk SJP %s", amount, scheduleNumber),
-					URL:     baseURL + "/dashboard/partner/schedules/fleet-schedules/detail/" + scheduleNumber,
+					URL:     baseURL + "/dashboard/schedules/fleet-schedules/detail/" + scheduleNumber,
 				})
 			}()
 		}
@@ -214,7 +214,7 @@ func (s *TransactionService) SubmitFleetTripExpense(orgID, userID, transactionIt
 				_, _ = s.notificationService.CreateNotification(orgID, NotificationPayload{
 					Title:   "Pengeluaran Reimbursement Baru",
 					Message: fmt.Sprintf("Ada pengeluaran reimbursement sebesar %.2f untuk SJP %s", secondAmount, scheduleNumber),
-					URL:     baseURL + "/dashboard/partner/schedules/fleet-schedules/detail/" + scheduleNumber,
+					URL:     baseURL + "/dashboard/schedules/fleet-schedules/detail/" + scheduleNumber,
 				})
 			}()
 		}

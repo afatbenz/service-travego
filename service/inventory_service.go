@@ -533,7 +533,7 @@ func (s *InventoryService) sendRequestNotification(organizationID string, reques
 	_, _ = s.notificationService.CreateNotification(organizationID, NotificationPayload{
 		Title:   "Permintaan Asset Baru",
 		Message: "Tinjau permintaan asset baru",
-		URL:     fmt.Sprintf("%s/dashboard/partner/inventories/request/detail/%s", baseURL, request.RequestID),
+		URL:     fmt.Sprintf("%s/dashboard/inventories/request/detail/%s", baseURL, request.RequestID),
 	})
 
 	return nil
