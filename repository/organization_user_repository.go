@@ -321,10 +321,10 @@ func (r *OrganizationUserRepository) UpdateUserIsActive(userID, organizationID s
 	query := fmt.Sprintf(`
 		UPDATE users
 		SET is_active = %s, updated_at = %s
-		WHERE user_id = %s AND organization_id = %s
-	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))
+		WHERE user_id = %s
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
 
-	result, err := database.Exec(r.db, query, isActive, time.Now(), userID, organizationID)
+	result, err := database.Exec(r.db, query, isActive, time.Now(), userID)
 	if err != nil {
 		return err
 	}

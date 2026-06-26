@@ -92,7 +92,7 @@ func (s *OrganizationJoinService) JoinOrganization(userID, organizationCode stri
 	}
 	approveURL := ""
 	if baseURL != "" {
-		approveURL = baseURL + "/dashboard/partner/organization/request-user"
+		approveURL = baseURL + "/dashboard/organization/request-user"
 	}
 
 	// Track if we need to create notification

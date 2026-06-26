@@ -23,6 +23,8 @@ func (s *PricingService) GetPackages(orgID, userID string) ([]model.PackageRespo
 		return nil, err
 	}
 
+	err = s.repo.InsertLog()
+
 	var subscription *model.Subscription
 	if orgID != "" {
 		subscription, err = s.repo.GetSubscriptionByOrgID(orgID)

@@ -159,7 +159,7 @@ func (s *OrderService) CreateOrder(req *model.CreateOrderRequest) (*model.Create
 
 		dashboardOrderDetailUrl := ""
 		if baseOrgURL != "" {
-			dashboardOrderDetailUrl = fmt.Sprintf("%s/dashboard/partner/orders/fleet/detail/%s", baseOrgURL, orderID)
+			dashboardOrderDetailUrl = fmt.Sprintf("%s/dashboard/orders/fleet/detail/%s", baseOrgURL, orderID)
 		}
 
 		emailData := helper.OrderSuccessEmailData{

@@ -515,19 +515,23 @@ func (h *OrganizationHandler) HandleUserAction(c *fiber.Ctx) error {
 		return helper.SendErrorResponse(c, fiber.StatusBadRequest, "Missing organization context")
 	}
 
+	ownID := c.Params("user_id")
+
 	action := c.Params("action")
 	userID := c.Params("user_id")
+
+	if ownID == userID {
+		return helper.SendErrorResponse(c, fiber.StatusBadRequest, "Anda tidak dapat mengaktifkan atau nonaktifkan akun sendiri dari menu ini")
+	}
 
 	switch action {
 	case "enable":
 		if err := h.orgService.ToggleUserStatus(orgID, userID, true); err != nil {
-			fmt.Println("Error enabling user:", err.Error())
 			return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to enable user")
 		}
 		return helper.SuccessResponse(c, fiber.StatusOK, "User enabled successfully", nil)
 	case "disable":
 		if err := h.orgService.ToggleUserStatus(orgID, userID, false); err != nil {
-			fmt.Println("Error disabling user:", err.Error())
 			return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to disable user")
 		}
 		return helper.SuccessResponse(c, fiber.StatusOK, "User disabled successfully", nil)

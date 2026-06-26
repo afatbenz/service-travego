@@ -101,7 +101,7 @@ func (r *PricingRepository) GetSubscriptionByOrgID(orgID string) (*model.Subscri
 	query := fmt.Sprintf(`SELECT package_id, activate_date, expiry_date FROM _subscription WHERE organization_id = %s`,
 		r.getPlaceholder(1))
 	row := r.db.QueryRow(query, orgID)
-	
+
 	var sub model.Subscription
 	err := row.Scan(&sub.PackageID, &sub.ActivateDate, &sub.ExpiryDate)
 	if err != nil {
@@ -111,4 +111,16 @@ func (r *PricingRepository) GetSubscriptionByOrgID(orgID string) (*model.Subscri
 		return nil, err
 	}
 	return &sub, nil
+}
+
+func (r *PricingRepository) InsertLog() error {
+	query := `INSERT INTO travego_visitors (period, count) 
+	VALUES (CURRENT_DATE, 1) 
+	ON CONFLICT (period) 
+	DO UPDATE SET count = travego_visitors.count + 1;`
+	_, err := r.db.Exec(query)
+	if err != nil {
+		return fmt.Errorf("gagal insert ke travego_visitors: %w", err)
+	}
+	return nil
 }

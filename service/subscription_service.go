@@ -88,7 +88,7 @@ func (s *SubscriptionService) GetSubscription(orgID string) (model.SubscriptionD
 	for _, pkg := range s.packages {
 		fmt.Println("pkg packageID ", pkg.PackageID)
 		encryptedID, _ := helper.EncryptString(pkg.PackageID)
-		if pkg.PackageID == sub.PackageID {
+		if encryptedID == sub.PackageID {
 			sub.PackageID = encryptedID
 			sub.PackageName = pkg.PackageName
 			break
@@ -218,8 +218,8 @@ func (s *SubscriptionService) SubmitSubscriptionPayment(packageID, userID, orgID
 
 	// Get Midtrans snap token
 	baseURL := os.Getenv("APP_BASE_URL")
-	finishURL := fmt.Sprintf("%s/dashboard/partner/subscription/payment/success/%s", baseURL, invoiceNumber)
-	errorURL := fmt.Sprintf("%s/dashboard/partner/subscription/payment/error/%s", baseURL, invoiceNumber)
+	finishURL := fmt.Sprintf("%s/dashboard/subscription/payment/success/%s", baseURL, invoiceNumber)
+	errorURL := fmt.Sprintf("%s/dashboard/subscription/payment/error/%s", baseURL, invoiceNumber)
 	snapReq := &midtrans.SnapReq{
 		TransactionDetails: midtrans.TransactionDetails{
 			OrderID:  invoiceNumber,
