@@ -333,6 +333,7 @@ func (s *AuthService) Login(email, phone, password, userID string) (*LoginRespon
 
 	organizationID := ""
 	organizationName := ""
+	orgRole := 0
 	if user.IsAdmin {
 		organizationID = "00"
 		organizationName = "SuperAdmin"
@@ -343,6 +344,7 @@ func (s *AuthService) Login(email, phone, password, userID string) (*LoginRespon
 			log.Printf("[ERROR] Error getting organization and role - UserID: %s, Error: %v", user.UserID, err)
 		} else if err == nil {
 			organizationID = orgID
+			orgRole = role
 		}
 
 		if role == 1 {
@@ -357,8 +359,10 @@ func (s *AuthService) Login(email, phone, password, userID string) (*LoginRespon
 	}
 
 	sensitive := helper.AuthSensitiveData{
-		OrganizationID: organizationID,
-		IsAdmin:        user.IsAdmin,
+		OrganizationID:   organizationID,
+		IsAdmin:          user.IsAdmin,
+		UserID:           user.UserID,
+		OrganizationRole: orgRole,
 	}
 
 	encToken, errEnc := helper.EncryptAuthSensitiveData(sensitive)
@@ -590,6 +594,7 @@ func (s *AuthService) RefreshToken(refreshToken string) (*RefreshTokenResponse, 
 	// Get organization info (same logic as Login())
 	organizationID := ""
 	organizationName := ""
+	orgRole := 0
 	if user.IsAdmin {
 		organizationID = "00"
 		organizationName = "SuperAdmin"
@@ -600,6 +605,7 @@ func (s *AuthService) RefreshToken(refreshToken string) (*RefreshTokenResponse, 
 			log.Printf("[ERROR] Error getting organization and role - UserID: %s, Error: %v", user.UserID, err)
 		} else if err == nil {
 			organizationID = orgID
+			orgRole = role
 		}
 
 		if role == 1 {
@@ -615,8 +621,10 @@ func (s *AuthService) RefreshToken(refreshToken string) (*RefreshTokenResponse, 
 
 	// Generate new access token (same payload as Login())
 	sensitive := helper.AuthSensitiveData{
-		OrganizationID: organizationID,
-		IsAdmin:        user.IsAdmin,
+		OrganizationID:   organizationID,
+		IsAdmin:          user.IsAdmin,
+		UserID:           user.UserID,
+		OrganizationRole: orgRole,
 	}
 	encToken, errEnc := helper.EncryptAuthSensitiveData(sensitive)
 	if errEnc != nil {
