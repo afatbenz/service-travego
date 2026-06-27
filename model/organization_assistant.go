@@ -42,3 +42,17 @@ type EmployeeWhatsAppResponse struct {
 	Phone      string `json:"phone"`
 	HasPhone   bool   `json:"has_phone"`
 }
+
+type AssistantWhatsAppBusinessUpdateRequest struct {
+	AccountNumber string `json:"account_number" validate:"required"`
+}
+
+type AssistantWhatsAppBusinessListResponse struct {
+	AccountNumber string `json:"account_number"`
+	DeviceID      string `json:"device_id"`
+	DeviceName    string `json:"device_name"`
+	DeviceToken   string `json:"device_token"`
+	Status        int    `json:"status"`
+	StatusLabel   string `json:"status_label"`
+	Available     bool   `json:"available"`
+}

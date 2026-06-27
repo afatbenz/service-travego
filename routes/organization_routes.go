@@ -20,11 +20,13 @@ func SetupOrganizationRoutes(api fiber.Router, db *sql.DB, driver string, cfg *c
 	orgUserRepo := repository.NewOrganizationUserRepository(db, driver)
 	userRepo := repository.NewUserRepository(db, driver)
 	orgTypeRepo := repository.NewOrganizationTypeRepository(db, driver)
+	subscriptionRepo := repository.NewSubscriptionRepository(db, driver)
 
 	// Initialize services
 	orgService := service.NewOrganizationService(orgRepo, userRepo)
 	orgService.SetOrganizationUserRepository(orgUserRepo)
 	orgService.SetOrganizationTypeRepository(orgTypeRepo)
+	orgService.SetSubscriptionRepository(subscriptionRepo)
 	notificationSvc := service.NewNotificationService(db, driver)
 	orgJoinService := service.NewOrganizationJoinService(orgRepo, orgUserRepo, userRepo, notificationSvc, &cfg.Email)
 	orgTypeService := service.NewOrganizationTypeService(orgTypeRepo)
@@ -69,6 +71,8 @@ func SetupOrganizationRoutes(api fiber.Router, db *sql.DB, driver string, cfg *c
 	organization.Post("/assistant/submit", helper.JWTAuthorizationMiddleware(), orgHandler.AssistantSubmit)
 	organization.Post("/assistant/update", helper.JWTAuthorizationMiddleware(), orgHandler.AssistantUpdate)
 	organization.Post("/assistant/delete", helper.JWTAuthorizationMiddleware(), orgHandler.AssistantDelete)
+	organization.Get("/assistant/whatsapp-business", helper.JWTAuthorizationMiddleware(), orgHandler.AssistantWhatsAppBusinessList)
+	organization.Post("/assistant/whatsapp-business/update", helper.JWTAuthorizationMiddleware(), orgHandler.AssistantWhatsAppBusinessUpdate)
 	// Garage routes
 	organization.Get("/garage/list", helper.JWTAuthorizationMiddleware(), garageHandler.GetGarages)
 	organization.Post("/garage/create", helper.JWTAuthorizationMiddleware(), garageHandler.CreateGarage)
