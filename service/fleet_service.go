@@ -81,14 +81,18 @@ func (s *FleetService) CreateFleet(createdBy, organizationID string, req *model.
 
 	if len(req.Facilities) > 0 {
 		facilityIDs, err := s.repo.InsertFacilities(organizationID, req.Facilities)
+		fmt.Println("--- check facilityIDs ", err)
 		if err != nil {
 			return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create facilities")
 		}
+		fmt.Println("--- check facilityIDs ", facilityIDs)
 		req.FacilityIDs = append(req.FacilityIDs, facilityIDs...)
 	}
+	fmt.Println("--- check req.FacilityIDs ", req.FacilityIDs)
 
 	id, err := s.repo.CreateFleet(req)
 	if err != nil {
+		fmt.Println("--- Error creating fleet:", err)
 		return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create fleet")
 	}
 	return id, nil
@@ -228,7 +232,7 @@ func (s *FleetService) GetServiceFleetDetail(fleetID string) (*model.ServiceFlee
 	fac, err := s.repo.GetFleetFacilities(fleetID)
 	if err != nil {
 		fmt.Println("Error fetching fleet facilities:", err)
-		fac = []string{}
+		fac = []model.FacilityItem{}
 	}
 	pickup, err := s.repo.GetFleetPickup(orgID, fleetID)
 	if err != nil {
@@ -1032,7 +1036,7 @@ func (s *FleetService) GetFleetDetail(orgID, fleetID string) (*model.FleetDetail
 	}
 	fac, err := s.repo.GetFleetFacilities(fleetID)
 	if err != nil {
-		fac = []string{}
+		fac = []model.FacilityItem{}
 	}
 	pickup, err := s.repo.GetFleetPickup(orgID, fleetID)
 	if err != nil {

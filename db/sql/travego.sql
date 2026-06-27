@@ -411,6 +411,10 @@ CREATE TABLE public.facilities (
 
 ALTER TABLE public.facilities OWNER TO postgres;
 
+ALTER TABLE facilities 
+ADD CONSTRAINT unique_facility_per_org UNIQUE (organization_id, facility_name);
+
+
 --
 -- TOC entry 224 (class 1259 OID 17357)
 -- Name: fleet_addon; Type: TABLE; Schema: public; Owner: postgres

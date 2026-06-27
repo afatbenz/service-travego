@@ -137,7 +137,7 @@ func (r *FleetRepository) ListFleets(req *model.ListFleetRequest) ([]model.Fleet
 	base := `
         SELECT f.uuid AS fleet_id, ft.label AS fleet_type, f.fleet_name, f.capacity, f.engine, f.body, %s as total_unit, f.active, f.status, f.thumbnail, STRING_AGG(DISTINCT fu.engine::text, ', ') AS engines, STRING_AGG(DISTINCT fu.capacity::text, ', ') AS capacities
         FROM fleets f INNER JOIN fleet_types ft ON f.fleet_type = ft.id
-		INNER JOIN fleet_units fu ON fu.fleet_id::text = f.uuid::text
+		LEFT JOIN fleet_units fu ON fu.fleet_id::text = f.uuid::text
     `
 	base = fmt.Sprintf(base, totalUnitExpr)
 	where := make([]string, 0, 4)
@@ -230,17 +230,29 @@ func (r *FleetRepository) InsertFacilities(orgID string, facilityNames []string)
 	if len(facilityNames) == 0 {
 		return nil, nil
 	}
-	query := fmt.Sprintf("INSERT INTO facilities (facility_id, facility_name, facility_icon, organization_id) VALUES (%s, %s, %s, %s)",
+
+	// Query sudah benar dengan klausa RETURNING
+	query := fmt.Sprintf(`INSERT INTO facilities (facility_id, facility_name, facility_icon, organization_id) 
+        VALUES (%s, %s, %s, %s) 
+        ON CONFLICT (organization_id, facility_name) 
+        DO UPDATE SET facility_name = facilities.facility_name 
+        RETURNING facility_id`,
 		r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))
+
 	ids := make([]string, 0, len(facilityNames))
+
 	for _, name := range facilityNames {
-		facID := uuid2()
-		_, err := database.Exec(r.db, query, facID, name, "Check", orgID)
+		var fetchedID string
+
+		err := r.db.QueryRow(query, uuid2(), name, "Check", orgID).Scan(&fetchedID)
 		if err != nil {
 			return nil, err
 		}
-		ids = append(ids, facID)
+
+		// Masukkan ID yang didapat dari database ke dalam slice
+		ids = append(ids, fetchedID)
 	}
+
 	return ids, nil
 }
 
@@ -256,6 +268,7 @@ func (r *FleetRepository) CreateFleet(req *model.CreateFleetRequest) (string, er
 		r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12), r.getPlaceholder(13), r.getPlaceholder(14), r.getPlaceholder(15), r.getPlaceholder(16))
 
 	// Status default 1 (Active/Draft?)
+	fmt.Println("is public --- ", req.IsPublic)
 	_, err := database.Exec(r.db, query,
 		id,
 		req.OrganizationID,
@@ -613,19 +626,41 @@ func (r *FleetRepository) GetFleetDetail(id, orgID string) (*model.FleetDetailRe
 	return &res, nil
 }
 
-func (r *FleetRepository) GetFleetFacilities(fleetID string) ([]string, error) {
-	query := fmt.Sprintf("SELECT f.facility_name as facility FROM fleet_facilities ff INNER JOIN facilities f ON f.facility_id = ff.facility_id WHERE ff.fleet_id = %s", r.getPlaceholder(1))
+func (r *FleetRepository) GetFleetFacilities(fleetID string) ([]model.FacilityItem, error) {
+	// First try new approach with facilities table
+	query := fmt.Sprintf("SELECT f.facility_name, f.facility_icon FROM fleet_facilities ff INNER JOIN facilities f ON f.facility_id = ff.facility_id WHERE ff.fleet_id = %s", r.getPlaceholder(1))
 	rows, err := database.Query(r.db, query, fleetID)
+	if err == nil {
+		defer rows.Close()
+		var facilities []model.FacilityItem
+		for rows.Next() {
+			var f model.FacilityItem
+			if err := rows.Scan(&f.FacilityName, &f.FacilityIcon); err == nil {
+				facilities = append(facilities, f)
+			}
+		}
+		if len(facilities) > 0 {
+			return facilities, nil
+		}
+	}
+
+	// Fallback to old approach (direct facility column)
+	query = fmt.Sprintf("SELECT COALESCE(facility, '') AS facility FROM fleet_facilities WHERE fleet_id = %s", r.getPlaceholder(1))
+	rows, err = database.Query(r.db, query, fleetID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var facilities []string
+	var facilities []model.FacilityItem
 	for rows.Next() {
-		var f string
-		if err := rows.Scan(&f); err == nil {
-			facilities = append(facilities, f)
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			return nil, err
 		}
+		facilities = append(facilities, model.FacilityItem{FacilityName: s})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return facilities, nil
 }

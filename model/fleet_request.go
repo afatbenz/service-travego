@@ -38,7 +38,7 @@ type CreateFleetRequest struct {
 	FuelType       string               `json:"fuel_type"`
 	Description    string               `json:"description"`
 	Active         bool                 `json:"active"`
-	IsPublic       bool                 `json:"is_public"`
+	IsPublic       int                  `json:"is_public"`
 	Pickup         []FleetPickupRequest `json:"pickup"`
 	Facilities     []string             `json:"fascilities"`
 	FacilityIDs    []string             `json:"facility_ids"`
@@ -233,7 +233,7 @@ type FleetImageItem struct {
 
 type FleetDetailResponse struct {
 	Meta       FleetDetailMeta   `json:"meta"`
-	Facilities []string          `json:"facilities"`
+	Facilities []FacilityItem    `json:"facilities"`
 	Pickup     []FleetPickupItem `json:"pickup"`
 	Pricing    []FleetPriceItem  `json:"pricing"`
 	Addon      []FleetAddonItem  `json:"addon"`

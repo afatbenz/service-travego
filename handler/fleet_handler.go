@@ -73,13 +73,10 @@ func (h *FleetHandler) CreateFleet(c *fiber.Ctx) error {
 		}
 		if v, ok := m["is_public"]; ok {
 			switch vv := v.(type) {
-			case bool:
-				req.IsPublic = vv
-			case string:
-				b, _ := strconv.ParseBool(vv)
-				req.IsPublic = b
+			case int:
+				req.IsPublic = int(vv)
 			case float64:
-				req.IsPublic = vv != 0
+				req.IsPublic = int(vv)
 			}
 		}
 		if v, ok := m["pickup_point"].([]interface{}); ok {
@@ -188,27 +185,27 @@ func (h *FleetHandler) CreateFleet(c *fiber.Ctx) error {
 						}
 					}
 				}
-			if len(req.Facilities) == 0 {
-				if v, ok := m["fascilities"].([]interface{}); ok {
-					req.Facilities = make([]string, 0, len(v))
-					for _, it := range v {
-						if s, ok := it.(string); ok {
-							req.Facilities = append(req.Facilities, s)
+				if len(req.Facilities) == 0 {
+					if v, ok := m["fascilities"].([]interface{}); ok {
+						req.Facilities = make([]string, 0, len(v))
+						for _, it := range v {
+							if s, ok := it.(string); ok {
+								req.Facilities = append(req.Facilities, s)
+							}
 						}
 					}
 				}
-			}
-			if len(req.FacilityIDs) == 0 {
-				if v, ok := m["facility_ids"].([]interface{}); ok {
-					req.FacilityIDs = make([]string, 0, len(v))
-					for _, it := range v {
-						if s, ok := it.(string); ok && s != "" {
-							req.FacilityIDs = append(req.FacilityIDs, s)
+				if len(req.FacilityIDs) == 0 {
+					if v, ok := m["facility_ids"].([]interface{}); ok {
+						req.FacilityIDs = make([]string, 0, len(v))
+						for _, it := range v {
+							if s, ok := it.(string); ok && s != "" {
+								req.FacilityIDs = append(req.FacilityIDs, s)
+							}
 						}
 					}
 				}
-			}
-			if len(req.Pricing) == 0 {
+				if len(req.Pricing) == 0 {
 					if v, ok := m["prices"].([]interface{}); ok {
 						req.Pricing = make([]model.FleetPriceRequest, 0, len(v))
 						for _, it := range v {

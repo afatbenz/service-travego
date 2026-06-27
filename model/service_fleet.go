@@ -61,7 +61,7 @@ type ServiceFleetAddonItem struct {
 
 type ServiceFleetDetailResponse struct {
 	Meta       FleetDetailMeta          `json:"meta"`
-	Facilities []string                 `json:"facilities"`
+	Facilities []FacilityItem           `json:"facilities"`
 	Pickup     []ServiceFleetPickupItem `json:"pickup"`
 	Addon      []FleetAddonItem         `json:"addon"`
 	Pricing    []ServiceFleetPriceItem  `json:"pricing"`
