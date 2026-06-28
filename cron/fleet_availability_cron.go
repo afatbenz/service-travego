@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 	"service-travego/internal/wagy"
-	"service-travego/model"
 	"service-travego/repository"
 	"service-travego/service"
 	"strings"
@@ -19,13 +18,13 @@ type FleetAvailabilityCron struct {
 	db              *sql.DB
 	driver          string
 	wagyClient      *wagy.WagyClient
-	scheduleSvc     *service.ScheduleService
+	fleetSvc        *service.FleetService
 	organizationIDs []string
 }
 
 func NewFleetAvailabilityCron(db *sql.DB, driver string, wagyClient *wagy.WagyClient) *FleetAvailabilityCron {
-	scheduleRepo := repository.NewScheduleRepository(db, driver)
-	scheduleSvc := service.NewScheduleService(scheduleRepo)
+	fleetRepo := repository.NewFleetRepository(db, driver)
+	fleetSvc := service.NewFleetService(fleetRepo)
 
 	// Read organization IDs from environment variable
 	var orgIDs []string
@@ -44,7 +43,7 @@ func NewFleetAvailabilityCron(db *sql.DB, driver string, wagyClient *wagy.WagyCl
 		db:              db,
 		driver:          driver,
 		wagyClient:      wagyClient,
-		scheduleSvc:     scheduleSvc,
+		fleetSvc:        fleetSvc,
 		organizationIDs: orgIDs,
 	}
 }
@@ -140,16 +139,22 @@ func (c *FleetAvailabilityCron) queryActiveOrganizations() ([]orgTarget, error) 
 func (c *FleetAvailabilityCron) processOrganization(org orgTarget, startDate, endDate string) {
 	log.Printf("[FleetAvailabilityCron] Processing org: %s (%s)", org.OrganizationName, org.OrganizationID)
 
-	// 2. Get fleet availability
-	items, err := c.scheduleSvc.GetFleetAvailability(model.ScheduleFleetAvailabilityServiceInput{
-		OrganizationID: org.OrganizationID,
-		Filter: model.ScheduleFleetAvailabilityFilter{
-			StartDate: startDate,
-			EndDate:   endDate,
-		},
-	})
+	// Parse dates
+	start, err := time.Parse("2006-01-02", startDate)
 	if err != nil {
-		log.Printf("[FleetAvailabilityCron] GetFleetAvailability error for org %s: %v", org.OrganizationID, err)
+		log.Printf("[FleetAvailabilityCron] Invalid startDate %s for org %s: %v", startDate, org.OrganizationID, err)
+		return
+	}
+	end, err := time.Parse("2006-01-02", endDate)
+	if err != nil {
+		log.Printf("[FleetAvailabilityCron] Invalid endDate %s for org %s: %v", endDate, org.OrganizationID, err)
+		return
+	}
+
+	// 2. Get fleet availability via FleetService
+	_, items, err := c.fleetSvc.GetFleetAvailibility(org.OrganizationID, start, end, "")
+	if err != nil {
+		log.Printf("[FleetAvailabilityCron] GetFleetAvailibility error for org %s: %v", org.OrganizationID, err)
 		return
 	}
 
@@ -168,7 +173,7 @@ func (c *FleetAvailabilityCron) processOrganization(org orgTarget, startDate, en
 	log.Printf("[FleetAvailabilityCron] Message sent to %s (%s)", org.AccountNumber, org.OrganizationName)
 }
 
-func (c *FleetAvailabilityCron) formatMessage(orgName string, items []model.ScheduleFleetAvailabilityItem) string {
+func (c *FleetAvailabilityCron) formatMessage(orgName string, items []repository.FleetAvailibilityItem) string {
 	var b strings.Builder
 
 	b.WriteString(fmt.Sprintf("Selamat Pagi %s\n\n", orgName))
@@ -179,18 +184,12 @@ func (c *FleetAvailabilityCron) formatMessage(orgName string, items []model.Sche
 		return b.String()
 	}
 
-	// Group by fleet name
-	fleetCount := make(map[string]int)
 	for _, item := range items {
 		fleetName := item.FleetName
 		if fleetName == "" {
-			fleetName = item.PlateNumber
+			fleetName = item.FleetID
 		}
-		fleetCount[fleetName]++
-	}
-
-	for name, count := range fleetCount {
-		b.WriteString(fmt.Sprintf("• %s: %d unit tersedia\n", name, count))
+		b.WriteString(fmt.Sprintf("• %s: %d unit tersedia\n", fleetName, item.TotalAvailable))
 	}
 
 	b.WriteString(fmt.Sprintf("\nPeriode: %s - %s\n", time.Now().Format("02 Jan 2006"), time.Now().AddDate(0, 0, 7).Format("02 Jan 2006")))
@@ -206,7 +205,7 @@ func StartFleetAvailabilityCron(db *sql.DB, driver string, wagyClient *wagy.Wagy
 	cronJob := NewFleetAvailabilityCron(db, driver, wagyClient)
 
 	// Schedule: Monday, Wednesday, Friday at 09:00
-	_, err := c.AddFunc("55 12 * * *", cronJob.Run)
+	_, err := c.AddFunc("0 09 * * 1,3,5", cronJob.Run)
 	if err != nil {
 		log.Printf("[FleetAvailabilityCron] Failed to register cron: %v", err)
 		return nil

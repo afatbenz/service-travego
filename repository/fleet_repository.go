@@ -4158,36 +4158,19 @@ func (r *FleetRepository) GetFleetAvailibility(orgID string, reqStart time.Time,
 	}
 
 	args := []interface{}{orgID, reqStart, reqEnd}
-	isPostgres := r.driver == "postgres" || r.driver == "pgx"
-	orgExpr := "f.organization_id = " + r.getPlaceholder(1)
-	bookOrgExpr := "sf.organization_id = " + r.getPlaceholder(1)
-	if isPostgres {
-		orgExpr = "f.organization_id::text = " + r.getPlaceholder(1)
-		bookOrgExpr = "sf.organization_id::text = " + r.getPlaceholder(1)
-	}
+	orgExpr := "f.organization_id::text = $1"
+	bookOrgExpr := "sf.organization_id::text = $1"
 
 	fleetFilterExpr := ""
 	if fleetID != "" {
-		fleetFilterExpr = " AND f.uuid = " + r.getPlaceholder(4)
-		if isPostgres {
-			fleetFilterExpr = " AND f.uuid::text = " + r.getPlaceholder(4)
-		}
+		fleetFilterExpr = " AND f.uuid::text = $4"
 		args = append(args, fleetID)
 	}
 
-	var conflictExpr string
-	if isPostgres {
-		conflictExpr = fmt.Sprintf("%s::date <= fo.end_date::date AND %s::date >= fo.start_date::date", r.getPlaceholder(2), r.getPlaceholder(3))
-	} else {
-		conflictExpr = fmt.Sprintf("DATE(%s) <= DATE(fo.end_date) AND DATE(%s) >= DATE(fo.start_date)", r.getPlaceholder(2), r.getPlaceholder(3))
-	}
+	conflictExpr := "$2::date <= fo.end_date::date AND $3::date >= fo.start_date::date"
 
-	fleetJoinExpr := "b.fleet_id = f.uuid"
-	totalUnitExpr := "COALESCE((SELECT COUNT(*) FROM fleet_units fu WHERE fu.fleet_id = f.uuid AND fu.status = 1), 0)"
-	if isPostgres {
-		fleetJoinExpr = "b.fleet_id::text = f.uuid::text"
-		totalUnitExpr = "COALESCE((SELECT COUNT(*) FROM fleet_units fu WHERE fu.fleet_id::text = f.uuid::text AND fu.status = 1), 0)"
-	}
+	fleetJoinExpr := "b.fleet_id::text = f.uuid::text"
+	totalUnitExpr := "COALESCE((SELECT COUNT(*) FROM fleet_units fu WHERE fu.fleet_id::text = f.uuid::text AND fu.status = 1), 0)"
 
 	greatestFn := "GREATEST"
 
@@ -4215,8 +4198,9 @@ func (r *FleetRepository) GetFleetAvailibility(orgID string, reqStart time.Time,
 		WHERE f.status > 0
 		  AND %s
 		  %s
+		  AND %s > 0
 		ORDER BY f.fleet_name ASC
-	`, totalUnitExpr, greatestFn, totalUnitExpr, bookOrgExpr, conflictExpr, fleetJoinExpr, orgExpr, fleetFilterExpr)
+	`, totalUnitExpr, greatestFn, totalUnitExpr, bookOrgExpr, conflictExpr, fleetJoinExpr, orgExpr, fleetFilterExpr, totalUnitExpr)
 
 	rows, err := database.Query(r.db, query, args...)
 	if err != nil {
