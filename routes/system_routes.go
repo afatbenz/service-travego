@@ -20,4 +20,6 @@ func SetupSystemRoutes(api fiber.Router, db *sql.DB, driver string) {
 	dashboard.Get("/summarize", helper.JWTAuthorizationMiddleware(), h.GetSystemSummarymarize)
 	dashboard.Get("/assistant/device", helper.JWTAuthorizationMiddleware(), h.GetDeviceList)
 	dashboard.Put("/assistant/device/:action", helper.JWTAuthorizationMiddleware(), h.UpdateDevice)
+	dashboard.Get("/organizations", helper.JWTAuthorizationMiddleware(), h.GetOrganizations)
+	dashboard.Get("/users", helper.JWTAuthorizationMiddleware(), h.GetUsers)
 }

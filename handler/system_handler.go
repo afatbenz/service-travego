@@ -100,3 +100,33 @@ func (h *SystemHandler) UpdateDevice(c *fiber.Ctx) error {
 
 	return helper.SendErrorResponse(c, fiber.StatusBadRequest, "Invalid action")
 }
+
+func (h *SystemHandler) GetOrganizations(c *fiber.Ctx) error {
+	search := c.Query("search", "")
+	status := c.Query("status", "")
+	if status != "" && status != "active" && status != "inactive" {
+		return helper.SendErrorResponse(c, fiber.StatusBadRequest, "Invalid status value")
+	}
+
+	res, err := h.service.GetOrganizations(search, status)
+	if err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Organizations retrieved successfully", res)
+}
+
+func (h *SystemHandler) GetUsers(c *fiber.Ctx) error {
+	search := c.Query("search", "")
+	isActive := c.Query("is_active", "")
+	if isActive != "" && isActive != "true" && isActive != "false" {
+		return helper.SendErrorResponse(c, fiber.StatusBadRequest, "Invalid is_active value")
+	}
+
+	res, err := h.service.GetUsers(search, isActive)
+	if err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Users retrieved successfully", res)
+}

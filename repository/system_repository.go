@@ -55,6 +55,13 @@ func NewSystemRepository(db *sql.DB, driver string) *SystemRepository {
 	}
 }
 
+func (r *SystemRepository) GetPackageName(packageID string) string {
+	if name, ok := packageNameMap[packageID]; ok {
+		return name
+	}
+	return packageID
+}
+
 func (r *SystemRepository) getPlaceholder(pos int) string {
 	if r.driver == "postgres" {
 		return fmt.Sprintf("$%d", pos)
@@ -506,4 +513,137 @@ func (r *SystemRepository) UpdateDevice(account string, action string, enableDat
 	}
 
 	return fmt.Errorf("unknown action: %s", action)
+}
+
+type rawOrganization struct {
+	OrganizationID   sql.NullString
+	OrganizationCode sql.NullString
+	OrganizationName sql.NullString
+	CompanyName      sql.NullString
+	Address          sql.NullString
+	City             sql.NullString
+	Province         sql.NullString
+	Phone            sql.NullString
+	Logo             sql.NullString
+	PackageID        sql.NullString
+	ExpiryDate       sql.NullTime
+}
+
+func (r *SystemRepository) GetOrganizations(search string, status string) ([]rawOrganization, error) {
+	if r.driver != "postgres" {
+		return nil, fmt.Errorf("unsupported driver")
+	}
+
+	query := `
+		SELECT o.organization_id, o.organization_code, o.organization_name,
+		       o.company_name, o.address, o.city, o.province, o.phone, o.logo,
+		       s.package_id, s.expiry_date
+		FROM organizations o
+		LEFT JOIN _subscription s ON o.organization_id = s.organization_id
+		WHERE 1=1
+	`
+	var args []interface{}
+	pos := 1
+
+	if search != "" {
+		query += fmt.Sprintf(` AND (o.organization_name ILIKE $%d OR o.company_name ILIKE $%d OR o.organization_code ILIKE $%d OR o.phone ILIKE $%d)`, pos, pos+1, pos+2, pos+3)
+		searchPattern := "%" + search + "%"
+		args = append(args, searchPattern, searchPattern, searchPattern, searchPattern)
+		pos += 4
+	}
+
+	if status == "active" {
+		query += fmt.Sprintf(` AND s.expiry_date >= NOW()`)
+	} else if status == "inactive" {
+		query += fmt.Sprintf(` AND (s.expiry_date IS NULL OR s.expiry_date < NOW())`)
+	}
+
+	query += ` ORDER BY o.organization_name ASC`
+
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []rawOrganization
+	for rows.Next() {
+		var t rawOrganization
+		if err := rows.Scan(
+			&t.OrganizationID, &t.OrganizationCode, &t.OrganizationName,
+			&t.CompanyName, &t.Address, &t.City, &t.Province, &t.Phone, &t.Logo,
+			&t.PackageID, &t.ExpiryDate,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+type rawUser struct {
+	Fullname         sql.NullString
+	Phone            sql.NullString
+	Email            sql.NullString
+	Avatar           sql.NullString
+	OrganizationName sql.NullString
+	OrganizationRole sql.NullInt64
+	IsActive         sql.NullBool
+}
+
+func (r *SystemRepository) GetUsers(search string, isActive string) ([]rawUser, error) {
+	if r.driver != "postgres" {
+		return nil, fmt.Errorf("unsupported driver")
+	}
+
+	query := `
+		SELECT u.fullname, u.phone, u.email, u.avatar,
+		       o.organization_name, ou.organization_role, u.is_active
+		FROM users u
+		INNER JOIN organization_users ou ON u.user_id = ou.user_id
+		INNER JOIN organizations o ON o.organization_id = ou.organization_id
+		WHERE 1=1
+	`
+	var args []interface{}
+	pos := 1
+
+	if search != "" {
+		query += fmt.Sprintf(` AND (u.fullname ILIKE $%d OR u.email ILIKE $%d OR o.organization_name ILIKE $%d OR u.phone ILIKE $%d)`, pos, pos+1, pos+2, pos+3)
+		searchPattern := "%" + search + "%"
+		args = append(args, searchPattern, searchPattern, searchPattern, searchPattern)
+		pos += 4
+	}
+
+	if isActive == "true" {
+		query += ` AND u.is_active = true`
+	} else if isActive == "false" {
+		query += ` AND u.is_active = false`
+	}
+
+	query += ` ORDER BY u.fullname ASC`
+
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []rawUser
+	for rows.Next() {
+		var t rawUser
+		if err := rows.Scan(
+			&t.Fullname, &t.Phone, &t.Email, &t.Avatar,
+			&t.OrganizationName, &t.OrganizationRole, &t.IsActive,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }

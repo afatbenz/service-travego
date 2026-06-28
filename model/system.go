@@ -21,6 +21,32 @@ type DeviceDisableRequest struct {
 	Account string `json:"account" validate:"required"`
 }
 
+type SystemOrganizationItem struct {
+	OrganizationID   string `json:"organization_id"`
+	OrganizationCode string `json:"organization_code"`
+	OrganizationName string `json:"organization_name"`
+	CompanyName      string `json:"company_name"`
+	CompanyAddress   string `json:"company_address"`
+	CompanyCity      string `json:"company_city"`
+	CompanyProvince  string `json:"company_province"`
+	Phone            string `json:"phone"`
+	Logo             string `json:"logo"`
+	PackageID        string `json:"package_id"`
+	PackageName      string `json:"package_name"`
+	ExpiryDate       string `json:"expiry_date"`
+	Status           string `json:"status"`
+}
+
+type SystemUserItem struct {
+	Fullname         string `json:"fullname"`
+	Email            string `json:"email"`
+	Phone            string `json:"phone"`
+	Avatar           string `json:"avatar"`
+	OrganizationName string `json:"organization_name"`
+	OrganizationRole int    `json:"organization_role"`
+	IsActive         bool   `json:"is_active"`
+}
+
 type PeriodSummary struct {
 	CurrentPeriod int64 `json:"current_period"`
 	LastPeriod    int64 `json:"last_period"`
