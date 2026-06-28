@@ -329,6 +329,105 @@ func (ac *AIClient) callAnthropic(ctx context.Context, systemPrompt string, mess
 	return ac.callAnthropicRequest(ctx, systemPrompt, messages, GetToolDefinitions())
 }
 
+// callAnthropicCompany makes a single call to Anthropic API using Company Assistant tool definitions
+func (ac *AIClient) callAnthropicCompany(ctx context.Context, systemPrompt string, messages []ConversationMessage) (*AnthropicResponse, error) {
+	return ac.callAnthropicRequest(ctx, systemPrompt, messages, GetCompanyToolDefinitions())
+}
+
+// callAnthropicWithCompanyTools calls Anthropic API with tool support, using Company Assistant tool definitions.
+// Mirrors callAnthropicWithTools but uses getCompanyToolDefinitions for restricted tool access.
+func (ac *AIClient) callAnthropicWithCompanyTools(ctx context.Context, systemPrompt string, messages []ConversationMessage) (string, error) {
+	lastTextResponse := ""
+
+	for i := 0; i < 5; i++ {
+		response, err := ac.callAnthropicCompany(ctx, systemPrompt, messages)
+		if err != nil {
+			return "", err
+		}
+		log.Printf("[WAAI][Company] Iteration %d stop_reason=%s content=%s", i+1, response.StopReason, summarizeAnthropicContent(response.Content))
+
+		hasToolUse := false
+		textResponse := ""
+		assistantBlocks := make([]map[string]interface{}, 0, len(response.Content))
+
+		for _, content := range response.Content {
+			switch content.Type {
+			case "text":
+				if content.Text != "" {
+					if textResponse != "" {
+						textResponse += "\n"
+					}
+					textResponse += content.Text
+					assistantBlocks = append(assistantBlocks, map[string]interface{}{
+						"type": "text",
+						"text": content.Text,
+					})
+				}
+			case "tool_use":
+				hasToolUse = true
+				assistantBlocks = append(assistantBlocks, map[string]interface{}{
+					"type":  "tool_use",
+					"id":    content.ID,
+					"name":  content.Name,
+					"input": json.RawMessage(content.Input),
+				})
+			}
+		}
+
+		if textResponse != "" {
+			lastTextResponse = textResponse
+		}
+
+		if len(assistantBlocks) > 0 {
+			messages = append(messages, ConversationMessage{
+				Role:    "assistant",
+				Content: assistantBlocks,
+			})
+		}
+
+		for _, content := range response.Content {
+			if content.Type != "tool_use" {
+				continue
+			}
+
+			toolResult := ac.executeTool(ctx, content.Name, content.Input)
+			toolResultMsg := ConversationMessage{
+				Role: "user",
+				Content: []map[string]interface{}{
+					{
+						"type":        "tool_result",
+						"tool_use_id": content.ID,
+						"content":     formatToolResult(toolResult),
+					},
+				},
+			}
+			messages = append(messages, toolResultMsg)
+		}
+
+		if !hasToolUse {
+			if textResponse != "" {
+				return textResponse, nil
+			}
+		}
+	}
+
+	if lastTextResponse != "" {
+		return lastTextResponse, nil
+	}
+
+	finalResponse, err := ac.callAnthropicFinal(ctx, systemPrompt, messages)
+	if err == nil {
+		log.Printf("[WAAI][Company] Final no-tools pass stop_reason=%s content=%s", finalResponse.StopReason, summarizeAnthropicContent(finalResponse.Content))
+		for _, content := range finalResponse.Content {
+			if content.Type == "text" && content.Text != "" {
+				return content.Text, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("max tool use iterations reached without text response")
+}
+
 func (ac *AIClient) callAnthropicFinal(ctx context.Context, systemPrompt string, messages []ConversationMessage) (*AnthropicResponse, error) {
 	return ac.callAnthropicRequest(ctx, systemPrompt, messages, nil)
 }
@@ -828,27 +927,52 @@ You have access to the following business tools to help customers:
 1. get_business_snapshot - Get current business metrics
 2. get_fleet_availability - Check vehicle availability by date range
 3. get_fleet_list - View available fleets/armada
-4. get_fleet_detail - View fleet detail
+4. get_fleet_detail - View fleet detail (includes facilities/fasilitas armada, reviews, ratings)
 5. get_city_list - View city list
-6. get_preference_cities - View served cities
+6. get_preference_cities - View served cities with minimal rental days and service types (Overland, CityTour, DropOnly)
 7. get_customer_list - Search customers by name
-8. get_order_list - View bookings/orders (customer-facing)
-9. get_order_detail - View order detail
+8. get_order_list - View bookings/orders (customer-facing, only your own orders)
+9. get_order_detail - View order detail (only your own orders)
 10. get_schedule_list - View schedules
-11. get_organization_info - Get company information
+11. get_organization_info - Get company information (address, phone, WhatsApp, email, NPWP, location)
+12. get_garage_list - Get daftar garasi/lokasi perusahaan
+13. get_bank_accounts - Get daftar rekening pembayaran perusahaan
+14. print_invoice - Generate and send invoice PDF for an order to WhatsApp
+
+PENGETAHUAN LAYANAN:
+Ada 3 jenis sewa (service type) yang perlu anda pahami untuk membantu customer:
+
+1. *Overland* — Sewa antar kota di luar wilayah asal (antar provinsi/kota). Biasanya untuk perjalanan jauh seperti Jakarta-Bandung, Yogyakarta-Surabaya, dll. Ciri-ciri: service_type mengandung "overland".
+2. *CityTour* — Sewa antar jemput hanya di dalam kota / wilayah asal. Biasanya untuk city tour, wisata lokal, atau kunjungan dalam kota. Ciri-ciri: service_type mengandung "city_tour".
+3. *Drop Only* — Sewa untuk pengantaran / penjemputan saja (one way / single trip). Ciri-ciri: service_type mengandung "drop_only".
+
+Jenis sewa bisa diketahui melalui get_preference_cities yang menampilkan service_types (Overland, CityTour, DropOnly) dan minimal_day (minimal sewa berapa hari) untuk setiap kota tujuan.
+
+Rent type order (dari get_order_detail):
+- RentType 1 = City Tour
+- RentType 2 = Overland
+- RentType 3 = Pickup / Drop Only
 
 Tool usage rules:
 - ALWAYS call tools for data queries. Do not guess or rely on conversation history for data.
-- For fleet/availability questions: call get_fleet_list or get_fleet_availability
-- For booking questions: call get_order_list
-- For company info: call get_organization_info
-- This is a CUSTOMER-facing assistant. Focus on: bookings, fleet availability, schedules, routes, pricing.
-- For internal operations (approve/reject orders, expenses, employee management), politely explain that the customer needs to contact the office directly.
 - Always use the latest data from tools. Do not trust previous answers.
 
-IMPORTANT: You are assisting a CUSTOMER, not a company employee.
-Focus on inquiries relevant to customers.
-You represent *%s*. Be professional and welcoming.
+- *Cek Ketersediaan Armada*: call get_fleet_list or get_fleet_availability for availability questions.
+- *Cek Pesanan*: call get_order_list. Sistem OTOMATIS hanya akan menampilkan pesanan milik customer berdasarkan nomor WhatsApp yang mengirim pesan. Jika customer tidak memiliki pesanan, sampaikan dengan sopan.
+- *Cek Detail Pesanan*: call get_order_detail dengan order_id. Sistem akan memvalidasi bahwa pesanan tersebut milik customer yang bersangkutan.
+- *Cek Jadwal*: call get_schedule_list when customer asks about trip schedules.
+- *Cek Rute / Harga*: call get_preference_cities untuk melihat kota tujuan yang dilayani dan minimal sewa. Call get_city_list untuk daftar kota. Call get_fleet_list untuk armada yang tersedia.
+- *Cek Fasilitas Armada*: call get_fleet_detail — data fasilitas ada di response field fascilities[] / facilities[], termasuk nama fasilitas seperti AC, Toilet, Reclining Seat, TV, dll.
+- *Tanya Lokasi Kantor*: call get_organization_info — alamat kantor ada di field address, city_name, province_name.
+- *Tanya Lokasi Garasi*: call get_garage_list untuk mendapatkan daftar garasi/lokasi penyimpanan armada.
+- *Tanya Nomor Rekening Pembayaran*: call get_bank_accounts untuk mendapatkan daftar rekening bank perusahaan. Jelaskan informasi bank, nomor rekening, dan atas nama.
+- *Kirim Invoice*: call print_invoice dengan order_id. Sistem akan mengirimkan PDF invoice langsung ke WhatsApp customer. Hanya invoice milik customer yang bersangkutan yang bisa dikirim.
+- *Penjelasan Perbedaan Layanan*: Gunakan pengetahuan jenis sewa (Overland, CityTour, Drop Only) di atas untuk menjelaskan perbedaan kepada customer.
+
+IMPORTANT:
+- This is a CUSTOMER-facing assistant. Focus on: bookings, fleet availability, schedules, routes, pricing, facilities, company info.
+- For internal operations (approve/reject orders, expenses, employee management, inventory, SPJ, employee schedules), politely explain that the customer needs to contact the office directly.
+- You represent *%s*. Be professional and welcoming.
 
 Respond in Indonesian (Bahasa Indonesia).
 Be professional, concise, and welcoming.
@@ -1255,6 +1379,13 @@ func (ac *AIClient) executeTool(ctx context.Context, toolName string, input json
 		}
 		return res
 
+	case "get_bank_accounts":
+		accounts, err := ac.organizationService.GetBankAccounts(orgID)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		return accounts
+
 	case "get_order_list":
 		fmt.Println("------ get order list")
 		req := &model.PartnerOrderListFilter{
@@ -1276,6 +1407,20 @@ func (ac *AIClient) executeTool(ctx context.Context, toolName string, input json
 		if err != nil {
 			return map[string]interface{}{"error": err.Error()}
 		}
+
+		// Filter by phone number for Company Assistant: only show orders belonging to this customer
+		phone, _ := ctx.Value(phoneKey).(string)
+		roleName, _ := ctx.Value(contextRoleName).(string)
+		if roleName == "CustomerAssistant" && phone != "" {
+			filtered := make([]model.PartnerOrderListItem, 0, len(res.Orders))
+			for _, o := range res.Orders {
+				if strings.TrimSpace(o.CustomerPhone) == "" || strings.TrimSpace(o.CustomerPhone) == phone {
+					filtered = append(filtered, o)
+				}
+			}
+			res.Orders = filtered
+		}
+
 		return enrichOrderListForAI(res)
 
 	case "get_order_detail":
@@ -1291,6 +1436,16 @@ func (ac *AIClient) executeTool(ctx context.Context, toolName string, input json
 			fmt.Println("error get order detail:", err)
 			return map[string]interface{}{"error": err.Error()}
 		}
+
+		// For Company Assistant: validate this order belongs to the customer
+		phone, _ := ctx.Value(phoneKey).(string)
+		roleName, _ := ctx.Value(contextRoleName).(string)
+		if roleName == "CustomerAssistant" && phone != "" {
+			if res.Customer.CustomerPhone != "" && res.Customer.CustomerPhone != phone {
+				return map[string]interface{}{"error": "Pesanan ini bukan milik Anda"}
+			}
+		}
+
 		fmt.Println("payment status", res.PaymentStatus)
 		fmt.Println("payment status label", res.PaymentStatusLabel)
 		return enrichOrderDetailForAI(res)
@@ -1711,6 +1866,54 @@ func (ac *AIClient) executeTool(ctx context.Context, toolName string, input json
 			return map[string]interface{}{"error": err.Error()}
 		}
 		return trips
+
+	case "print_invoice":
+		orderID := getStringParam(params, "order_id")
+		if orderID == "" {
+			return map[string]interface{}{"error": "order_id is required"}
+		}
+
+		// Validasi nomor customer: hanya bisa akses invoice miliknya sendiri
+		phone, _ := ctx.Value(phoneKey).(string)
+		if phone != "" {
+			detail, err := ac.fleetService.GetPartnerOrderDetail(orderID, orgID)
+			if err != nil {
+				return map[string]interface{}{"error": "Pesanan tidak ditemukan"}
+			}
+			if detail.Customer.CustomerPhone != "" && detail.Customer.CustomerPhone != phone {
+				return map[string]interface{}{"error": "Invoice ini bukan milik Anda"}
+			}
+		}
+
+		invoiceNum := getStringParam(params, "invoice_number")
+		var invPtr *string
+		if invoiceNum != "" {
+			invPtr = &invoiceNum
+		}
+
+		pdfData, err := ac.printService.GenerateFleetInvoicePDF(orgID, orderID, invPtr)
+		if err != nil {
+			return map[string]interface{}{"error": "Gagal membuat invoice: " + err.Error()}
+		}
+
+		phone, _ = ctx.Value(phoneKey).(string)
+		if phone == "" {
+			return map[string]interface{}{"error": "Nomor telepon tidak ditemukan di konteks"}
+		}
+
+		filename := fmt.Sprintf("invoice-%s.pdf", orderID)
+		caption := fmt.Sprintf("Berikut invoice untuk pesanan *%s*", orderID)
+		_, err = ac.wagyClient.SendDocument(phone, filename, pdfData, caption)
+		if err != nil {
+			return map[string]interface{}{"error": "Gagal kirim invoice: " + err.Error()}
+		}
+
+		log.Printf("[WAAI][AI] Invoice %s sent to %s", orderID, phone)
+		return map[string]interface{}{
+			"status":   "success",
+			"message":  "Invoice " + orderID + " berhasil dikirim ke WhatsApp Anda",
+			"order_id": orderID,
+		}
 
 	default:
 		return map[string]interface{}{

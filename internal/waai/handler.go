@@ -148,11 +148,11 @@ func (h *Handler) processCompanyMessageAsync(customerPhone, messageText string, 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	sendClient := h.clientRegistry.GetClient(asstCust.AssistantDeviceID, asstCust.DeviceToken)
+	sendClient := h.clientRegistry.GetClient(asstCust.DeviceID, asstCust.DeviceToken)
 	if sendClient == nil {
 		fmt.Println("sendClient is nil -- deviceToken ", asstCust.DeviceToken)
-		fmt.Println("sendClient is nil -- deviceID ", asstCust.AssistantDeviceID)
-		log.Printf("[WAAI][Company] Cannot get WagyClient for device %s", asstCust.AssistantDeviceID)
+		fmt.Println("sendClient is nil -- deviceID ", asstCust.DeviceID)
+		log.Printf("[WAAI][Company] Cannot get WagyClient for device %s", asstCust.DeviceID)
 		finalResponse := "Maaf, layanan assistant sedang tidak tersedia. Silakan hubungi kantor langsung."
 		_ = h.sendMessage(customerPhone, finalResponse)
 		return
@@ -195,9 +195,13 @@ func (h *Handler) processCompanyMessageAsync(customerPhone, messageText string, 
 		Content: messageText,
 	})
 
+	// Set customer phone in context for phone validation in tools (get_order_list, get_order_detail, print_invoice)
+	ctx = context.WithValue(ctx, phoneKey, customerPhone)
+
 	systemPrompt := h.aiClient.BuildCompanySystemPrompt(tenant, snapshot, messageText, asstCust.DeviceName)
 
-	finalResponse, err := h.aiClient.callAnthropicWithTools(ctx, systemPrompt, history)
+	// Use Company-specific AI method with restricted tool definitions
+	finalResponse, err := h.aiClient.callAnthropicWithCompanyTools(ctx, systemPrompt, history)
 	if err != nil {
 		log.Printf("[WAAI][Company] AI error: %v", err)
 		finalResponse = "Maaf, layanan sedang sibuk. Silakan coba lagi."

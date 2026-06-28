@@ -1051,3 +1051,310 @@ func GetToolDefinitions() []ToolDefinition {
 		},
 	}
 }
+
+// GetCompanyToolDefinitions returns tool definitions for the Company Assistant (Skenario 2)
+// Only includes tools relevant for customer-facing interactions, not internal operations.
+func GetCompanyToolDefinitions() []ToolDefinition {
+	return []ToolDefinition{
+		{
+			Type: "function",
+			Name: "get_business_snapshot",
+			Function: FunctionDefinition{
+				Name:        "get_business_snapshot",
+				Description: "Get a summary of the business today including fleet count, available units, bookings, and revenue",
+				Parameters: map[string]interface{}{
+					"type":       "object",
+					"properties": map[string]interface{}{},
+					"required":   []string{},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Name: "get_fleet_availability",
+			Function: FunctionDefinition{
+				Name:        "get_fleet_availability",
+				Description: "Check vehicle availability by date range",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"start_date": map[string]interface{}{
+							"type":        "string",
+							"description": "Start date in YYYY-MM-DD HH:MM format",
+						},
+						"end_date": map[string]interface{}{
+							"type":        "string",
+							"description": "End date in YYYY-MM-DD HH:MM format",
+						},
+						"fleet_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional fleet ID to filter a specific fleet",
+						},
+					},
+					"required": []string{"start_date", "end_date"},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Name: "get_fleet_list",
+			Function: FunctionDefinition{
+				Name:        "get_fleet_list",
+				Description: "Get list of available fleets/armada with optional filters",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"fleet_type": map[string]interface{}{
+							"type":        "string",
+							"description": "Filter by fleet type",
+						},
+						"fleet_name": map[string]interface{}{
+							"type":        "string",
+							"description": "Filter by fleet name",
+						},
+						"fleet_body": map[string]interface{}{
+							"type":        "string",
+							"description": "Filter by fleet body",
+						},
+						"fleet_engine": map[string]interface{}{
+							"type":        "string",
+							"description": "Filter by fleet engine",
+						},
+						"pickup_location": map[string]interface{}{
+							"type":        "integer",
+							"description": "Filter by pickup city ID",
+						},
+					},
+					"required": []string{},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Name: "get_fleet_detail",
+			Function: FunctionDefinition{
+				Name:        "get_fleet_detail",
+				Description: "Get detailed information for a fleet by fleet ID, including facilities (fasilitas), reviews, and ratings",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"fleet_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Fleet ID",
+						},
+					},
+					"required": []string{"fleet_id"},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Name: "get_city_list",
+			Function: FunctionDefinition{
+				Name:        "get_city_list",
+				Description: "Get city list with optional filters by province or search",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"province_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional province ID filter",
+						},
+						"province": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional province name filter",
+						},
+						"search": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional city name search",
+						},
+					},
+					"required": []string{},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Name: "get_preference_cities",
+			Function: FunctionDefinition{
+				Name:        "get_preference_cities",
+				Description: "Get the list of cities served by the organization, including minimal rental days (minimal_sewa) and service types (Overland, CityTour, DropOnly)",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"city_id": map[string]interface{}{
+							"type":        "integer",
+							"description": "Optional city ID filter",
+						},
+					},
+					"required": []string{},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Name: "get_customer_list",
+			Function: FunctionDefinition{
+				Name:        "get_customer_list",
+				Description: "Search customers by name. Returns customer_id, name, phone, email, and address.",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"customer_name": map[string]interface{}{
+							"type":        "string",
+							"description": "Customer name to search (partial match supported)",
+						},
+					},
+					"required": []string{},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Name: "get_order_list",
+			Function: FunctionDefinition{
+				Name:        "get_order_list",
+				Description: "View bookings/orders (customer-facing). Only shows orders belonging to the customer's phone number. Includes summary counts and payment status.",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"period": map[string]interface{}{
+							"type":        "string",
+							"description": "Order month filter in YYYY-MM format (e.g. 2026-06 for June 2026)",
+						},
+						"start_date": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional trip start date from filter",
+						},
+						"end_date": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional trip start date to filter",
+						},
+						"search": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional search by order_id, customer name, or fleet name",
+						},
+					},
+					"required": []string{},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Name: "get_order_detail",
+			Function: FunctionDefinition{
+				Name:        "get_order_detail",
+				Description: "View order detail by order_id including itinerary, payment summary, and customer info",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"order_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Order ID",
+						},
+					},
+					"required": []string{"order_id"},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Name: "get_schedule_list",
+			Function: FunctionDefinition{
+				Name:        "get_schedule_list",
+				Description: "Get schedule list filtered by period, order, fleet, or search keywords",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"period": map[string]interface{}{
+							"type":        "string",
+							"description": "Month filter in YYYY-MM format",
+						},
+						"order_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional order ID filter",
+						},
+						"fleet_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional fleet ID filter",
+						},
+						"search": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional search keyword",
+						},
+						"fleet_name": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional fleet name filter",
+						},
+						"plate": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional plate number filter",
+						},
+					},
+					"required": []string{},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Name: "get_organization_info",
+			Function: FunctionDefinition{
+				Name:        "get_organization_info",
+				Description: "Get company information including address, phone, WhatsApp, email, and location coordinates",
+				Parameters: map[string]interface{}{
+					"type":       "object",
+					"properties": map[string]interface{}{},
+					"required":   []string{},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Name: "get_garage_list",
+			Function: FunctionDefinition{
+				Name:        "get_garage_list",
+				Description: "Get daftar garage/garasi/lokasi perusahaan. Gunakan untuk menjawab pertanyaan tentang lokasi garasi atau alamat garasi",
+				Parameters: map[string]interface{}{
+					"type":       "object",
+					"properties": map[string]interface{}{},
+					"required":   []string{},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Name: "get_bank_accounts",
+			Function: FunctionDefinition{
+				Name:        "get_bank_accounts",
+				Description: "Get daftar rekening pembayaran perusahaan (bank accounts). Gunakan untuk menjawab pertanyaan tentang nomor rekening untuk pembayaran",
+				Parameters: map[string]interface{}{
+					"type":       "object",
+					"properties": map[string]interface{}{},
+					"required":   []string{},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Name: "print_invoice",
+			Function: FunctionDefinition{
+				Name:        "print_invoice",
+				Description: "Generate and send invoice PDF for an order to WhatsApp. Only works for orders belonging to the customer's phone number",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"order_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Order ID",
+						},
+						"invoice_number": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional invoice number",
+						},
+					},
+					"required": []string{"order_id"},
+				},
+			},
+		},
+	}
+}

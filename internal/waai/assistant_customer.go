@@ -8,12 +8,12 @@ import (
 
 // AssistantCustomer merepresentasikan baris assistant_customers
 type AssistantCustomer struct {
-	DeviceID          string // nomor WA yang menerima pesan customer (owner WA)
-	DeviceName        string // nama tampil assistant
-	AssistantDeviceID string // device ID Wagy untuk kirim balasan
-	Account           string
-	OrganizationID    string
-	DeviceToken       string // token Wagy untuk device ini
+	DeviceID          string `json:"device_id"`           // nomor WA yang menerima pesan customer (owner WA)
+	DeviceName        string `json:"device_name"`         // nama tampil assistant
+	AssistantDeviceID string `json:"assistant_device_id"` // device ID Wagy untuk kirim balasan
+	Account           string `json:"account"`             // nomor WA owner (diekstrak dari OwnerJID payload Wagy)
+	OrganizationID    string `json:"organization_id"`     // ID perusahaan
+	DeviceToken       string `json:"device_token"`        // token Wagy untuk device ini
 }
 
 // AssistantCustomerRepository queries assistant_customers table
