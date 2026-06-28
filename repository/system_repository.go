@@ -381,3 +381,129 @@ func (r *SystemRepository) GetSummarize(period string) (*model.SystemSummarymari
 		ActiveUserMatrics: activeUserMetrics,
 	}, nil
 }
+
+func (r *SystemRepository) GetDeviceList(status string) ([]model.DeviceListItem, error) {
+	if r.driver != "postgres" {
+		return nil, fmt.Errorf("unsupported driver")
+	}
+
+	baseQuery := `
+		SELECT COALESCE(ac.device_id, ''), COALESCE(ac.device_name, ''), COALESCE(ac.device_token, ''),
+		       o.organization_name, ac.account as account_number,
+		       ac.created_at, ac.updated_at
+		FROM assistant_customers ac
+		INNER JOIN organizations o ON o.organization_id = ac.organization_id
+	`
+
+	switch status {
+	case "verified":
+		baseQuery += ` WHERE ac.device_id IS NOT NULL AND ac.device_id != ''`
+	case "unverified":
+		baseQuery += ` WHERE ac.device_id IS NULL OR ac.device_id = ''`
+	}
+
+	baseQuery += ` ORDER BY COALESCE(ac.updated_at, ac.created_at) DESC`
+
+	rows, err := r.db.Query(baseQuery)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	type tempDevice struct {
+		deviceID         sql.NullString
+		deviceName       sql.NullString
+		deviceToken      sql.NullString
+		organizationName sql.NullString
+		accountNumber    sql.NullString
+		createdAt        sql.NullTime
+		updatedAt        sql.NullTime
+	}
+
+	var tempList []tempDevice
+	for rows.Next() {
+		var t tempDevice
+		if err := rows.Scan(
+			&t.deviceID, &t.deviceName, &t.deviceToken,
+			&t.organizationName, &t.accountNumber,
+			&t.createdAt, &t.updatedAt,
+		); err != nil {
+			return nil, err
+		}
+		tempList = append(tempList, t)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	out := make([]model.DeviceListItem, 0, len(tempList))
+	for _, t := range tempList {
+		item := model.DeviceListItem{
+			DeviceID:         t.deviceID.String,
+			DeviceName:       t.deviceName.String,
+			DeviceToken:      t.deviceToken.String,
+			OrganizationName: t.organizationName.String,
+			AccountNumber:    t.accountNumber.String,
+		}
+		if t.createdAt.Valid {
+			item.CreatedAt = t.createdAt.Time.Format("2006-01-02 15:04:05")
+		}
+		if t.updatedAt.Valid {
+			item.UpdatedAt = t.updatedAt.Time.Format("2006-01-02 15:04:05")
+		}
+		out = append(out, item)
+	}
+
+	return out, nil
+}
+
+func (r *SystemRepository) UpdateDevice(account string, action string, enableData *model.DeviceEnableRequest) error {
+	if r.driver != "postgres" {
+		return fmt.Errorf("unsupported driver")
+	}
+
+	if action == "disable" {
+		query := `
+			UPDATE assistant_customers
+			SET device_id = NULL, device_token = NULL, device_name = NULL,
+			    updated_at = NOW()
+			WHERE account = $1
+		`
+		result, err := r.db.Exec(query, account)
+		if err != nil {
+			return err
+		}
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if rowsAffected == 0 {
+			return sql.ErrNoRows
+		}
+		return nil
+	}
+
+	if action == "enable" {
+		query := `
+			UPDATE assistant_customers
+			SET device_id = $1, device_name = $2, device_token = $3,
+			    updated_at = NOW()
+			WHERE account = $4
+		`
+		result, err := r.db.Exec(query, enableData.DeviceID, enableData.DeviceName, enableData.DeviceToken, account)
+		if err != nil {
+			return err
+		}
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if rowsAffected == 0 {
+			return sql.ErrNoRows
+		}
+		return nil
+	}
+
+	return fmt.Errorf("unknown action: %s", action)
+}

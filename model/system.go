@@ -1,5 +1,26 @@
 package model
 
+type DeviceListItem struct {
+	DeviceID         string `json:"device_id"`
+	DeviceName       string `json:"device_name"`
+	DeviceToken      string `json:"device_token"`
+	OrganizationName string `json:"organization_name"`
+	AccountNumber    string `json:"account_number"`
+	CreatedAt        string `json:"created_at"`
+	UpdatedAt        string `json:"updated_at"`
+}
+
+type DeviceEnableRequest struct {
+	Account     string `json:"account" validate:"required"`
+	DeviceID    string `json:"device_id" validate:"required"`
+	DeviceName  string `json:"device_name" validate:"required"`
+	DeviceToken string `json:"device_token" validate:"required"`
+}
+
+type DeviceDisableRequest struct {
+	Account string `json:"account" validate:"required"`
+}
+
 type PeriodSummary struct {
 	CurrentPeriod int64 `json:"current_period"`
 	LastPeriod    int64 `json:"last_period"`
