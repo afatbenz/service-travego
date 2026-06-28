@@ -5,7 +5,7 @@
 -- Dumped from database version 16.9
 -- Dumped by pg_dump version 16.9
 
--- Started on 2026-06-23 01:42:12
+-- Started on 2026-06-29 00:49:33
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -17,47 +17,6 @@ SET check_function_bodies = false;
 SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
-
-DROP DATABASE IF EXISTS "traveGo";
---
--- TOC entry 5364 (class 1262 OID 17223)
--- Name: traveGo; Type: DATABASE; Schema: -; Owner: postgres
---
-
-CREATE DATABASE "traveGo" WITH TEMPLATE = template0 ENCODING = 'UTF8' LOCALE_PROVIDER = libc LOCALE = 'English_Indonesia.1252';
-
-
-ALTER DATABASE "traveGo" OWNER TO postgres;
-
-\connect "traveGo"
-
-SET statement_timeout = 0;
-SET lock_timeout = 0;
-SET idle_in_transaction_session_timeout = 0;
-SET client_encoding = 'UTF8';
-SET standard_conforming_strings = on;
-SELECT pg_catalog.set_config('search_path', '', false);
-SET check_function_bodies = false;
-SET xmloption = content;
-SET client_min_messages = warning;
-SET row_security = off;
-
---
--- TOC entry 2 (class 3079 OID 35047)
--- Name: pgcrypto; Type: EXTENSION; Schema: -; Owner: -
---
-
-CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
-
-
---
--- TOC entry 5365 (class 0 OID 0)
--- Dependencies: 2
--- Name: EXTENSION pgcrypto; Type: COMMENT; Schema: -; Owner: 
---
-
-COMMENT ON EXTENSION pgcrypto IS 'cryptographic functions';
-
 
 SET default_tablespace = '';
 
@@ -96,7 +55,6 @@ CREATE TABLE public._packages (
     fleet_order_limit integer,
     tour_order_limit integer,
     assistant_account_limit integer,
-    assistant_customers_limit numeric,
     assistant_request_limit numeric
 );
 
@@ -115,8 +73,8 @@ CREATE TABLE public._subscription (
     activate_date date,
     expiry_date date,
     subscription_type integer,
-    package_price numeric,
     status integer,
+    package_price numeric,
     created_at timestamp with time zone,
     updated_at timestamp with time zone
 );
@@ -137,10 +95,10 @@ CREATE TABLE public._subscription_payment (
     payment_amount numeric,
     discount numeric,
     promotion_id uuid,
-    merchant_id character varying(20),
     referral_id uuid,
     payment_type character varying(20),
-    payment_date timestamp with time zone
+    payment_date timestamp with time zone,
+    merchant_id character varying(20)
 );
 
 
@@ -159,13 +117,29 @@ CREATE TABLE public._usage (
     tour_package_limit integer,
     fleet_order_limit integer,
     tour_order_limit integer,
-    assistant_user_limit integer,
-    assistant_customers_limit numeric,
+    assistant_limit integer,
     created_at timestamp with time zone
 );
 
 
 ALTER TABLE public._usage OWNER TO postgres;
+
+--
+-- TOC entry 310 (class 1259 OID 51594)
+-- Name: assistant_account_stats; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.assistant_account_stats (
+    statistic_id uuid,
+    period date,
+    count integer,
+    organization_id uuid,
+    type integer,
+    status integer
+);
+
+
+ALTER TABLE public.assistant_account_stats OWNER TO postgres;
 
 --
 -- TOC entry 287 (class 1259 OID 35036)
@@ -179,13 +153,30 @@ CREATE TABLE public.assistant_accounts (
     user_id uuid,
     account_number character varying(17),
     account_name character varying(50),
-    status integer,
     created_at timestamp with time zone,
-    created_by uuid
+    created_by uuid,
+    status integer
 );
 
 
 ALTER TABLE public.assistant_accounts OWNER TO postgres;
+
+--
+-- TOC entry 309 (class 1259 OID 51589)
+-- Name: assistant_customer_stats; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.assistant_customer_stats (
+    statistic_id uuid,
+    period date,
+    count integer,
+    organization_id uuid,
+    type integer,
+    status integer
+);
+
+
+ALTER TABLE public.assistant_customer_stats OWNER TO postgres;
 
 --
 -- TOC entry 296 (class 1259 OID 51486)
@@ -197,8 +188,8 @@ CREATE TABLE public.assistant_customers (
     device_name character varying(50),
     assistant_device_id character varying(40),
     account character varying(20),
-    organization_id uuid,
     device_token character varying(200),
+    organization_id uuid,
     created_at timestamp with time zone,
     created_by uuid,
     updated_at timestamp with time zone,
@@ -273,11 +264,11 @@ CREATE TABLE public.customer_orders (
     order_id character varying(100),
     customer_id uuid,
     order_type integer,
-    organization_id uuid,
     created_at timestamp with time zone,
     created_by uuid,
     updated_at timestamp with time zone,
-    updated_by uuid
+    updated_by uuid,
+    organization_id uuid
 );
 
 
@@ -292,14 +283,12 @@ CREATE TABLE public.customers (
     customer_id uuid,
     organization_id uuid,
     customer_name character varying(100),
-    customer_telephone character varying(16),
     customer_email character varying(100),
     customer_address character varying(100),
     customer_city integer,
-    company_name character varying,
-    customer_company character varying(100),
     customer_phone character varying(16),
     customer_bod date,
+    customer_company character varying(100),
     created_at timestamp with time zone,
     created_by uuid,
     updated_at timestamp with time zone,
@@ -329,8 +318,8 @@ CREATE TABLE public.employee (
     organization_id uuid,
     avatar character varying(200),
     contract_status integer,
-    resign_date date,
     status integer,
+    resign_date date,
     created_at timestamp with time zone,
     created_by uuid,
     updated_at timestamp with time zone,
@@ -411,10 +400,6 @@ CREATE TABLE public.facilities (
 
 ALTER TABLE public.facilities OWNER TO postgres;
 
-ALTER TABLE facilities 
-ADD CONSTRAINT unique_facility_per_org UNIQUE (organization_id, facility_name);
-
-
 --
 -- TOC entry 224 (class 1259 OID 17357)
 -- Name: fleet_addon; Type: TABLE; Schema: public; Owner: postgres
@@ -426,11 +411,11 @@ CREATE TABLE public.fleet_addon (
     addon_name character varying(255),
     addon_desc text,
     addon_price integer,
-    organization_id uuid,
     created_at timestamp with time zone,
     created_by uuid,
     updated_at timestamp with time zone,
-    updated_by uuid
+    updated_by uuid,
+    organization_id uuid
 );
 
 
@@ -446,10 +431,10 @@ CREATE TABLE public.fleet_facilities (
     fleet_id uuid,
     facility_id uuid,
     created_by uuid,
-    organization_id uuid,
     created_at timestamp with time zone,
     updated_at timestamp with time zone,
-    updated_by uuid
+    updated_by uuid,
+    organization_id uuid
 );
 
 
@@ -636,18 +621,18 @@ CREATE TABLE public.fleet_orders (
     unit_qty integer,
     price_id uuid,
     total_amount numeric,
+    additional_amount numeric,
     discount numeric,
-    organization_id uuid,
     additional_request text,
     status integer,
+    payment_status integer,
+    organization_id uuid,
+    created_at timestamp with time zone,
+    created_by uuid,
     approve_by uuid,
     approve_date timestamp with time zone,
     cancel_by uuid,
     cancel_date timestamp with time zone,
-    payment_status integer,
-    created_by uuid,
-    created_at timestamp with time zone,
-    additional_amount numeric,
     updated_at timestamp with time zone,
     updated_by uuid
 );
@@ -687,8 +672,8 @@ CREATE TABLE public.fleet_prices (
     price integer,
     disc_amount integer,
     disc_price integer,
-    created_by uuid,
     uom character varying(10),
+    created_by uuid,
     created_at timestamp with time zone,
     updated_by uuid,
     updated_at timestamp with time zone,
@@ -711,12 +696,12 @@ CREATE TABLE public.fleet_prices_history (
     price integer,
     disc_amount integer,
     disc_price integer,
-    created_by uuid,
     uom character varying(10),
-    organization_id uuid,
+    created_by uuid,
     created_at timestamp with time zone,
     updated_by uuid,
-    updated_at timestamp with time zone
+    updated_at timestamp with time zone,
+    organization_id uuid
 );
 
 
@@ -744,11 +729,11 @@ CREATE TABLE public.fleet_unit_ownership (
     fleet_ownership_id uuid,
     unit_id uuid,
     partner_id uuid,
-    organization_id uuid,
     created_at timestamp with time zone,
     created_by uuid,
     updated_at timestamp with time zone,
-    updated_by uuid
+    updated_by uuid,
+    organization_id uuid
 );
 
 
@@ -768,8 +753,8 @@ CREATE TABLE public.fleet_units (
     capacity integer,
     production_year integer,
     transmission character varying(20),
-    organization_id uuid,
     ownership_type integer,
+    organization_id uuid,
     status integer,
     created_at timestamp with time zone,
     created_by uuid,
@@ -794,13 +779,13 @@ CREATE TABLE public.fleets (
     engine character varying(50),
     body character varying(50),
     description text,
-    active boolean,
     organization_id uuid,
     thumbnail character varying(255),
     fuel_type character varying(10),
     transmission character varying(20),
-    is_public integer,
     views integer,
+    is_public integer,
+    active boolean,
     status integer,
     created_at timestamp with time zone,
     created_by uuid,
@@ -811,57 +796,6 @@ CREATE TABLE public.fleets (
 
 ALTER TABLE public.fleets OWNER TO postgres;
 
-CREATE TABLE public.travego_reviews
-(
-    review_id uuid,
-    user_id uuid,
-    stars integer,
-    review text,
-    created_at timestamp with time zone,
-    created_by uuid
-);
-
-ALTER TABLE IF EXISTS public.travego_reviews
-    OWNER to postgres;
-
-CREATE TABLE public.travego_messages
-(
-    message_id uuid,
-    topic_id integer,
-    fullname character varying(50),
-    company_name character varying(50),
-    email character varying(50),
-    whatsapp character varying(20),
-    scale character varying(10),
-    messages text,
-    created_at timestamp with time zone,
-    is_read boolean
-);
-
-ALTER TABLE IF EXISTS public.travego_messages
-    OWNER to postgres;
-
---
--- TOC entry 290 (class 1259 OID 43276)
--- Name: travego_transactions; Type: TABLE; Schema: public; Owner: postgres
---
-CREATE TABLE public.travego_transactions
-(
-    transaction_id uuid,
-    transaction_date timestamp with time zone,
-    invoice_number character varying(30),
-    package_id character varying(10),
-    start_date timestamp with time zone,
-    expiry_date timestamp with time zone,
-    payment_method character varying(20),
-    status integer,
-    user_id uuid,
-    organization_id uuid,
-    created_at timestamp with time zone,
-    created_by uuid
-);
-
-ALTER TABLE IF EXISTS public.travego_transactions OWNER to postgres;
 --
 -- TOC entry 290 (class 1259 OID 43276)
 -- Name: garage; Type: TABLE; Schema: public; Owner: postgres
@@ -979,10 +913,10 @@ CREATE TABLE public.inventory_movement (
     stock_before integer,
     stock_final integer,
     movement_type integer,
-    organization_id uuid,
-    notes character varying(100),
+    created_at timestamp with time zone,
     created_by uuid,
-    created_at timestamp with time zone
+    organization_id uuid,
+    notes character varying(100)
 );
 
 
@@ -1015,11 +949,11 @@ CREATE TABLE public.inventory_orders (
     quantity integer,
     item_price numeric,
     total_amount numeric,
-    status integer,
-    transaction_date date,
-    complete_date date,
     item_category integer,
+    transaction_date date,
     organization_id uuid,
+    status integer,
+    complete_date date,
     created_at timestamp with time zone,
     created_by uuid,
     updated_at timestamp with time zone,
@@ -1089,9 +1023,9 @@ CREATE TABLE public.messages (
     message_type character varying(20),
     message text,
     status integer,
-    organization_id uuid,
     created_at timestamp with time zone,
-    updated_at timestamp with time zone
+    updated_at timestamp with time zone,
+    organization_id uuid
 );
 
 
@@ -1108,8 +1042,8 @@ CREATE TABLE public.notifications (
     reference_url text,
     title character varying(50),
     message character varying(100),
-    is_read boolean,
-    created_at timestamp with time zone
+    created_at timestamp with time zone,
+    is_read boolean
 );
 
 
@@ -1126,13 +1060,13 @@ CREATE TABLE public.operation_partner (
     partner_address character varying(100),
     partner_city integer,
     partner_phone character varying(20),
-    partner_email character varying(50),
     pic_name character varying(50),
-    organization_id uuid,
+    partner_email character varying(50),
     created_at timestamp with time zone,
     created_by uuid,
     updated_at timestamp with time zone,
-    updated_by uuid
+    updated_by uuid,
+    organization_id uuid
 );
 
 
@@ -1151,8 +1085,8 @@ CREATE TABLE public.order_payment_history (
     account_number character varying(30),
     account_name character varying(50),
     payment_amount numeric,
+    unique_code character varying(10),  
     organization_id uuid,
-    unique_code character varying(10),
     created_at timestamp with time zone
 );
 
@@ -1198,7 +1132,6 @@ CREATE TABLE public.organization_bank_accounts (
     account_type integer,
     organization_id uuid,
     status integer,
-    active boolean,
     created_at timestamp with time zone,
     created_by uuid,
     updated_by uuid,
@@ -1206,7 +1139,8 @@ CREATE TABLE public.organization_bank_accounts (
     created_proxy character varying(50),
     updated_proxy character varying(50),
     created_ip character varying(50),
-    updated_ip character varying(50)
+    updated_ip character varying(50),
+    active boolean
 );
 
 
@@ -1223,10 +1157,10 @@ CREATE TABLE public.organization_divisions (
     description character varying(255),
     organization_id uuid,
     created_at timestamp with time zone,
-    status integer,
     created_by uuid,
     updated_at timestamp with time zone,
-    updated_by uuid
+    updated_by uuid,
+    status integer
 );
 
 
@@ -1270,8 +1204,8 @@ CREATE TABLE public.organization_roles (
     role_id uuid,
     description character varying(255),
     role_name character varying(100),
-    organization_id uuid,
     division_id uuid,
+    organization_id uuid,
     created_at timestamp with time zone,
     created_by uuid,
     updated_at timestamp with time zone,
@@ -1324,11 +1258,11 @@ CREATE TABLE public.organizations (
     organization_id uuid NOT NULL,
     organization_code character varying(10) NOT NULL,
     organization_name character varying(255) NOT NULL,
-    company_name character varying(255) NOT NULL,
+    company_name character varying(200),
+    phone character varying(20),
     address character varying(100),
     city character varying(100),
     province character varying(30),
-    phone character varying(20),
     npwp_number character varying(30),
     email character varying(50),
     created_by uuid NOT NULL,
@@ -1378,9 +1312,9 @@ CREATE TABLE public.payment_orders (
     payment_id uuid,
     order_type integer,
     order_id character varying(50),
-    invoice_number character varying(50),
-    transaction_id uuid,
     organization_id uuid,
+    transaction_id uuid,
+    invoice_number character varying(50),
     payment_type integer,
     payment_method integer,
     bank_id character varying(10),
@@ -1390,17 +1324,17 @@ CREATE TABLE public.payment_orders (
     remaining_amount numeric,
     unique_code numeric,
     evidence_file character varying(255),
-    status integer,
     notes character varying(100),
-    refund_by uuid,
-    refund_at timestamp with time zone,
+    status integer,
+    payment_status integer,
     created_at timestamp with time zone,
     created_by uuid,
     updated_at timestamp with time zone,
     updated_by uuid,
     settled_at timestamp with time zone,
     settled_by uuid,
-    payment_status integer
+    refund_at timestamp with time zone,
+    refund_by uuid
 );
 
 
@@ -1450,13 +1384,13 @@ CREATE TABLE public.schedule_fleet_teams (
     unit_id uuid,
     schedule_fleet_id uuid,
     driver_id uuid,
-    created_at timestamp with time zone,
     crew_id uuid,
+    organization_id uuid,
+    status integer,
+    created_at timestamp with time zone,
     created_by uuid,
     updated_at timestamp with time zone,
-    updated_by uuid,
-    organization_id uuid,
-    status integer
+    updated_by uuid
 );
 
 
@@ -1470,17 +1404,17 @@ ALTER TABLE public.schedule_fleet_teams OWNER TO postgres;
 CREATE TABLE public.schedule_fleets (
     uuid uuid,
     schedule_id uuid,
+    schedule_number character varying(20),
     order_id character varying(100),
     fleet_id uuid,
     unit_id uuid,
-    departure_time time with time zone,
     status integer,
-    organization_id uuid,
-    schedule_number character varying(20),
     created_at timestamp with time zone,
     created_by uuid,
     updated_at timestamp with time zone,
-    updated_by uuid
+    updated_by uuid,
+    departure_time time with time zone,
+    organization_id uuid,
 );
 
 
@@ -1498,12 +1432,12 @@ CREATE TABLE public.schedule_teams (
     order_type integer,
     start_date timestamp with time zone,
     end_date timestamp with time zone,
-    status integer,
-    organization_id uuid,
     created_at timestamp with time zone,
     created_by uuid,
     updated_at timestamp with time zone,
-    updated_by uuid
+    updated_by uuid,
+    status integer,
+    organization_id uuid
 );
 
 
@@ -1543,11 +1477,11 @@ CREATE TABLE public.supliers (
     suplier_city integer,
     suplier_phone character varying(20),
     supliter_email character varying(50),
-    suplier_url character varying(100),
     created_at timestamp with time zone,
     created_by uuid,
     updated_at timestamp with time zone,
-    updated_by uuid
+    updated_by uuid,
+    suplier_url character varying(100)
 );
 
 
@@ -1771,6 +1705,7 @@ ALTER TABLE public.tour_package_schedules OWNER TO postgres;
 
 CREATE TABLE public.tour_packages (
     uuid uuid,
+    package_type integer,
     package_name character varying(100),
     package_description text,
     min_pax integer,
@@ -1780,7 +1715,6 @@ CREATE TABLE public.tour_packages (
     active boolean,
     status integer,
     organization_id uuid,
-    package_type integer,
     created_at timestamp with time zone,
     created_by uuid,
     updated_at timestamp with time zone,
@@ -1799,16 +1733,16 @@ CREATE TABLE public.transaction_fleet_trips (
     transaction_trip_id uuid,
     transaction_id uuid,
     schedule_number character varying(50),
+    reference_id character varying(50),
+    transaction_date date
     transaction_type integer,
     transaction_category character varying(10),
     transaction_item character varying(10),
     amount numeric,
     payment_type integer,
     description text,
-    organization_id uuid,
-    reference_id character varying(50),
     status integer,
-    transaction_date date,
+    organization_id uuid,
     created_at timestamp with time zone,
     created_by uuid,
     updated_at timestamp with time zone,
@@ -1935,11 +1869,11 @@ CREATE TABLE public.transactions (
     payment_method integer,
     transaction_label character varying(50),
     note text,
+    status integer,
     created_at timestamp with time zone,
     created_by uuid,
     updated_at timestamp with time zone,
-    updated_by uuid,
-    status integer
+    updated_by uuid
 );
 
 
@@ -1972,6 +1906,109 @@ CREATE TABLE public.transacton_fleet_trips (
 ALTER TABLE public.transacton_fleet_trips OWNER TO postgres;
 
 --
+-- TOC entry 305 (class 1259 OID 51563)
+-- Name: travego_messages; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.travego_messages (
+    message_id uuid,
+    topic_id integer,
+    fullname character varying(50),
+    company_name character varying(50),
+    email character varying(50),
+    whatsapp character varying(20),
+    scale character varying(10),
+    messages text,
+    is_read boolean,
+    created_at timestamp with time zone
+);
+
+
+ALTER TABLE public.travego_messages OWNER TO postgres;
+
+--
+-- TOC entry 304 (class 1259 OID 51558)
+-- Name: travego_reviews; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.travego_reviews (
+    review_id uuid,
+    user_id uuid,
+    stars integer,
+    review text,
+    created_at timestamp with time zone,
+    created_by uuid
+);
+
+
+ALTER TABLE public.travego_reviews OWNER TO postgres;
+
+--
+-- TOC entry 306 (class 1259 OID 51568)
+-- Name: travego_transactions; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.travego_transactions (
+    transaction_id uuid,
+    transaction_date timestamp with time zone,
+    invoice_number character varying(30),
+    package_id character varying(10),
+    start_date timestamp with time zone,
+    expiry_date timestamp with time zone,
+    payment_method character varying(20),
+    payment_amount numeric,
+    status integer,
+    user_id uuid,
+    organization_id uuid,
+    created_at timestamp with time zone,
+    created_by uuid,
+    updated_at timestamp with time zone,
+    updated_by uuid
+);
+
+
+ALTER TABLE public.travego_transactions OWNER TO postgres;
+
+--
+-- TOC entry 308 (class 1259 OID 51576)
+-- Name: travego_visitors; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.travego_visitors (
+    id integer NOT NULL,
+    period date NOT NULL,
+    count integer DEFAULT 0
+);
+
+
+ALTER TABLE public.travego_visitors OWNER TO postgres;
+
+--
+-- TOC entry 307 (class 1259 OID 51575)
+-- Name: travego_visitors_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.travego_visitors_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.travego_visitors_id_seq OWNER TO postgres;
+
+--
+-- TOC entry 5315 (class 0 OID 0)
+-- Dependencies: 307
+-- Name: travego_visitors_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.travego_visitors_id_seq OWNED BY public.travego_visitors.id;
+
+
+--
 -- TOC entry 219 (class 1259 OID 17299)
 -- Name: users; Type: TABLE; Schema: public; Owner: postgres
 --
@@ -1990,175 +2027,161 @@ CREATE TABLE public.users (
     npwp character varying(25),
     date_of_birth timestamp with time zone,
     gender character varying(2),
+    avatar character varying(255),
     is_active boolean,
     is_verified boolean,
-    verified_at timestamp with time zone,
-    last_login timestamp with time zone,
-    deleted_at timestamp with time zone,
-    avatar character varying(255),
     is_admin boolean,
     created_at timestamp with time zone,
-    updated_at timestamp with time zone
+    updated_at timestamp with time zone,
+    verified_at timestamp with time zone,
+    last_login timestamp with time zone,
+    deleted_at timestamp with time zone
 );
 
 
 ALTER TABLE public.users OWNER TO postgres;
 
 --
--- TOC entry 216 (class 1259 OID 17224)
--- Name: users_bu; Type: TABLE; Schema: public; Owner: postgres
+-- TOC entry 5050 (class 2604 OID 51579)
+-- Name: travego_visitors id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
-CREATE TABLE public.users_bu (
-    user_id uuid NOT NULL,
-    username character varying(50),
-    fullname character varying(100),
-    email character varying(50),
-    password text,
-    phone character varying(20),
-    address character varying(100),
-    city character varying(30),
-    province character varying(30),
-    postal_code character varying(10),
-    npwp character varying(25),
-    is_active boolean,
-    is_verified boolean,
-    created_at timestamp with time zone,
-    updated_at timestamp with time zone,
-    verified_at timestamp with time zone,
-    last_login timestamp with time zone
-);
+ALTER TABLE ONLY public.travego_visitors ALTER COLUMN id SET DEFAULT nextval('public.travego_visitors_id_seq'::regclass);
 
-
-ALTER TABLE public.users_bu OWNER TO postgres;
 
 --
--- TOC entry 5331 (class 0 OID 33985)
+-- TOC entry 5275 (class 0 OID 33985)
 -- Dependencies: 275
 -- Data for Name: _assistant; Type: TABLE DATA; Schema: public; Owner: postgres
 --
 
-
-
 --
--- TOC entry 5332 (class 0 OID 33988)
--- Dependencies: 276
--- Data for Name: _packages; Type: TABLE DATA; Schema: public; Owner: postgres
+-- TOC entry 5274 (class 0 OID 33980)
+-- Dependencies: 274
+-- Data for Name: _subscription_payment; Type: TABLE DATA; Schema: public; Owner: postgres
 --
 
-INSERT INTO public._packages (package_id, package_name, package_price, original_price, fleet_limit, tour_package_limit, fleet_order_limit, tour_order_limit, assistant_account_limit, assistant_request_limit) VALUES ('trave01', 'Ekonomi', 0, 0, 5, 5, 10, 10, 5, 100);
-INSERT INTO public._packages (package_id, package_name, package_price, original_price, fleet_limit, tour_package_limit, fleet_order_limit, tour_order_limit, assistant_account_limit, assistant_request_limit) VALUES ('trave02', 'Executive Plus', 99000, 150000, 10, 10, 15, 10, 5, 200);
-
-
 --
--- TOC entry 5291 (class 0 OID 25581)
+-- TOC entry 5235 (class 0 OID 25581)
 -- Dependencies: 235
 -- Data for Name: bank_list; Type: TABLE DATA; Schema: public; Owner: postgres
 --
 
-INSERT INTO public.bank_list (code, name, icon) VALUES ('011', 'BANK DANAMON INDONESIA', NULL);
-INSERT INTO public.bank_list (code, name, icon) VALUES ('111', 'BANK DKI', NULL);
-INSERT INTO public.bank_list (code, name, icon) VALUES ('046', 'BANK DBS INDONESIA', NULL);
-INSERT INTO public.bank_list (code, name, icon) VALUES ('087', 'BANK HSBC INDONESIA', NULL);
-INSERT INTO public.bank_list (code, name, icon) VALUES ('016', 'BANK MAYBANK INDONESIA, TBK', NULL);
-INSERT INTO public.bank_list (code, name, icon) VALUES ('553', 'BANK MAYORA', NULL);
-INSERT INTO public.bank_list (code, name, icon) VALUES ('426', 'BANK MEGA, TBK', NULL);
-INSERT INTO public.bank_list (code, name, icon) VALUES ('147', 'BANK MUAMALAT INDONESIA, TBK', NULL);
-INSERT INTO public.bank_list (code, name, icon) VALUES ('013', 'BANK PERMATA, TBK', NULL);
-INSERT INTO public.bank_list (code, name, icon) VALUES ('721', 'BANK PERMATA, TBK UNIT USAHA SYARIAH', NULL);
-INSERT INTO public.bank_list (code, name, icon) VALUES ('494', 'BANK RAKYAT INDONESIA AGRONIAGA, TBK', NULL);
-INSERT INTO public.bank_list (code, name, icon) VALUES ('213', 'BANK TABUNGAN PENSIUNAN NASIONAL - (BTPN)', NULL);
-INSERT INTO public.bank_list (code, name, icon) VALUES ('547', 'BANK TABUNGAN PENSIUNAN NASIONAL SYARIAH - (BTPN Syariah)', NULL);
-INSERT INTO public.bank_list (code, name, icon) VALUES ('164', 'BANK ICBC INDONESIA', NULL);
-INSERT INTO public.bank_list (code, name, icon) VALUES ('022', 'BANK CIMB NIAGA - (CIMB)', '/assets/bank-icon/cimb.png');
-INSERT INTO public.bank_list (code, name, icon) VALUES ('730', 'BANK CIMB NIAGA UNIT USAHA SYARIAH - (CIMB SYARIAH)', '/assets/bank-icon/cimb.png');
-INSERT INTO public.bank_list (code, name, icon) VALUES ('536', 'BANK BCA SYARIAH', '/assets/bank-icon/bca.png');
-INSERT INTO public.bank_list (code, name, icon) VALUES ('014', 'BANK CENTRAL ASIA, TBK - (BCA)', '/assets/bank-icon/bca.png');
-INSERT INTO public.bank_list (code, name, icon) VALUES ('427', 'BNI SYARIAH', '/assets/bank-icon/bni.png');
-INSERT INTO public.bank_list (code, name, icon) VALUES ('009', 'BANK NEGARA INDONESIA (PERSERO), TBK (BNI)', '/assets/bank-icon/bni.png');
-INSERT INTO public.bank_list (code, name, icon) VALUES ('008', 'BANK MANDIRI (PERSERO), TBK', '/assets/bank-icon/mandiri.png');
-INSERT INTO public.bank_list (code, name, icon) VALUES ('564', 'BANK MANDIRI TASPEN POS', '/assets/bank-icon/mandiri.png');
-INSERT INTO public.bank_list (code, name, icon) VALUES ('451', 'BANK SYARIAH MANDIRI', '/assets/bank-icon/mandiri.png');
-INSERT INTO public.bank_list (code, name, icon) VALUES ('002', 'BANK RAKYAT INDONESIA (PERSERO), TBK (BRI)', '/assets/bank-icon/bri.png');
-INSERT INTO public.bank_list (code, name, icon) VALUES ('422', 'BANK SYARIAH BRI - (BRI SYARIAH)', '/assets/bank-icon/bri.png');
-INSERT INTO public.bank_list (code, name, icon) VALUES ('200', 'BANK TABUNGAN NEGARA (PERSERO), TBK (BTN)', '/assets/bank-icon/btn.png');
-INSERT INTO public.bank_list (code, name, icon) VALUES ('723', 'BANK TABUNGAN NEGARA (PERSERO) SYARIAH (BTN Syariah)', '/assets/bank-icon/btn.png');
-INSERT INTO public.bank_list (code, name, icon) VALUES ('028', 'BANK OCBC NISP, TBK', '/assets/bank-icon/ocbc.png');
-INSERT INTO public.bank_list (code, name, icon) VALUES ('731', 'BANK OCBC NISP, TBK UNIT USAHA SYARIAH', '/assets/bank-icon/ocbc.png');
-INSERT INTO public.bank_list (code, name, icon) VALUES ('441', 'BANK BUKOPIN', '/assets/bank-icon/bukopin.png');
-INSERT INTO public.bank_list (code, name, icon) VALUES ('521', 'BANK SYARIAH BUKOPIN', '/assets/bank-icon/bukopin.png');
+INSERT INTO public.bank_list VALUES ('011', 'BANK DANAMON INDONESIA', NULL);
+INSERT INTO public.bank_list VALUES ('111', 'BANK DKI', NULL);
+INSERT INTO public.bank_list VALUES ('046', 'BANK DBS INDONESIA', NULL);
+INSERT INTO public.bank_list VALUES ('087', 'BANK HSBC INDONESIA', NULL);
+INSERT INTO public.bank_list VALUES ('016', 'BANK MAYBANK INDONESIA, TBK', NULL);
+INSERT INTO public.bank_list VALUES ('553', 'BANK MAYORA', NULL);
+INSERT INTO public.bank_list VALUES ('426', 'BANK MEGA, TBK', NULL);
+INSERT INTO public.bank_list VALUES ('147', 'BANK MUAMALAT INDONESIA, TBK', NULL);
+INSERT INTO public.bank_list VALUES ('013', 'BANK PERMATA, TBK', NULL);
+INSERT INTO public.bank_list VALUES ('721', 'BANK PERMATA, TBK UNIT USAHA SYARIAH', NULL);
+INSERT INTO public.bank_list VALUES ('494', 'BANK RAKYAT INDONESIA AGRONIAGA, TBK', NULL);
+INSERT INTO public.bank_list VALUES ('213', 'BANK TABUNGAN PENSIUNAN NASIONAL - (BTPN)', NULL);
+INSERT INTO public.bank_list VALUES ('547', 'BANK TABUNGAN PENSIUNAN NASIONAL SYARIAH - (BTPN Syariah)', NULL);
+INSERT INTO public.bank_list VALUES ('164', 'BANK ICBC INDONESIA', NULL);
+INSERT INTO public.bank_list VALUES ('022', 'BANK CIMB NIAGA - (CIMB)', '/assets/bank-icon/cimb.png');
+INSERT INTO public.bank_list VALUES ('730', 'BANK CIMB NIAGA UNIT USAHA SYARIAH - (CIMB SYARIAH)', '/assets/bank-icon/cimb.png');
+INSERT INTO public.bank_list VALUES ('536', 'BANK BCA SYARIAH', '/assets/bank-icon/bca.png');
+INSERT INTO public.bank_list VALUES ('014', 'BANK CENTRAL ASIA, TBK - (BCA)', '/assets/bank-icon/bca.png');
+INSERT INTO public.bank_list VALUES ('427', 'BNI SYARIAH', '/assets/bank-icon/bni.png');
+INSERT INTO public.bank_list VALUES ('009', 'BANK NEGARA INDONESIA (PERSERO), TBK (BNI)', '/assets/bank-icon/bni.png');
+INSERT INTO public.bank_list VALUES ('008', 'BANK MANDIRI (PERSERO), TBK', '/assets/bank-icon/mandiri.png');
+INSERT INTO public.bank_list VALUES ('564', 'BANK MANDIRI TASPEN POS', '/assets/bank-icon/mandiri.png');
+INSERT INTO public.bank_list VALUES ('451', 'BANK SYARIAH MANDIRI', '/assets/bank-icon/mandiri.png');
+INSERT INTO public.bank_list VALUES ('002', 'BANK RAKYAT INDONESIA (PERSERO), TBK (BRI)', '/assets/bank-icon/bri.png');
+INSERT INTO public.bank_list VALUES ('422', 'BANK SYARIAH BRI - (BRI SYARIAH)', '/assets/bank-icon/bri.png');
+INSERT INTO public.bank_list VALUES ('200', 'BANK TABUNGAN NEGARA (PERSERO), TBK (BTN)', '/assets/bank-icon/btn.png');
+INSERT INTO public.bank_list VALUES ('723', 'BANK TABUNGAN NEGARA (PERSERO) SYARIAH (BTN Syariah)', '/assets/bank-icon/btn.png');
+INSERT INTO public.bank_list VALUES ('028', 'BANK OCBC NISP, TBK', '/assets/bank-icon/ocbc.png');
+INSERT INTO public.bank_list VALUES ('731', 'BANK OCBC NISP, TBK UNIT USAHA SYARIAH', '/assets/bank-icon/ocbc.png');
+INSERT INTO public.bank_list VALUES ('441', 'BANK BUKOPIN', '/assets/bank-icon/bukopin.png');
+INSERT INTO public.bank_list VALUES ('521', 'BANK SYARIAH BUKOPIN', '/assets/bank-icon/bukopin.png');
 
 --
--- TOC entry 5322 (class 0 OID 33927)
+-- TOC entry 5266 (class 0 OID 33927)
 -- Dependencies: 266
 -- Data for Name: employee_leave_type; Type: TABLE DATA; Schema: public; Owner: postgres
 --
 
-INSERT INTO public.employee_leave_type (id, label) VALUES (1, 'Cuti Reguler');
-INSERT INTO public.employee_leave_type (id, label) VALUES (2, 'Cuti / Izin Sakit');
-INSERT INTO public.employee_leave_type (id, label) VALUES (3, 'Izin Keluarga Sakit');
-INSERT INTO public.employee_leave_type (id, label) VALUES (4, 'Izin berduka');
+INSERT INTO public.employee_leave_type VALUES (1, 'Cuti Reguler');
+INSERT INTO public.employee_leave_type VALUES (2, 'Cuti / Izin Sakit');
+INSERT INTO public.employee_leave_type VALUES (3, 'Izin Keluarga Sakit');
+INSERT INTO public.employee_leave_type VALUES (4, 'Izin berduka');
 
 --
--- TOC entry 5355 (class 0 OID 51513)
+-- TOC entry 5299 (class 0 OID 51513)
 -- Dependencies: 299
 -- Data for Name: facilities; Type: TABLE DATA; Schema: public; Owner: postgres
 --
 
-INSERT INTO public.facilities (facility_id, facility_name, facility_icon, organization_id) VALUES ('95376cd5-23c8-4d12-aeb1-d945aeedc70c', 'Pengemudi dan Pramusapa profesional', 'Smile               ', NULL);
-INSERT INTO public.facilities (facility_id, facility_name, facility_icon, organization_id) VALUES ('16fad6ac-9b5e-4dd1-9182-8b5df31d8e0a', 'Kebersihan Terjaga', 'Bubbles             ', NULL);
-INSERT INTO public.facilities (facility_id, facility_name, facility_icon, organization_id) VALUES ('93f60d8d-1c77-42eb-88e0-74174b7d2118', 'Power Plug Onboard', 'Cable               ', NULL);
-INSERT INTO public.facilities (facility_id, facility_name, facility_icon, organization_id) VALUES ('ae22ca4e-1c03-4a09-a08a-954e876418f6', 'Support USB Cable', 'Usb                 ', NULL);
-INSERT INTO public.facilities (facility_id, facility_name, facility_icon, organization_id) VALUES ('b757cb1c-2be5-4c0d-b013-102bc9c2021a', 'Termasuk Bahan Bakar', 'Fuel                ', NULL);
-INSERT INTO public.facilities (facility_id, facility_name, facility_icon, organization_id) VALUES ('4ec69470-3ce7-479e-ac2d-5ff03e22b304', 'Pendingin Ruangan (AC)', 'Snowflake           ', NULL);
-INSERT INTO public.facilities (facility_id, facility_name, facility_icon, organization_id) VALUES ('494fe96f-f505-4b89-aa80-56ca7b806faf', 'Air Suspension', 'RockingChair        ', NULL);
-INSERT INTO public.facilities (facility_id, facility_name, facility_icon, organization_id) VALUES ('6c4e2ce1-a582-45c2-b7ed-04d81cb3b2b5', 'Recleaning Seat', 'Armchair            ', NULL);
-INSERT INTO public.facilities (facility_id, facility_name, facility_icon, organization_id) VALUES ('5b391476-cd97-4e20-8cf9-6f92dc39b518', 'Audio Video On Board', 'Tv                  ', NULL);
-INSERT INTO public.facilities (facility_id, facility_name, facility_icon, organization_id) VALUES ('3625ec50-2c12-4583-9223-2933c9096cf7', 'Movies & Entertaint', 'Clapperboard        ', NULL);
-INSERT INTO public.facilities (facility_id, facility_name, facility_icon, organization_id) VALUES ('23324a46-1c62-4ef7-887f-612f469b1720', 'Alat Pemadam Api Ringan)', 'FireExtinguisher    ', NULL);
-INSERT INTO public.facilities (facility_id, facility_name, facility_icon, organization_id) VALUES ('a892dc03-644d-45ed-89b1-653cc2470956', 'Snack & Makanan Ringan', 'Utensils            ', NULL);
-INSERT INTO public.facilities (facility_id, facility_name, facility_icon, organization_id) VALUES ('b3d43245-3811-4fbd-980d-8d6268866328', 'Minuman Ringan', 'GlassWater          ', NULL);
-INSERT INTO public.facilities (facility_id, facility_name, facility_icon, organization_id) VALUES ('14d25ab3-ed1a-4079-9a08-c01fcfd11921', 'Dilindungi Asuransi', 'ShieldCheck         ', NULL);
+INSERT INTO public.facilities VALUES ('95376cd5-23c8-4d12-aeb1-d945aeedc70c', 'Pengemudi dan Pramusapa profesional', 'Smile               ', NULL);
+INSERT INTO public.facilities VALUES ('93f60d8d-1c77-42eb-88e0-74174b7d2118', 'Power Plug Onboard', 'Cable               ', NULL);
+INSERT INTO public.facilities VALUES ('ae22ca4e-1c03-4a09-a08a-954e876418f6', 'Support USB Cable', 'Usb                 ', NULL);
+INSERT INTO public.facilities VALUES ('b757cb1c-2be5-4c0d-b013-102bc9c2021a', 'Termasuk Bahan Bakar', 'Fuel                ', NULL);
+INSERT INTO public.facilities VALUES ('4ec69470-3ce7-479e-ac2d-5ff03e22b304', 'Pendingin Ruangan (AC)', 'Snowflake           ', NULL);
+INSERT INTO public.facilities VALUES ('494fe96f-f505-4b89-aa80-56ca7b806faf', 'Air Suspension', 'RockingChair        ', NULL);
+INSERT INTO public.facilities VALUES ('6c4e2ce1-a582-45c2-b7ed-04d81cb3b2b5', 'Recleaning Seat', 'Armchair            ', NULL);
+INSERT INTO public.facilities VALUES ('3625ec50-2c12-4583-9223-2933c9096cf7', 'Movies & Entertaint', 'Clapperboard        ', NULL);
+INSERT INTO public.facilities VALUES ('23324a46-1c62-4ef7-887f-612f469b1720', 'Alat Pemadam Api Ringan)', 'FireExtinguisher    ', NULL);
+INSERT INTO public.facilities VALUES ('a892dc03-644d-45ed-89b1-653cc2470956', 'Snack & Makanan Ringan', 'Utensils            ', NULL);
+INSERT INTO public.facilities VALUES ('b3d43245-3811-4fbd-980d-8d6268866328', 'Minuman Ringan', 'GlassWater          ', NULL);
+INSERT INTO public.facilities VALUES ('14d25ab3-ed1a-4079-9a08-c01fcfd11921', 'Dilindungi Asuransi', 'ShieldCheck         ', NULL);
+INSERT INTO public.facilities VALUES ('5b391476-cd97-4e20-8cf9-6f92dc39b518', 'Audio Video On Demand (AVOD)', 'Tv                  ', NULL);
+INSERT INTO public.facilities VALUES ('16fad6ac-9b5e-4dd1-9182-8b5df31d8e0a', 'Tempat Sampah', 'Trash               ', NULL);
+INSERT INTO public.facilities VALUES ('54483314-a961-4d92-a04a-471f1b3b1884', 'Cooling Box', 'Snowflake           ', NULL);
+INSERT INTO public.facilities VALUES ('c6b4bd20-c41e-4e30-b7cc-8d4a0e2f5afd', 'Minibar and Dispenser', 'Wine                ', NULL);
+INSERT INTO public.facilities VALUES ('d50898a8-fa04-48ca-a725-9ceb4408b71d', 'Toilet', 'Toilet              ', NULL);
+INSERT INTO public.facilities VALUES ('bb98e836-508e-4941-bdd6-e361d80bafb9', 'Music and Karaoke', 'Music               ', NULL);
 
 --
--- TOC entry 5281 (class 0 OID 17362)
+-- TOC entry 5239 (class 0 OID 25612)
+-- Dependencies: 239
+-- Data for Name: fleet_prices_history; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+
+
+--
+-- TOC entry 5225 (class 0 OID 17362)
 -- Dependencies: 225
 -- Data for Name: fleet_types; Type: TABLE DATA; Schema: public; Owner: postgres
 --
 
-INSERT INTO public.fleet_types (id, label) VALUES ('FT01', 'Minibus');
-INSERT INTO public.fleet_types (id, label) VALUES ('FT03', 'Sedan');
-INSERT INTO public.fleet_types (id, label) VALUES ('FT04', 'MPV');
-INSERT INTO public.fleet_types (id, label) VALUES ('FT05', 'SUV');
-INSERT INTO public.fleet_types (id, label) VALUES ('FT06', 'Medium Bus');
-INSERT INTO public.fleet_types (id, label) VALUES ('FT07', 'Big Bus');
-INSERT INTO public.fleet_types (id, label) VALUES ('FT08', 'Double Decker');
-INSERT INTO public.fleet_types (id, label) VALUES ('FT02', 'Microbus');
+INSERT INTO public.fleet_types VALUES ('FT01', 'Minibus');
+INSERT INTO public.fleet_types VALUES ('FT03', 'Sedan');
+INSERT INTO public.fleet_types VALUES ('FT04', 'MPV');
+INSERT INTO public.fleet_types VALUES ('FT05', 'SUV');
+INSERT INTO public.fleet_types VALUES ('FT06', 'Medium Bus');
+INSERT INTO public.fleet_types VALUES ('FT07', 'Big Bus');
+INSERT INTO public.fleet_types VALUES ('FT08', 'Double Decker');
 
 --
--- TOC entry 5351 (class 0 OID 43310)
+-- TOC entry 5295 (class 0 OID 43310)
 -- Dependencies: 295
 -- Data for Name: inventory_movement_types; Type: TABLE DATA; Schema: public; Owner: postgres
 --
 
-INSERT INTO public.inventory_movement_types (id, label) VALUES (1, 'Item Masuk');
-INSERT INTO public.inventory_movement_types (id, label) VALUES (2, 'Item Keluar');
-INSERT INTO public.inventory_movement_types (id, label) VALUES (3, 'Koreksi stok');
-INSERT INTO public.inventory_movement_types (id, label) VALUES (4, 'Transfer Stok');
+INSERT INTO public.inventory_movement_types VALUES (1, 'Item Masuk');
+INSERT INTO public.inventory_movement_types VALUES (2, 'Item Keluar');
+INSERT INTO public.inventory_movement_types VALUES (3, 'Koreksi stok');
+INSERT INTO public.inventory_movement_types VALUES (4, 'Transfer Stok');
+
 
 --
--- TOC entry 5310 (class 0 OID 33879)
+-- TOC entry 5254 (class 0 OID 33879)
 -- Dependencies: 254
 -- Data for Name: organization_divisions; Type: TABLE DATA; Schema: public; Owner: postgres
 --
 
-INSERT INTO public.organization_divisions (division_id, division_name, description, organization_id, created_at, created_by, updated_at, updated_by, status) VALUES ('7c2a2d70-b542-4607-ba2b-d2087618e3a2', 'Marketing', 'Bertanggung jawab atas strategi pemasaran dan peningkatan volume penjualan.', '00000000-0000-0000-0000-000000000000', '2026-04-15 11:15:33.468247+07', '0cf12050-4ce1-44ac-855e-44110aecb6f6', NULL, NULL, 1);
-INSERT INTO public.organization_divisions (division_id, division_name, description, organization_id, created_at, created_by, updated_at, updated_by, status) VALUES ('4df1996f-dd57-4586-a819-c2fe08107cf4', 'Finance', 'Mengelola administrasi keuangan, arus kas, serta pelaporan akuntansi', '00000000-0000-0000-0000-000000000000', '2026-04-15 11:30:48.521298+07', '0cf12050-4ce1-44ac-855e-44110aecb6f6', NULL, NULL, 1);
-INSERT INTO public.organization_divisions (division_id, division_name, description, organization_id, created_at, created_by, updated_at, updated_by, status) VALUES ('fe8b3916-5eff-420c-8110-8d974d767afe', 'Operations', 'Mengoordinasikan pelaksanaan teknis perjalanan dan pemeliharaan armada operasional', '00000000-0000-0000-0000-000000000000', '2026-04-15 11:31:23.28055+07', '0cf12050-4ce1-44ac-855e-44110aecb6f6', '2026-04-15 16:02:18.752681+07', '0cf12050-4ce1-44ac-855e-44110aecb6f6', 1);
+INSERT INTO public.organization_divisions VALUES ('7c2a2d70-b542-4607-ba2b-d2087618e3a2', 'Marketing', 'Bertanggung jawab atas strategi pemasaran dan peningkatan volume penjualan.', '00000000-0000-0000-0000-000000000000', '2026-04-15 11:15:33.468247+07', '0cf12050-4ce1-44ac-855e-44110aecb6f6', NULL, NULL, 1);
+INSERT INTO public.organization_divisions VALUES ('4df1996f-dd57-4586-a819-c2fe08107cf4', 'Finance', 'Mengelola administrasi keuangan, arus kas, serta pelaporan akuntansi', '00000000-0000-0000-0000-000000000000', '2026-04-15 11:30:48.521298+07', '0cf12050-4ce1-44ac-855e-44110aecb6f6', NULL, NULL, 1);
+INSERT INTO public.organization_divisions VALUES ('fe8b3916-5eff-420c-8110-8d974d767afe', 'Operations', 'Mengoordinasikan pelaksanaan teknis perjalanan dan pemeliharaan armada operasional', '00000000-0000-0000-0000-000000000000', '2026-04-15 11:31:23.28055+07', '0cf12050-4ce1-44ac-855e-44110aecb6f6', '2026-04-15 16:02:18.752681+07', '0cf12050-4ce1-44ac-855e-44110aecb6f6', 1);
 
 
 --
--- TOC entry 5294 (class 0 OID 25609)
+-- TOC entry 5238 (class 0 OID 25609)
 -- Dependencies: 238
 -- Data for Name: organization_members; Type: TABLE DATA; Schema: public; Owner: postgres
 --
@@ -2166,38 +2189,40 @@ INSERT INTO public.organization_divisions (division_id, division_name, descripti
 
 
 --
--- TOC entry 5309 (class 0 OID 33876)
+-- TOC entry 5253 (class 0 OID 33876)
 -- Dependencies: 253
 -- Data for Name: organization_roles; Type: TABLE DATA; Schema: public; Owner: postgres
 --
 
-INSERT INTO public.organization_roles (role_id, description, role_name, organization_id, created_at, created_by, updated_at, updated_by, division_id, status) VALUES ('0dbdb8c5-8edb-40ef-b0e3-3fd3d37daaa8', 'Pengemudi bertanggung jawab atas keselamatan penumpang dan pengoperasian armada kendaraan', 'Driver - Pengemudi', '00000000-0000-0000-0000-000000000000', '2026-04-15 16:21:21.153106+07', '0cf12050-4ce1-44ac-855e-44110aecb6f6', '2026-04-15 16:21:21.153106+07', '0cf12050-4ce1-44ac-855e-44110aecb6f6', 'fe8b3916-5eff-420c-8110-8d974d767afe', 1);
-INSERT INTO public.organization_roles (role_id, description, role_name, organization_id, created_at, created_by, updated_at, updated_by, division_id, status) VALUES ('94acb1ae-07fa-44d7-b970-16b61d8aed25', 'Melakukan pemeliharaan rutin dan perbaikan teknis guna menjamin kelaikan armada', 'Mekanik', '00000000-0000-0000-0000-000000000000', '2026-04-15 16:22:35.00341+07', '0cf12050-4ce1-44ac-855e-44110aecb6f6', '2026-04-15 19:23:23.796214+07', '0cf12050-4ce1-44ac-855e-44110aecb6f6', 'fe8b3916-5eff-420c-8110-8d974d767afe', 1);
+INSERT INTO public.organization_roles VALUES ('0dbdb8c5-8edb-40ef-b0e3-3fd3d37daaa8', 'Pengemudi bertanggung jawab atas keselamatan penumpang dan pengoperasian armada kendaraan', 'Driver - Pengemudi', '00000000-0000-0000-0000-000000000000', '2026-04-15 16:21:21.153106+07', '0cf12050-4ce1-44ac-855e-44110aecb6f6', '2026-04-15 16:21:21.153106+07', '0cf12050-4ce1-44ac-855e-44110aecb6f6', 'fe8b3916-5eff-420c-8110-8d974d767afe', 1);
+INSERT INTO public.organization_roles VALUES ('94acb1ae-07fa-44d7-b970-16b61d8aed25', 'Melakukan pemeliharaan rutin dan perbaikan teknis guna menjamin kelaikan armada', 'Mekanik', '00000000-0000-0000-0000-000000000000', '2026-04-15 16:22:35.00341+07', '0cf12050-4ce1-44ac-855e-44110aecb6f6', '2026-04-15 19:23:23.796214+07', '0cf12050-4ce1-44ac-855e-44110aecb6f6', 'fe8b3916-5eff-420c-8110-8d974d767afe', 1);
+INSERT INTO public.organization_roles VALUES ('dd94c9a7-15fe-49c2-9c76-6e6472be67ec', 'Pemandu perjalanan pariwisata', 'Tour Guide', '00000000-0000-0000-0000-000000000000', '2026-04-15 19:23:42.300177+07', '0cf12050-4ce1-44ac-855e-44110aecb6f6', '2026-04-15 19:23:42.300177+07', '0cf12050-4ce1-44ac-855e-44110aecb6f6', 'fe8b3916-5eff-420c-8110-8d974d767afe', 1);
 
 
 --
--- TOC entry 5276 (class 0 OID 17312)
+-- TOC entry 5220 (class 0 OID 17312)
 -- Dependencies: 220
 -- Data for Name: organization_types; Type: TABLE DATA; Schema: public; Owner: postgres
 --
 
-INSERT INTO public.organization_types (id, name) VALUES (1, 'Travel Partner');
-INSERT INTO public.organization_types (id, name) VALUES (2, 'Biro Perjalanan dan Wisata');
-INSERT INTO public.organization_types (id, name) VALUES (3, 'Perusahaan Otobus');
-INSERT INTO public.organization_types (id, name) VALUES (4, 'Rental Armada Pariwisata');
-INSERT INTO public.organization_types (id, name) VALUES (5, 'Alat Berat');
-INSERT INTO public.organization_types (id, name) VALUES (6, 'Angkutan Ekspedisi dan Logistik');
+INSERT INTO public.organization_types VALUES (1, 'Travel Partner');
+INSERT INTO public.organization_types VALUES (2, 'Biro Perjalanan dan Wisata');
+INSERT INTO public.organization_types VALUES (3, 'Perusahaan Otobus');
+INSERT INTO public.organization_types VALUES (4, 'Rental Armada Pariwisata');
+INSERT INTO public.organization_types VALUES (5, 'Alat Berat');
+INSERT INTO public.organization_types VALUES (6, 'Angkutan Ekspedisi dan Logistik');
 
 --
--- TOC entry 5272 (class 0 OID 17224)
--- Dependencies: 216
--- Data for Name: users_bu; Type: TABLE DATA; Schema: public; Owner: postgres
+-- TOC entry 5316 (class 0 OID 0)
+-- Dependencies: 307
+-- Name: travego_visitors_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
 --
 
+SELECT pg_catalog.setval('public.travego_visitors_id_seq', 26, true);
 
 
 --
--- TOC entry 5127 (class 2606 OID 25587)
+-- TOC entry 5062 (class 2606 OID 25587)
 -- Name: bank_list bank_list_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -2205,30 +2230,53 @@ ALTER TABLE ONLY public.bank_list
     ADD CONSTRAINT bank_list_pkey PRIMARY KEY (code);
 
 
--- Table: public.travego_visitor
--- DROP TABLE IF EXISTS public.travego_visitor;
-
-CREATE TABLE IF NOT EXISTS public.travego_visitor
-(
-    count numeric
-)
-
-TABLESPACE pg_default;
-
-ALTER TABLE IF EXISTS public.travego_visitor
-    OWNER to postgres;
-
 --
--- TOC entry 5116 (class 2606 OID 17230)
--- Name: users_bu users_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- TOC entry 5066 (class 2606 OID 51584)
+-- Name: travego_visitors travego_visitors_period_key; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY public.users_bu
-    ADD CONSTRAINT users_pkey PRIMARY KEY (user_id);
+ALTER TABLE ONLY public.travego_visitors
+    ADD CONSTRAINT travego_visitors_period_key UNIQUE (period);
 
 
 --
--- TOC entry 5125 (class 2606 OID 17305)
+-- TOC entry 5068 (class 2606 OID 51582)
+-- Name: travego_visitors travego_visitors_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.travego_visitors
+    ADD CONSTRAINT travego_visitors_pkey PRIMARY KEY (id);
+
+
+--
+-- TOC entry 5070 (class 2606 OID 51600)
+-- Name: assistant_customer_stats unique_custstat_period_org_type_status; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.assistant_customer_stats
+    ADD CONSTRAINT unique_custstat_period_org_type_status UNIQUE (period, type, status, organization_id);
+
+
+--
+-- TOC entry 5064 (class 2606 OID 51588)
+-- Name: facilities unique_facility_per_org; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.facilities
+    ADD CONSTRAINT unique_facility_per_org UNIQUE (organization_id, facility_name);
+
+
+--
+-- TOC entry 5072 (class 2606 OID 51598)
+-- Name: assistant_account_stats unique_stat_period_org_type_status; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.assistant_account_stats
+    ADD CONSTRAINT unique_stat_period_org_type_status UNIQUE (period, type, status, organization_id);
+
+
+--
+-- TOC entry 5060 (class 2606 OID 17305)
 -- Name: users users_pkey1; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -2237,7 +2285,7 @@ ALTER TABLE ONLY public.users
 
 
 --
--- TOC entry 5123 (class 1259 OID 17306)
+-- TOC entry 5058 (class 1259 OID 17306)
 -- Name: idx_email_users; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -2245,7 +2293,7 @@ CREATE INDEX idx_email_users ON public.users USING btree (email);
 
 
 --
--- TOC entry 5119 (class 1259 OID 17274)
+-- TOC entry 5054 (class 1259 OID 17274)
 -- Name: idx_organization_users_created_by; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -2253,7 +2301,7 @@ CREATE INDEX idx_organization_users_created_by ON public.organization_users USIN
 
 
 --
--- TOC entry 5120 (class 1259 OID 17273)
+-- TOC entry 5055 (class 1259 OID 17273)
 -- Name: idx_organization_users_organization_id; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -2261,7 +2309,7 @@ CREATE INDEX idx_organization_users_organization_id ON public.organization_users
 
 
 --
--- TOC entry 5121 (class 1259 OID 17275)
+-- TOC entry 5056 (class 1259 OID 17275)
 -- Name: idx_organization_users_updated_by; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -2269,7 +2317,7 @@ CREATE INDEX idx_organization_users_updated_by ON public.organization_users USIN
 
 
 --
--- TOC entry 5122 (class 1259 OID 17272)
+-- TOC entry 5057 (class 1259 OID 17272)
 -- Name: idx_organization_users_user_id; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -2277,7 +2325,7 @@ CREATE INDEX idx_organization_users_user_id ON public.organization_users USING b
 
 
 --
--- TOC entry 5117 (class 1259 OID 17255)
+-- TOC entry 5052 (class 1259 OID 17255)
 -- Name: idx_organizations_code; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -2285,7 +2333,7 @@ CREATE INDEX idx_organizations_code ON public.organizations USING btree (organiz
 
 
 --
--- TOC entry 5118 (class 1259 OID 17256)
+-- TOC entry 5053 (class 1259 OID 17256)
 -- Name: idx_organizations_created_by; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -2293,7 +2341,7 @@ CREATE INDEX idx_organizations_created_by ON public.organizations USING btree (c
 
 
 --
--- TOC entry 5128 (class 2606 OID 17338)
+-- TOC entry 5073 (class 2606 OID 17338)
 -- Name: organizations organizations_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -2301,7 +2349,7 @@ ALTER TABLE ONLY public.organizations
     ADD CONSTRAINT organizations_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(user_id);
 
 
--- Completed on 2026-06-23 01:42:13
+-- Completed on 2026-06-29 00:49:33
 
 --
 -- PostgreSQL database dump complete
