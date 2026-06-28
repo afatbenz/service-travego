@@ -150,6 +150,8 @@ func (h *Handler) processCompanyMessageAsync(customerPhone, messageText string, 
 
 	sendClient := h.clientRegistry.GetClient(asstCust.AssistantDeviceID, asstCust.DeviceToken)
 	if sendClient == nil {
+		fmt.Println("sendClient is nil -- deviceToken ", asstCust.DeviceToken)
+		fmt.Println("sendClient is nil -- deviceID ", asstCust.AssistantDeviceID)
 		log.Printf("[WAAI][Company] Cannot get WagyClient for device %s", asstCust.AssistantDeviceID)
 		finalResponse := "Maaf, layanan assistant sedang tidak tersedia. Silakan hubungi kantor langsung."
 		_ = h.sendMessage(customerPhone, finalResponse)
