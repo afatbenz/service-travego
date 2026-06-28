@@ -97,4 +97,6 @@ func SetupRoutes(app *fiber.App, cfg *configs.Config) {
 
 	// Start fleet availability cron (Mon, Wed, Fri at 09:00)
 	cronjobs.StartFleetAvailabilityCron(db, cfg.Database.Driver, wagyClient)
+	// Start unpaid orders cron (every day at 07:00)
+	cronjobs.StartUnpaidOrdersCron(db, cfg.Database.Driver, wagyClient)
 }
