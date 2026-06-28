@@ -396,7 +396,7 @@ func (r *SystemRepository) GetDeviceList(status string) ([]model.DeviceListItem,
 
 	baseQuery := `
 		SELECT COALESCE(ac.device_id, ''), COALESCE(ac.device_name, ''), COALESCE(ac.device_token, ''),
-		       o.organization_name, ac.account as account_number,
+		       o.organization_name, COALESCE(o.company_name, ''), ac.account as account_number,
 		       ac.created_at, ac.updated_at
 		FROM assistant_customers ac
 		INNER JOIN organizations o ON o.organization_id = ac.organization_id
@@ -422,6 +422,7 @@ func (r *SystemRepository) GetDeviceList(status string) ([]model.DeviceListItem,
 		deviceName       sql.NullString
 		deviceToken      sql.NullString
 		organizationName sql.NullString
+		companyName      sql.NullString
 		accountNumber    sql.NullString
 		createdAt        sql.NullTime
 		updatedAt        sql.NullTime
@@ -432,7 +433,7 @@ func (r *SystemRepository) GetDeviceList(status string) ([]model.DeviceListItem,
 		var t tempDevice
 		if err := rows.Scan(
 			&t.deviceID, &t.deviceName, &t.deviceToken,
-			&t.organizationName, &t.accountNumber,
+			&t.organizationName, &t.companyName, &t.accountNumber,
 			&t.createdAt, &t.updatedAt,
 		); err != nil {
 			return nil, err
@@ -451,6 +452,7 @@ func (r *SystemRepository) GetDeviceList(status string) ([]model.DeviceListItem,
 			DeviceName:       t.deviceName.String,
 			DeviceToken:      t.deviceToken.String,
 			OrganizationName: t.organizationName.String,
+			CompanyName:      t.companyName.String,
 			AccountNumber:    t.accountNumber.String,
 		}
 		if t.createdAt.Valid {

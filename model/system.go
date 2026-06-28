@@ -5,6 +5,7 @@ type DeviceListItem struct {
 	DeviceName       string `json:"device_name"`
 	DeviceToken      string `json:"device_token"`
 	OrganizationName string `json:"organization_name"`
+	CompanyName      string `json:"company_name"`
 	AccountNumber    string `json:"account_number"`
 	CreatedAt        string `json:"created_at"`
 	UpdatedAt        string `json:"updated_at"`
