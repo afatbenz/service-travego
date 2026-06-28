@@ -41,12 +41,13 @@ func (h *SystemHandler) GetSystemSummarymarize(c *fiber.Ctx) error {
 }
 
 func (h *SystemHandler) GetDeviceList(c *fiber.Ctx) error {
+	search := c.Query("search", "")
 	status := c.Query("status", "")
 	if status != "" && status != "verified" && status != "unverified" {
 		return helper.SendErrorResponse(c, fiber.StatusBadRequest, "Invalid status value")
 	}
 
-	res, err := h.service.GetDeviceList(status)
+	res, err := h.service.GetDeviceList(search, status)
 	if err != nil {
 		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, err.Error())
 	}

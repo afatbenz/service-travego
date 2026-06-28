@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"service-travego/model"
+	"strings"
 	"sync"
 	"time"
 )
@@ -389,7 +390,7 @@ func (r *SystemRepository) GetSummarize(period string) (*model.SystemSummarymari
 	}, nil
 }
 
-func (r *SystemRepository) GetDeviceList(status string) ([]model.DeviceListItem, error) {
+func (r *SystemRepository) GetDeviceList(search, status string) ([]model.DeviceListItem, error) {
 	if r.driver != "postgres" {
 		return nil, fmt.Errorf("unsupported driver")
 	}
@@ -401,17 +402,32 @@ func (r *SystemRepository) GetDeviceList(status string) ([]model.DeviceListItem,
 		FROM assistant_customers ac
 		INNER JOIN organizations o ON o.organization_id = ac.organization_id
 	`
+	var args []interface{}
+	pos := 1
+
+	var conditions []string
 
 	switch status {
 	case "verified":
-		baseQuery += ` WHERE ac.device_id IS NOT NULL AND ac.device_id != ''`
+		conditions = append(conditions, `ac.device_id IS NOT NULL AND ac.device_id != ''`)
 	case "unverified":
-		baseQuery += ` WHERE ac.device_id IS NULL OR ac.device_id = ''`
+		conditions = append(conditions, `ac.device_id IS NULL OR ac.device_id = ''`)
+	}
+
+	if search != "" {
+		conditions = append(conditions, fmt.Sprintf(`(o.organization_name ILIKE $%d OR o.company_name ILIKE $%d)`, pos, pos+1))
+		searchPattern := "%" + search + "%"
+		args = append(args, searchPattern, searchPattern)
+		pos += 2
+	}
+
+	if len(conditions) > 0 {
+		baseQuery += ` WHERE ` + strings.Join(conditions, " AND ")
 	}
 
 	baseQuery += ` ORDER BY COALESCE(ac.updated_at, ac.created_at) DESC`
 
-	rows, err := r.db.Query(baseQuery)
+	rows, err := r.db.Query(baseQuery, args...)
 	if err != nil {
 		return nil, err
 	}

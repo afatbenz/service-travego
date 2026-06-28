@@ -53,8 +53,8 @@ func (s *SystemService) GetSystemSummarize(period string) (*model.SystemSummarym
 	return s.repo.GetSummarize(period)
 }
 
-func (s *SystemService) GetDeviceList(status string) ([]model.DeviceListItem, error) {
-	return s.repo.GetDeviceList(status)
+func (s *SystemService) GetDeviceList(search, status string) ([]model.DeviceListItem, error) {
+	return s.repo.GetDeviceList(search, status)
 }
 
 func (s *SystemService) UpdateDevice(account string, action string, enableData *model.DeviceEnableRequest) error {
