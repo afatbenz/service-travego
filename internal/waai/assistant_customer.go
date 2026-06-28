@@ -45,7 +45,7 @@ func (r *AssistantCustomerRepository) FindByDeviceID(ctx context.Context, phone 
 			COALESCE(organization_id::text, '') as organization_id,
 			COALESCE(device_token, '')          as device_token
 		FROM assistant_customers
-		WHERE device_id = %s
+		WHERE account = %s
 		LIMIT 1
 	`, r.getPlaceholder(1))
 
