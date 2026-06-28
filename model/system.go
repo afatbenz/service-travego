@@ -1,5 +1,19 @@
 package model
 
+type SystemMessageItem struct {
+	MessageID  string `json:"message_id"`
+	Fullname   string `json:"fullname"`
+	TopicID    int    `json:"topic_id"`
+	TopicLabel string `json:"topic_label"`
+	CompanyName string `json:"company_name"`
+	Email      string `json:"email"`
+	Whatsapp   string `json:"whatsapp"`
+	Scale      string `json:"scale"`
+	Messages   string `json:"messages"`
+	CreatedAt  string `json:"created_at"`
+	IsRead     bool   `json:"is_read"`
+}
+
 type DeviceListItem struct {
 	DeviceID         string `json:"device_id"`
 	DeviceName       string `json:"device_name"`

@@ -117,6 +117,14 @@ func (s *SystemService) GetOrganizations(search string, status string) ([]model.
 	return out, nil
 }
 
+func (s *SystemService) GetMessages() ([]model.SystemMessageItem, error) {
+	return s.repo.GetMessages()
+}
+
+func (s *SystemService) ReadMessage(messageID string) error {
+	return s.repo.ReadMessage(messageID)
+}
+
 func (s *SystemService) GetUsers(search string, isActive string) ([]model.SystemUserItem, error) {
 	raw, err := s.repo.GetUsers(search, isActive)
 	if err != nil {

@@ -61,10 +61,21 @@ func (r *CustomersRepository) ListCustomers(orgID, customerName string) ([]model
 	items := make([]model.CustomerListItem, 0)
 	for rows.Next() {
 		var it model.CustomerListItem
-		if err := rows.Scan(&it.CustomerID, &it.CustomerName, &it.CustomerPhone, &it.CustomerEmail, &it.CustomerAddress, &it.CustomerCompany, &it.CustomerCityID, &it.OrganizationID); err != nil {
+		var customerEmail sql.NullString
+		var customerAddress sql.NullString
+		var customerCompany sql.NullString
+		var customerCityID sql.NullString
+		if err := rows.Scan(&it.CustomerID, &it.CustomerName, &it.CustomerPhone, &customerEmail, &customerAddress, &customerCompany, &customerCityID, &it.OrganizationID); err != nil {
 			return nil, err
 		}
+		it.CustomerEmail = customerEmail.String
+		it.CustomerAddress = customerAddress.String
+		it.CustomerCompany = customerCompany.String
+		it.CustomerCityID = customerCityID.String
 		items = append(items, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return items, nil
 }

@@ -131,3 +131,22 @@ func (h *SystemHandler) GetUsers(c *fiber.Ctx) error {
 
 	return helper.SuccessResponse(c, fiber.StatusOK, "Users retrieved successfully", res)
 }
+
+func (h *SystemHandler) GetMessages(c *fiber.Ctx) error {
+	res, err := h.service.GetMessages()
+	if err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Messages retrieved successfully", res)
+}
+
+func (h *SystemHandler) ReadMessage(c *fiber.Ctx) error {
+	messageID := c.Params("message_id")
+	if messageID == "" {
+		return helper.BadRequestResponse(c, "message_id is required")
+	}
+	if err := h.service.ReadMessage(messageID); err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, err.Error())
+	}
+	return helper.SuccessResponse(c, fiber.StatusOK, "Message marked as read", nil)
+}

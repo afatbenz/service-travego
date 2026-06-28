@@ -71,6 +71,28 @@ type FleetRepository struct {
 	driver string
 }
 
+func (r *FleetRepository) customerCityExpr() string {
+	if r.driver == "postgres" || r.driver == "pgx" {
+		return "COALESCE(c.customer_city::text, '')"
+	}
+
+	return "COALESCE(CAST(c.customer_city AS CHAR), '')"
+}
+
+func parseOrderCustomerCity(raw sql.NullString) int {
+	cityID := strings.TrimSpace(raw.String)
+	if cityID == "" {
+		return 0
+	}
+
+	parsed, err := strconv.Atoi(cityID)
+	if err != nil {
+		return 0
+	}
+
+	return parsed
+}
+
 const softDeleteFleetPostgres = `
 UPDATE fleets
 SET status = 0, updated_at = $1, updated_by = $2
@@ -2424,6 +2446,8 @@ func (r *FleetRepository) UpdateFleetOrderPaymentStatus(orderID, organizationID 
 }
 
 func (r *FleetRepository) FindOrderDetail(orderID, organizationID string) (*model.OrderDetailResponse, error) {
+	customerCityExpr := r.customerCityExpr()
+
 	query := fmt.Sprintf(`
         SELECT 
             fo.order_id, fo.created_at, fo.price_id, fo.status, fo.payment_status,
@@ -2431,19 +2455,20 @@ func (r *FleetRepository) FindOrderDetail(orderID, organizationID string) (*mode
             fp.rent_type, fp.price, 
             fo.unit_qty, fo.total_amount, COALESCE(fo.additional_amount, 0) as additional_amount,
             fo.pickup_location, fo.pickup_city_id, fo.start_date, fo.end_date,
-            COALESCE(c.customer_name, '') as customer_name, COALESCE(c.customer_phone, '') as customer_phone, COALESCE(c.customer_email, '') as customer_email, COALESCE(c.customer_address, '') as customer_address, COALESCE(c.customer_city, 0) as customer_city,
+            COALESCE(c.customer_name, '') as customer_name, COALESCE(c.customer_phone, '') as customer_phone, COALESCE(c.customer_email, '') as customer_email, COALESCE(c.customer_address, '') as customer_address, %[1]s as customer_city,
             COALESCE(fo.additional_request, '') as additional_request
         FROM fleet_orders fo
         JOIN fleets f ON fo.fleet_id = f.uuid
         JOIN fleet_prices fp ON fo.price_id = fp.uuid
         INNER JOIN customer_orders co ON fo.order_id = co.order_id
 		INNER JOIN customers c ON c.customer_id = co.customer_id
-        WHERE fo.order_id = %s AND fo.organization_id = %s
-    `, r.getPlaceholder(1), r.getPlaceholder(2))
+        WHERE fo.order_id = %[2]s AND fo.organization_id = %[3]s
+    `, customerCityExpr, r.getPlaceholder(1), r.getPlaceholder(2))
 
 	var res model.OrderDetailResponse
 	var createdAt time.Time
 	var pickupCityID string
+	var customerCity sql.NullString
 	var startDate, endDate time.Time
 
 	err := database.QueryRow(r.db, query, orderID, organizationID).Scan(
@@ -2452,13 +2477,14 @@ func (r *FleetRepository) FindOrderDetail(orderID, organizationID string) (*mode
 		&res.RentType, &res.Price,
 		&res.Quantity, &res.TotalAmount, &res.AdditionalAmount,
 		&res.Pickup.PickupLocation, &pickupCityID, &startDate, &endDate,
-		&res.Customer.CustomerName, &res.Customer.CustomerPhone, &res.Customer.CustomerEmail, &res.Customer.CustomerAddress, &res.Customer.CustomerCity,
+		&res.Customer.CustomerName, &res.Customer.CustomerPhone, &res.Customer.CustomerEmail, &res.Customer.CustomerAddress, &customerCity,
 		&res.AdditionalRequest,
 	)
 	if err != nil {
 		fmt.Println("Error querying order detail:", err)
 		return nil, err
 	}
+	res.Customer.CustomerCity = parseOrderCustomerCity(customerCity)
 	res.OrderDate = createdAt.Format("2006-01-02 15:04:05")
 	res.StatusLabel = configs.OrderStatus(res.Status).String()
 	res.Pickup.PickupCity = pickupCityID
@@ -3601,7 +3627,7 @@ func (r *FleetRepository) GetPartnerOrderFleetItems(organizationId, orderId stri
 }
 
 func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.OrderDetailResponse, error) {
-	customerCityExpr := "COALESCE(c.customer_city::text, '')"
+	customerCityExpr := r.customerCityExpr()
 	customerIDExpr := "COALESCE(c.customer_id::text, '')"
 
 	fleetJoinExpr := "fo.fleet_id::text = f.uuid::text"
@@ -3637,6 +3663,7 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 	var res model.OrderDetailResponse
 	var createdAt time.Time
 	var pickupCityID string
+	var customerCity sql.NullString
 	var startDate, endDate time.Time
 	var updatedAt sql.NullTime
 
@@ -3646,7 +3673,7 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 		&res.RentType, &res.Price,
 		&res.Quantity, &res.TotalAmount, &res.AdditionalAmount,
 		&res.Pickup.PickupLocation, &pickupCityID, &startDate, &endDate,
-		&res.Customer.CustomerID, &res.Customer.CustomerName, &res.Customer.CustomerPhone, &res.Customer.CustomerEmail, &res.Customer.CustomerAddress, &res.Customer.CustomerCity,
+		&res.Customer.CustomerID, &res.Customer.CustomerName, &res.Customer.CustomerPhone, &res.Customer.CustomerEmail, &res.Customer.CustomerAddress, &customerCity,
 		&res.AdditionalRequest, &updatedAt,
 	)
 	if err != nil {
@@ -3655,6 +3682,7 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 		}
 		return nil, err
 	}
+	res.Customer.CustomerCity = parseOrderCustomerCity(customerCity)
 	res.OrderDate = createdAt.Format("2006-01-02 15:04:05")
 	if updatedAt.Valid {
 		res.UpdatedAt = updatedAt.Time.Format("2006-01-02 15:04:05")

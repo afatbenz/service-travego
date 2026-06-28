@@ -22,4 +22,6 @@ func SetupSystemRoutes(api fiber.Router, db *sql.DB, driver string) {
 	dashboard.Put("/assistant/device/:action", helper.JWTAuthorizationMiddleware(), h.UpdateDevice)
 	dashboard.Get("/organizations", helper.JWTAuthorizationMiddleware(), h.GetOrganizations)
 	dashboard.Get("/users", helper.JWTAuthorizationMiddleware(), h.GetUsers)
+	dashboard.Get("/messages", h.GetMessages)
+	dashboard.Put("/messages/read/:message_id", h.ReadMessage)
 }

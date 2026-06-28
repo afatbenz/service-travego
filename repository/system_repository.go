@@ -665,3 +665,78 @@ func (r *SystemRepository) GetUsers(search string, isActive string) ([]rawUser, 
 	}
 	return out, nil
 }
+
+type rawSystemMessage struct {
+	MessageID  sql.NullString
+	TopicID    sql.NullInt64
+	Fullname   sql.NullString
+	CompanyName sql.NullString
+	Email      sql.NullString
+	Whatsapp   sql.NullString
+	Scale      sql.NullString
+	Messages   sql.NullString
+	CreatedAt  sql.NullTime
+	IsRead     sql.NullBool
+}
+
+func (r *SystemRepository) GetMessages() ([]model.SystemMessageItem, error) {
+	query := `
+		SELECT message_id, topic_id, fullname, company_name, email, whatsapp, scale, messages, created_at, is_read
+		FROM travego_messages
+		ORDER BY created_at DESC
+	`
+	rows, err := r.db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	topicMap := map[int64]string{
+		1: "Demo Kerja",
+		2: "Harga dan Penawaran",
+		3: "Bantuan Teknis",
+		4: "Kerja Sama",
+		5: "Lainnya",
+	}
+
+	var out []model.SystemMessageItem
+	for rows.Next() {
+		var t rawSystemMessage
+		if err := rows.Scan(&t.MessageID, &t.TopicID, &t.Fullname, &t.CompanyName, &t.Email, &t.Whatsapp, &t.Scale, &t.Messages, &t.CreatedAt, &t.IsRead); err != nil {
+			return nil, err
+		}
+		item := model.SystemMessageItem{
+			MessageID:   t.MessageID.String,
+			Fullname:    t.Fullname.String,
+			CompanyName: t.CompanyName.String,
+			Email:       t.Email.String,
+			Whatsapp:    t.Whatsapp.String,
+			Scale:       t.Scale.String,
+			Messages:    t.Messages.String,
+			IsRead:      t.IsRead.Bool,
+		}
+		if t.TopicID.Valid {
+			item.TopicID = int(t.TopicID.Int64)
+			if label, ok := topicMap[t.TopicID.Int64]; ok {
+				item.TopicLabel = label
+			} else {
+				item.TopicLabel = "Lainnya"
+			}
+		}
+		if t.CreatedAt.Valid {
+			item.CreatedAt = t.CreatedAt.Time.Format("2006-01-02 15:04:05")
+		}
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (r *SystemRepository) ReadMessage(messageID string) error {
+	query := "UPDATE travego_messages SET is_read = true WHERE message_id = " + r.getPlaceholder(1)
+	_, err := r.db.Exec(query, messageID)
+	return err
+}
+
