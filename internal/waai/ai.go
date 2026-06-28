@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"service-travego/configs"
 	"service-travego/internal/wagy"
@@ -1759,7 +1760,6 @@ func (ac *AIClient) executeTool(ctx context.Context, toolName string, input json
 			return map[string]interface{}{"error": "schedule_number is required"}
 		}
 
-		// Log the parameter received
 		log.Printf("[WAAI][AI] print_surat_jalan called with schedule_number: '%s'", scheduleNumber)
 
 		// Generate PDF
@@ -1779,16 +1779,39 @@ func (ac *AIClient) executeTool(ctx context.Context, toolName string, input json
 		filename := fmt.Sprintf("surat-jalan-%s.pdf", strings.ReplaceAll(scheduleNumber, "/", "-"))
 		caption := fmt.Sprintf("Berikut surat jalan untuk *%s*", scheduleNumber)
 
-		log.Printf("[WAAI][AI] Attempting to send PDF %s to %s via base64", filename, phone)
+		// Simpan PDF ke folder assets/temp/surat-jalan/ sebagai file sementara
+		tempDir := filepath.Join("assets", "temp", "surat-jalan")
+		if err := os.MkdirAll(tempDir, 0755); err != nil {
+			log.Printf("[WAAI][AI] Failed to create temp dir: %v", err)
+			return map[string]interface{}{"error": "Gagal menyimpan file sementara: " + err.Error()}
+		}
+		tempPath := filepath.Join(tempDir, filename)
+		if err := os.WriteFile(tempPath, pdfData, 0644); err != nil {
+			log.Printf("[WAAI][AI] Failed to write temp file: %v", err)
+			return map[string]interface{}{"error": "Gagal menyimpan file sementara: " + err.Error()}
+		}
 
-		// Send PDF via WhatsApp directly using base64 (more reliable)
-		_, err = ac.wagyClient.SendDocument(phone, filename, pdfData, caption)
+		// Bangun URL publik (BASE_URL + path relatif), pastikan pakai forward slash
+		baseURL := strings.TrimSuffix(os.Getenv("BASE_URL"), "/")
+		relativePath := strings.ReplaceAll(tempPath, "\\", "/")
+		mediaURL := fmt.Sprintf("%s/%s", baseURL, relativePath)
+
+		log.Printf("[WAAI][AI] Attempting to send PDF %s to %s via URL: %s", filename, phone, mediaURL)
+
+		// Kirim via URL — Wagy akan download dari URL ini
+		_, err = ac.wagyClient.SendDocumentWithURL(phone, filename, mediaURL, caption)
 		if err != nil {
 			log.Printf("[WAAI][AI] Failed to send PDF: %v", err)
+			_ = os.Remove(tempPath) // Bersihkan file meskipun gagal
 			return map[string]interface{}{"error": "Gagal mengirim surat jalan ke WhatsApp: " + err.Error()}
 		}
 
-		log.Printf("[WAAI][AI] PDF successfully queued for sending")
+		// Hapus file setelah berhasil dikirim
+		if err := os.Remove(tempPath); err != nil {
+			log.Printf("[WAAI][AI] Warning: failed to remove temp file %s: %v", tempPath, err)
+		}
+
+		log.Printf("[WAAI][AI] PDF successfully sent via URL and temp file cleaned up")
 		return map[string]interface{}{
 			"status":  "success",
 			"message": "Surat jalan " + scheduleNumber + " berhasil dikirim ke WhatsApp Anda",
