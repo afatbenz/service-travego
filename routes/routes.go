@@ -10,6 +10,8 @@ import (
 	"service-travego/internal/wagy"
 	"service-travego/service"
 
+	cronjobs "service-travego/cron"
+
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -92,4 +94,7 @@ func SetupRoutes(app *fiber.App, cfg *configs.Config) {
 			log.Printf("Warning: Failed to register WAAI routes: %v", err)
 		}
 	}
+
+	// Start fleet availability cron (Mon, Wed, Fri at 09:00)
+	cronjobs.StartFleetAvailabilityCron(db, cfg.Database.Driver, wagyClient)
 }
