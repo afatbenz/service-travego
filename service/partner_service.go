@@ -4,6 +4,7 @@ import (
 	"errors"
 	"service-travego/model"
 	"service-travego/repository"
+	"sync"
 )
 
 type PartnerService struct {
@@ -38,28 +39,66 @@ func (s *PartnerService) Detail(req *model.OperationPartnerDetailRequest, orgID 
 		return nil, errors.New("partner not found")
 	}
 
-	partner, err := s.repo.GetByID(req.PartnerID, orgID, req)
-	if err != nil {
-		return nil, err
+	var (
+		partner       *model.OperationPartner
+		totalRevenue  float64
+		totalExpenses float64
+		totalBooking  int64
+		fleetUnits    []model.PartnerFleetUnit
+	)
+
+	var (
+		partnerErr       error
+		metricsErr       error
+		fleetUnitsErr    error
+	)
+
+	var wg sync.WaitGroup
+	wg.Add(3)
+
+	go func() {
+		defer wg.Done()
+		partner, partnerErr = s.repo.GetByID(req.PartnerID, orgID, req)
+	}()
+
+	go func() {
+		defer wg.Done()
+		totalRevenue, totalExpenses, totalBooking, metricsErr = s.repo.GetDetailMetrics(req.PartnerID, orgID, req)
+	}()
+
+	go func() {
+		defer wg.Done()
+		units, err := s.repo.GetPartnerFleetUnits(req.PartnerID, orgID, req)
+		if err == nil {
+			fleetUnits = units
+		} else {
+			fleetUnitsErr = err
+		}
+	}()
+
+	wg.Wait()
+
+	if partnerErr != nil {
+		return nil, partnerErr
 	}
 	if partner == nil {
 		return nil, errors.New("partner not found")
 	}
 
-	totalRevenue, totalExpenses, totalBooking, err := s.repo.GetDetailMetrics(req.PartnerID, orgID, req)
-	if err != nil {
-		return nil, err
+	if metricsErr == nil {
+		partner.TotalRevenue = totalRevenue
+		partner.TotalExpenses = totalExpenses
+		partner.TotalBooking = totalBooking
+		partner.ProfitEstimate = totalRevenue - totalExpenses
 	}
-	partner.TotalRevenue = totalRevenue
-	partner.TotalExpenses = totalExpenses
-	partner.TotalBooking = totalBooking
-	partner.ProfitEstimate = totalRevenue - totalExpenses
 
-	label := s.repo.GetCityLabel(partner.PartnerCity)
-	fleetUnits, _ := s.repo.GetPartnerFleetUnits(req.PartnerID, orgID, req)
-	if fleetUnits == nil {
+	if fleetUnitsErr != nil {
+		fleetUnits = []model.PartnerFleetUnit{}
+	} else if fleetUnits == nil {
 		fleetUnits = []model.PartnerFleetUnit{}
 	}
+
+	label := s.repo.GetCityLabel(partner.PartnerCity)
 
 	return &model.OperationPartnerDetailResponse{
 		OperationPartner: *partner,

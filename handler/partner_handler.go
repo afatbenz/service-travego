@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"service-travego/helper"
 	"service-travego/model"
 	"service-travego/service"
@@ -63,6 +64,9 @@ func (h *PartnerHandler) Create(c *fiber.Ctx) error {
 }
 
 func (h *PartnerHandler) Update(c *fiber.Ctx) error {
+
+	fmt.Println("this is update partner")
+
 	orgID, ok := c.Locals("organization_id").(string)
 	userID, okUser := c.Locals("user_id").(string)
 	if !ok || !okUser || orgID == "" || userID == "" {
@@ -71,15 +75,18 @@ func (h *PartnerHandler) Update(c *fiber.Ctx) error {
 
 	var req model.UpdateOperationPartnerRequest
 	if err := c.BodyParser(&req); err != nil {
+		fmt.Println("this is error 1 --- ", err)
 		return helper.BadRequestResponse(c, "Invalid payload")
 	}
 
 	if errs := helper.ValidateStruct(req); len(errs) > 0 {
+		fmt.Println("this is error 2 --- ", errs)
 		return helper.SendValidationErrorResponse(c, errs)
 	}
 
 	partner, err := h.service.Update(req, orgID, userID)
 	if err != nil {
+		fmt.Println("this is error 3 --- ", err)
 		if err.Error() == "partner not found" {
 			return helper.NotFoundResponse(c, "Partner not found")
 		}

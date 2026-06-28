@@ -38,10 +38,10 @@ type UpdateOperationPartnerRequest struct {
 	PartnerID      string  `json:"partner_id" validate:"required"`
 	PartnerName    string  `json:"partner_name" validate:"required"`
 	PartnerAddress *string `json:"partner_address"`
-	PartnerCity    *int    `json:"partner_city"`
+	PartnerCity    string  `json:"partner_city"`
 	PartnerPhone   string  `json:"partner_phone" validate:"required"`
 	PartnerEmail   *string `json:"partner_email"`
-	PicName        string  `json:"pic_name" validate:"required"`
+	PartnerPic     string  `json:"partner_pic" validate:"required"`
 }
 
 type OperationPartnerDetailRequest struct {

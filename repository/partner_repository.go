@@ -244,7 +244,7 @@ func (r *PartnerRepository) Update(req model.UpdateOperationPartnerRequest, orgI
 		query = strings.ReplaceAll(query, "$10", "?")
 	}
 
-	_, err := r.db.Exec(query, req.PartnerName, req.PartnerAddress, req.PartnerCity, req.PartnerPhone, req.PartnerEmail, req.PicName, now, userID, req.PartnerID, orgID)
+	_, err := r.db.Exec(query, req.PartnerName, req.PartnerAddress, req.PartnerCity, req.PartnerPhone, req.PartnerEmail, req.PartnerPic, now, userID, req.PartnerID, orgID)
 	if err != nil {
 		return nil, err
 	}
