@@ -30,11 +30,12 @@ const (
 	phoneKey contextKey = "phone"
 )
 
-// AIClient handles communication with Anthropic API
+// AIClient handles communication with AI provider (Anthropic / Gemini)
 type AIClient struct {
-	apiKey                string
-	model                 string
-	baseURL               string
+	apiKey        string
+	model         string
+	baseURL       string
+	provider      string // "anthropic" or "gemini"
 	authMgr               *AuthManager
 	tenantRepo            *TenantRepository
 	sessionMgr            *SessionManager
@@ -56,18 +57,42 @@ type AIClient struct {
 	wagyClient            *wagy.WagyClient
 }
 
-// NewAIClient creates a new AI client
+// NewAIClient creates a new AI client (supports Anthropic or Gemini)
 func NewAIClient(apiKey string, db *sql.DB, dbDriver string, rdb *redis.Client, wagyClient *wagy.WagyClient) *AIClient {
-	model := os.Getenv("ANTHROPIC_MODEL")
-	if model == "" {
-		model = "claude-sonnet-4-6"
+	provider := strings.ToLower(strings.TrimSpace(os.Getenv("AI_PROVIDER")))
+	if provider == "" {
+		provider = "anthropic"
 	}
 
-	baseURL := os.Getenv("ANTHROPIC_API_URL")
-	if baseURL == "" {
-		baseURL = "https://api.anthropic.com"
+	var model, baseURL string
+
+	switch provider {
+	case "gemini":
+		model = os.Getenv("GEMINI_MODEL")
+		if model == "" {
+			model = "gemini-2.5-pro" // latest with function calling
+		}
+		baseURL = os.Getenv("GEMINI_API_URL")
+		if baseURL == "" {
+			baseURL = "https://generativelanguage.googleapis.com/v1beta"
+		}
+		baseURL = strings.TrimRight(baseURL, "/")
+		// Override apiKey with GEMINI_API_KEY when provider is gemini
+		if geminiKey := os.Getenv("GEMINI_API_KEY"); geminiKey != "" {
+			apiKey = geminiKey
+		}
+	default:
+		provider = "anthropic"
+		model = os.Getenv("ANTHROPIC_MODEL")
+		if model == "" {
+			model = "claude-sonnet-4-6"
+		}
+		baseURL = os.Getenv("ANTHROPIC_API_URL")
+		if baseURL == "" {
+			baseURL = "https://api.anthropic.com"
+		}
+		baseURL = strings.TrimRight(baseURL, "/")
 	}
-	baseURL = strings.TrimRight(baseURL, "/")
 
 	authMgr := NewAuthManager(rdb)
 	fleetRepo := repository.NewFleetRepository(db, dbDriver)
@@ -100,6 +125,7 @@ func NewAIClient(apiKey string, db *sql.DB, dbDriver string, rdb *redis.Client, 
 		apiKey:                apiKey,
 		model:                 model,
 		baseURL:               baseURL,
+		provider:              provider,
 		authMgr:               authMgr,
 		tenantRepo:            NewTenantRepository(db, dbDriver, authMgr),
 		sessionMgr:            NewSessionManager(rdb),
@@ -433,7 +459,252 @@ func (ac *AIClient) callAnthropicFinal(ctx context.Context, systemPrompt string,
 	return ac.callAnthropicRequest(ctx, systemPrompt, messages, nil)
 }
 
+// ——— Gemini provider ———
+
+// callGeminiRequest calls Gemini API and converts to AnthropicResponse for unified tool-loop handling.
+func (ac *AIClient) callGeminiRequest(ctx context.Context, systemPrompt string, messages []ConversationMessage, tools []ToolDefinition, noTools bool) (*AnthropicResponse, error) {
+	// Konversi ConversationMessage ke Gemini contents[]
+	gContents := make([]map[string]interface{}, 0, len(messages)+1)
+
+	// System prompt Gemini dikirim sebagai user message pertama (atau via system_instruction)
+	var systemInstruction interface{}
+	if systemPrompt != "" {
+		systemInstruction = map[string]interface{}{
+			"parts": []map[string]interface{}{
+				{"text": systemPrompt},
+			},
+		}
+	}
+
+	for _, msg := range messages {
+		role := "user"
+		if msg.Role == "assistant" {
+			role = "model"
+		}
+
+		// content bisa string atau []map/[]interface{} (untuk tool_use / tool_result)
+		parts := make([]map[string]interface{}, 0)
+
+		switch v := msg.Content.(type) {
+		case string:
+			parts = append(parts, map[string]interface{}{"text": v})
+		case []map[string]interface{}:
+			for _, bm := range v {
+				switch bm["type"] {
+					case "text":
+						if txt, ok := bm["text"].(string); ok && txt != "" {
+							parts = append(parts, map[string]interface{}{"text": txt})
+						}
+					case "tool_use":
+						toolInput := bm["input"]
+						inputJSON, _ := json.Marshal(toolInput)
+						parts = append(parts, map[string]interface{}{
+							"functionCall": map[string]interface{}{
+								"name": bm["name"],
+								"args": json.RawMessage(inputJSON),
+							},
+						})
+					case "tool_result":
+						tc := bm["content"]
+						toolName, _ := bm["name"].(string)
+						if toolName == "" {
+							// Fallback: Anthropic style tool_use_id (toolu_xxx), cari dari name
+							if name, ok := bm["tool_use_id"].(string); ok {
+								toolName = name
+							}
+						}
+						// Untuk Gemini, tool_result → functionResponse dengan nama function asli
+						parts = append(parts, map[string]interface{}{
+							"functionResponse": map[string]interface{}{
+								"name": toolName,
+								"response": map[string]interface{}{
+									"result": tc,
+								},
+							},
+						})
+						// Function response selalu dari user/function role
+						role = "function"
+					}
+				}
+			}
+
+		if len(parts) > 0 {
+			gContents = append(gContents, map[string]interface{}{
+				"role":  role,
+				"parts": parts,
+			})
+		}
+	}
+
+	// Build Gemini request body
+	gReq := map[string]interface{}{
+		"contents": gContents,
+	}
+
+	if systemInstruction != nil {
+		gReq["system_instruction"] = systemInstruction
+	}
+
+	// Konversi tools ke Gemini FunctionDeclaration
+	if !noTools && len(tools) > 0 {
+		gTools := convertToolsToGemini(tools)
+		if len(gTools) > 0 {
+			gReq["tools"] = []map[string]interface{}{
+				{"function_declarations": gTools},
+			}
+		}
+	}
+
+	body, err := json.Marshal(gReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal gemini request: %w", err)
+	}
+
+	// Gemini endpoint: POST /v1beta/models/{model}:generateContent?key={apiKey}
+	endpoint := fmt.Sprintf("%s/models/%s:generateContent", ac.baseURL, ac.model)
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create gemini request: %w", err)
+	}
+	httpReq.Header.Set("x-goog-api-key", ac.apiKey)
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	httpResp, err := client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send gemini request: %w", err)
+	}
+	defer httpResp.Body.Close()
+
+	respBody, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read gemini response: %w", err)
+	}
+	log.Printf("[WAAI][Gemini] Raw response status=%d body=%s", httpResp.StatusCode, truncateResponseBody(respBody))
+
+	if httpResp.StatusCode < http.StatusOK || httpResp.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("gemini error (%d): %s", httpResp.StatusCode, truncateResponseBody(respBody))
+	}
+
+	// Parse Gemini response to AnthropicResponse
+	return parseGeminiResponse(respBody)
+}
+
+// convertToolsToGemini converts Anthropic-style tool definitions to Gemini FunctionDeclaration
+func convertToolsToGemini(tools []ToolDefinition) []map[string]interface{} {
+	result := make([]map[string]interface{}, 0, len(tools))
+	for _, t := range tools {
+		fd := map[string]interface{}{
+			"name":        t.Function.Name,
+			"description": t.Function.Description,
+		}
+		if t.Function.Parameters != nil {
+			fd["parameters"] = t.Function.Parameters
+		}
+		result = append(result, fd)
+	}
+	return result
+}
+
+// parseGeminiResponse parses Gemini API response to AnthropicResponse for unified tool-loop handling
+func parseGeminiResponse(body []byte) (*AnthropicResponse, error) {
+	var raw struct {
+		Candidates []struct {
+			Content struct {
+				Role  string `json:"role"`
+				Parts []struct {
+					Text         string `json:"text"`
+					FunctionCall *struct {
+						Name string                 `json:"name"`
+						Args map[string]interface{} `json:"args"`
+					} `json:"functionCall"`
+				} `json:"parts"`
+			} `json:"content"`
+			FinishReason string `json:"finishReason"`
+		} `json:"candidates"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("failed to parse gemini response: %w", err)
+	}
+
+	resp := &AnthropicResponse{
+		Role: "assistant",
+	}
+
+	if raw.Error != nil {
+		resp.Error = &struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+		}{
+			Type:    "gemini_error",
+			Message: raw.Error.Message,
+		}
+		return resp, nil
+	}
+
+	if len(raw.Candidates) == 0 {
+		return nil, fmt.Errorf("gemini: no candidates in response")
+	}
+
+	candidate := raw.Candidates[0]
+
+	// Map Gemini finishReason to Anthropic stop_reason
+	switch candidate.FinishReason {
+	case "STOP":
+		resp.StopReason = "end_turn"
+	case "MAX_TOKENS":
+		resp.StopReason = "max_tokens"
+	case "SAFETY", "RECITATION", "OTHER":
+		resp.StopReason = "stop"
+	case "TOOL_CALL":
+		resp.StopReason = "tool_use"
+	default:
+		resp.StopReason = candidate.FinishReason
+	}
+
+	for _, part := range candidate.Content.Parts {
+		if part.Text != "" {
+			resp.Content = append(resp.Content, struct {
+				Type  string          `json:"type"`
+				Text  string          `json:"text,omitempty"`
+				ID    string          `json:"id,omitempty"`
+				Name  string          `json:"name,omitempty"`
+				Input json.RawMessage `json:"input,omitempty"`
+			}{
+				Type: "text",
+				Text: part.Text,
+			})
+		}
+		if part.FunctionCall != nil {
+			inputJSON, _ := json.Marshal(part.FunctionCall.Args)
+			resp.Content = append(resp.Content, struct {
+				Type  string          `json:"type"`
+				Text  string          `json:"text,omitempty"`
+				ID    string          `json:"id,omitempty"`
+				Name  string          `json:"name,omitempty"`
+				Input json.RawMessage `json:"input,omitempty"`
+			}{
+				Type:  "tool_use",
+				ID:    part.FunctionCall.Name,
+				Name:  part.FunctionCall.Name,
+				Input: inputJSON,
+			})
+		}
+	}
+
+	return resp, nil
+}
+
+// callAnthropicRequest dispatches to Anthropic or Gemini based on ac.provider
 func (ac *AIClient) callAnthropicRequest(ctx context.Context, systemPrompt string, messages []ConversationMessage, tools []ToolDefinition) (*AnthropicResponse, error) {
+	if ac.provider == "gemini" {
+		return ac.callGeminiRequest(ctx, systemPrompt, messages, tools, false)
+	}
+
 	req := AnthropicRequest{
 		Model:        ac.model,
 		MaxTokens:    1024,
@@ -1698,10 +1969,9 @@ func (ac *AIClient) executeTool(ctx context.Context, toolName string, input json
 								description = transactionItemInput
 							}
 							break
-						}
-					}
-				}
-			}
+						} // close switch bm["type"]
+					} // close for
+				} // close case []map
 		}
 
 		if paymentMethod == 0 {
