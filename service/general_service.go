@@ -5,6 +5,8 @@ import (
 	"os"
 	"service-travego/model"
 	"service-travego/repository"
+	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -155,6 +157,71 @@ func (s *GeneralService) GetPaymentMethods() ([]model.CommonItem, error) {
 // GetBankList reads and returns bank list from database sorted by name
 func (s *GeneralService) GetBankList() ([]model.Bank, error) {
 	return s.generalRepo.GetBankList()
+}
+
+func (s *GeneralService) GetPreferenceCities(organizationID string, cityID *int, serviceType *int) ([]model.PreferenceCityWithLabels, error) {
+	prefs, err := s.generalRepo.GetPreferenceCities(organizationID, cityID, serviceType)
+	if err != nil {
+		return nil, err
+	}
+
+	file, err := os.Open(s.locationPath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	var location model.Location
+	decoder := json.NewDecoder(file)
+	if err := decoder.Decode(&location); err != nil {
+		return nil, err
+	}
+
+	cityMap := make(map[string]model.City)
+	for _, city := range location.Cities {
+		cityMap[city.ID] = city
+	}
+
+	provinceMap := make(map[string]model.Province)
+	for _, province := range location.Provinces {
+		provinceMap[province.ID] = province
+	}
+
+	var result []model.PreferenceCityWithLabels
+	for _, pref := range prefs {
+		withLabels := model.PreferenceCityWithLabels{
+			PreferenceID:   pref.PreferenceID,
+			CityID:         pref.CityID,
+			MinimalDay:     pref.MinimalDay,
+			OrganizationID: pref.OrganizationID,
+			CreatedAt:      pref.CreatedAt,
+			CreatedBy:      pref.CreatedBy,
+		}
+
+		cityIDStr := strconv.Itoa(pref.CityID)
+		if city, ok := cityMap[cityIDStr]; ok {
+			withLabels.CityLabel = city.Name
+			if province, ok := provinceMap[city.ProvinceID]; ok {
+				withLabels.ProvinceLabel = province.Name
+			}
+		}
+
+		if types, err := s.generalRepo.GetPreferenceCityTypesByCityIDAndOrganizationID(pref.CityID, pref.OrganizationID); err == nil {
+			for _, t := range types {
+				if label, ok := model.ServiceTypeLabels[t]; ok {
+					withLabels.ServiceTypes = append(withLabels.ServiceTypes, label)
+				}
+			}
+		}
+
+		result = append(result, withLabels)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].CityLabel < result[j].CityLabel
+	})
+
+	return result, nil
 }
 
 // GetProvinces reads and returns provinces from location JSON file

@@ -4955,6 +4955,23 @@ func (r *FleetRepository) CancelSchedulesAndRelated(userID, orderID, orgID strin
 	return tx.Commit()
 }
 
+
+func (r *FleetRepository) CreateCustomer(customerName, customerPhone, customerCompany, orgID string) (string, error) {
+	customerID := uuid.New().String()
+	query := fmt.Sprintf(`
+		INSERT INTO customers
+			(customer_id, organization_id, customer_name, customer_phone, customer_company, created_at)
+		VALUES
+			(%s, %s, %s, %s, %s, %s)
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6))
+
+	_, err := database.Exec(r.db, query, customerID, orgID, customerName, customerPhone, customerCompany, time.Now())
+	if err != nil {
+		return "", err
+	}
+	return customerID, nil
+}
+
 func (r *FleetRepository) GetRefundOrderDetail(orderID string, orgID string) (*model.FleetOrderCancelRequest, error) {
 	query := fmt.Sprintf(`
 		WHERE order_id = %s AND %s

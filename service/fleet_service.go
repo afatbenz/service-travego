@@ -565,6 +565,22 @@ func (s *FleetService) CreatePartnerOrder(orgID, userID string, req *model.Fleet
 	if req.FleetID == "" {
 		return "", NewServiceError(ErrInvalidInput, http.StatusBadRequest, "fleet_id is required")
 	}
+
+	// Auto-create customer if customer_id is empty
+	if req.CustomerID == "" {
+		if strings.TrimSpace(req.CustomerName) == "" {
+			return "", NewServiceError(ErrInvalidInput, http.StatusBadRequest, "customer_name is required when customer_id is not provided")
+		}
+		newCustomerID, err := s.repo.CreateCustomer(req.CustomerName, req.CustomerPhone, req.CustomerCompany, orgID)
+		if err != nil {
+			msg := "failed to create customer"
+			if env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV"))); env != "production" && env != "prod" {
+				msg = fmt.Sprintf("%s: %v", msg, err)
+			}
+			return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, msg)
+		}
+		req.CustomerID = newCustomerID
+	}
 	if req.CustomerID == "" {
 		return "", NewServiceError(ErrInvalidInput, http.StatusBadRequest, "customer_id is required")
 	}

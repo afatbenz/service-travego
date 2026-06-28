@@ -802,7 +802,7 @@ func (h *FleetHandler) UpdatePartnerOrder(c *fiber.Ctx) error {
 		if v, ok := m["customer_id"].(string); ok {
 			req.CustomerID = v
 		}
-		if v, ok := m["pickup_datetime"].(string); ok {
+if v, ok := m["pickup_datetime"].(string); ok {
 			req.PickupDatetime = v
 		}
 		if v, ok := m["dropoff_datetime"].(string); ok {
@@ -1149,6 +1149,13 @@ func (h *FleetHandler) CreatePartnerOrder(c *fiber.Ctx) error {
 	userID, _ := c.Locals("user_id").(string)
 	if orgID == "" || userID == "" {
 		return helper.BadRequestResponse(c, "missing organization context")
+	}
+
+	// If no customer_id, validate that customer_name is provided
+	if req.CustomerID == "" {
+		if strings.TrimSpace(req.CustomerName) == "" {
+			return helper.BadRequestResponse(c, "customer_name is required when customer_id is not provided")
+		}
 	}
 
 	orderID, err := h.service.CreatePartnerOrder(orgID, userID, &req)

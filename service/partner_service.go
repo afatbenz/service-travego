@@ -48,9 +48,9 @@ func (s *PartnerService) Detail(req *model.OperationPartnerDetailRequest, orgID 
 	)
 
 	var (
-		partnerErr       error
-		metricsErr       error
-		fleetUnitsErr    error
+		partnerErr    error
+		metricsErr    error
+		fleetUnitsErr error
 	)
 
 	var wg sync.WaitGroup
