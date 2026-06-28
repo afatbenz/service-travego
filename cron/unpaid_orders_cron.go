@@ -15,28 +15,43 @@ import (
 )
 
 type unpaidOrderRow struct {
-	OrderID       sql.NullString
+	OrderID        sql.NullString
 	PickupLocation sql.NullString
-	UnitQty       sql.NullInt64
-	PaymentStatus sql.NullInt64
-	PickupCityID  sql.NullString
-	CityID        sql.NullString
-	CustomerName  sql.NullString
-	CustomerPhone sql.NullString
+	UnitQty        sql.NullInt64
+	PaymentStatus  sql.NullInt64
+	PickupCityID   sql.NullString
+	CityID         sql.NullString
+	CustomerName   sql.NullString
+	CustomerPhone  sql.NullString
 }
 
 type UnpaidOrdersCron struct {
-	db          *sql.DB
-	driver      string
-	wagyClient  *wagy.WagyClient
-	citiesName  map[string]string
+	db              *sql.DB
+	driver          string
+	wagyClient      *wagy.WagyClient
+	citiesName      map[string]string
+	organizationIDs []string
 }
 
 func NewUnpaidOrdersCron(db *sql.DB, driver string, wagyClient *wagy.WagyClient) *UnpaidOrdersCron {
+	// Read organization IDs from environment variable
+	var orgIDs []string
+	orgIDsStr := os.Getenv("UNPAID_ORDERS_CRON_ORGANIZATION_IDS")
+	if orgIDsStr != "" {
+		// Split by comma and trim whitespace
+		for _, id := range strings.Split(orgIDsStr, ",") {
+			trimmed := strings.TrimSpace(id)
+			if trimmed != "" {
+				orgIDs = append(orgIDs, trimmed)
+			}
+		}
+	}
+
 	return &UnpaidOrdersCron{
-		db:         db,
-		driver:     driver,
-		wagyClient: wagyClient,
+		db:              db,
+		driver:          driver,
+		wagyClient:      wagyClient,
+		organizationIDs: orgIDs,
 	}
 }
 
@@ -101,10 +116,27 @@ func (c *UnpaidOrdersCron) queryActiveOrganizations() ([]orgTarget, error) {
 		INNER JOIN organizations o ON ac.organization_id = o.organization_id
 		INNER JOIN _subscription s ON s.organization_id = ac.organization_id
 		WHERE s.expiry_date >= CURRENT_DATE
-		GROUP BY ac.organization_id, ac.account_number, o.organization_name
 	`
 
-	rows, err := c.db.Query(query)
+	var args []interface{}
+
+	// Add organization ID filter if specified
+	if len(c.organizationIDs) > 0 {
+		placeholders := make([]string, len(c.organizationIDs))
+		for i := range c.organizationIDs {
+			if c.driver == "postgres" || c.driver == "pgx" {
+				placeholders[i] = fmt.Sprintf("$%d", i+1)
+			} else {
+				placeholders[i] = "?"
+			}
+			args = append(args, c.organizationIDs[i])
+		}
+		query += fmt.Sprintf(" AND ac.organization_id IN (%s)", strings.Join(placeholders, ","))
+	}
+
+	query += " GROUP BY ac.organization_id, ac.account_number, o.organization_name"
+
+	rows, err := c.db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query organizations: %w", err)
 	}
@@ -145,9 +177,11 @@ func (c *UnpaidOrdersCron) processOrganization(org orgTarget, nextWeek string) {
 	_, err = c.wagyClient.SendMessage(org.AccountNumber, message)
 	if err != nil {
 		log.Printf("[UnpaidOrdersCron] SendMessage error to %s: %v", org.AccountNumber, err)
+		insertAssistantAccountStat(c.db, c.driver, org.OrganizationID, 2)
 		return
 	}
 
+	insertAssistantAccountStat(c.db, c.driver, org.OrganizationID, 1)
 	log.Printf("[UnpaidOrdersCron] Message sent to %s (%s) — %d unpaid orders", org.AccountNumber, org.OrganizationName, len(orders))
 }
 

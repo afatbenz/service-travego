@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
 	"service-travego/internal/wagy"
 	"service-travego/model"
 	"service-travego/repository"
@@ -15,21 +16,36 @@ import (
 )
 
 type FleetAvailabilityCron struct {
-	db          *sql.DB
-	driver      string
-	wagyClient  *wagy.WagyClient
-	scheduleSvc *service.ScheduleService
+	db              *sql.DB
+	driver          string
+	wagyClient      *wagy.WagyClient
+	scheduleSvc     *service.ScheduleService
+	organizationIDs []string
 }
 
 func NewFleetAvailabilityCron(db *sql.DB, driver string, wagyClient *wagy.WagyClient) *FleetAvailabilityCron {
 	scheduleRepo := repository.NewScheduleRepository(db, driver)
 	scheduleSvc := service.NewScheduleService(scheduleRepo)
 
+	// Read organization IDs from environment variable
+	var orgIDs []string
+	orgIDsStr := os.Getenv("FLEET_AVAILABILITY_CRON_ORGANIZATION_IDS")
+	if orgIDsStr != "" {
+		// Split by comma and trim whitespace
+		for _, id := range strings.Split(orgIDsStr, ",") {
+			trimmed := strings.TrimSpace(id)
+			if trimmed != "" {
+				orgIDs = append(orgIDs, trimmed)
+			}
+		}
+	}
+
 	return &FleetAvailabilityCron{
-		db:          db,
-		driver:      driver,
-		wagyClient:  wagyClient,
-		scheduleSvc: scheduleSvc,
+		db:              db,
+		driver:          driver,
+		wagyClient:      wagyClient,
+		scheduleSvc:     scheduleSvc,
+		organizationIDs: orgIDs,
 	}
 }
 
@@ -79,10 +95,27 @@ func (c *FleetAvailabilityCron) queryActiveOrganizations() ([]orgTarget, error) 
 		INNER JOIN organizations o ON ac.organization_id = o.organization_id
 		INNER JOIN _subscription s ON s.organization_id = ac.organization_id
 		WHERE s.expiry_date >= CURRENT_DATE
-		GROUP BY ac.organization_id, ac.account_number, o.organization_name
 	`
 
-	rows, err := c.db.Query(query)
+	var args []interface{}
+
+	// Add organization ID filter if specified
+	if len(c.organizationIDs) > 0 {
+		placeholders := make([]string, len(c.organizationIDs))
+		for i := range c.organizationIDs {
+			if c.driver == "postgres" || c.driver == "pgx" {
+				placeholders[i] = fmt.Sprintf("$%d", i+1)
+			} else {
+				placeholders[i] = "?"
+			}
+			args = append(args, c.organizationIDs[i])
+		}
+		query += fmt.Sprintf(" AND ac.organization_id IN (%s)", strings.Join(placeholders, ","))
+	}
+
+	query += " GROUP BY ac.organization_id, ac.account_number, o.organization_name"
+
+	rows, err := c.db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query organizations: %w", err)
 	}
@@ -127,9 +160,11 @@ func (c *FleetAvailabilityCron) processOrganization(org orgTarget, startDate, en
 	_, err = c.wagyClient.SendMessage(org.AccountNumber, message)
 	if err != nil {
 		log.Printf("[FleetAvailabilityCron] SendMessage error to %s: %v", org.AccountNumber, err)
+		insertAssistantAccountStat(c.db, c.driver, org.OrganizationID, 2)
 		return
 	}
 
+	insertAssistantAccountStat(c.db, c.driver, org.OrganizationID, 1)
 	log.Printf("[FleetAvailabilityCron] Message sent to %s (%s)", org.AccountNumber, org.OrganizationName)
 }
 
@@ -171,7 +206,7 @@ func StartFleetAvailabilityCron(db *sql.DB, driver string, wagyClient *wagy.Wagy
 	cronJob := NewFleetAvailabilityCron(db, driver, wagyClient)
 
 	// Schedule: Monday, Wednesday, Friday at 09:00
-	_, err := c.AddFunc("0 9 * * 1,3,5", cronJob.Run)
+	_, err := c.AddFunc("55 12 * * *", cronJob.Run)
 	if err != nil {
 		log.Printf("[FleetAvailabilityCron] Failed to register cron: %v", err)
 		return nil

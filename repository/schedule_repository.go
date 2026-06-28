@@ -639,7 +639,7 @@ func (r *ScheduleRepository) GetFleetAvailability(filter model.ScheduleFleetAvai
 		productionYearExpr = "fu.production_year::text"
 	}
 
-	query := `
+	subquery := `
 		SELECT DISTINCT
 			` + scheduleIDExpr + ` AS schedule_id,
 			COALESCE(ft.label, '') AS fleet_type,
@@ -671,41 +671,41 @@ func (r *ScheduleRepository) GetFleetAvailability(filter model.ScheduleFleetAvai
 	position := 4
 
 	if clause, values := r.buildInClause(inClauseInput{ColumnName: "fu.vehicle_id", Values: filter.VehicleID, Position: position}); clause != "" {
-		query += " AND " + clause
+		subquery += " AND " + clause
 		args = append(args, values...)
 		position += len(values)
 	}
 	if clause, values := r.buildInClause(inClauseInput{ColumnName: "f.fleet_name", Values: filter.FleetName, Position: position}); clause != "" {
-		query += " AND " + clause
+		subquery += " AND " + clause
 		args = append(args, values...)
 		position += len(values)
 	}
 	if clause, values := r.buildInClause(inClauseInput{ColumnName: "fu.plate_number", Values: filter.PlateNumber, Position: position}); clause != "" {
-		query += " AND " + clause
+		subquery += " AND " + clause
 		args = append(args, values...)
 		position += len(values)
 	}
 	if clause, values := r.buildInClause(inClauseInput{ColumnName: "ft.label", Values: filter.FleetType, Position: position}); clause != "" {
-		query += " AND " + clause
+		subquery += " AND " + clause
 		args = append(args, values...)
 		position += len(values)
 	}
 	if clause, values := r.buildInClause(inClauseInput{ColumnName: "fu.engine", Values: filter.Engine, Position: position}); clause != "" {
-		query += " AND " + clause
+		subquery += " AND " + clause
 		args = append(args, values...)
 		position += len(values)
 	}
 	if clause, values := r.buildInClause(inClauseInput{ColumnName: capacityExpr, Values: filter.Capacity, Position: position}); clause != "" {
-		query += " AND " + clause
+		subquery += " AND " + clause
 		args = append(args, values...)
 		position += len(values)
 	}
 	if clause, values := r.buildInClause(inClauseInput{ColumnName: productionYearExpr, Values: filter.ProductionYear, Position: position}); clause != "" {
-		query += " AND " + clause
+		subquery += " AND " + clause
 		args = append(args, values...)
 	}
 
-	query += " ORDER BY fo.start_date ASC, s.departure_time ASC"
+	query := `SELECT * FROM (` + subquery + `) AS sub ORDER BY start_date ASC, departure_time ASC`
 
 	rows, err := database.Query(r.db, query, args...)
 	if err != nil {
