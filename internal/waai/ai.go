@@ -1791,8 +1791,11 @@ func (ac *AIClient) executeTool(ctx context.Context, toolName string, input json
 			return map[string]interface{}{"error": "Gagal menyimpan file sementara: " + err.Error()}
 		}
 
-		// Bangun URL publik (BASE_URL + path relatif), pastikan pakai forward slash
-		baseURL := strings.TrimSuffix(os.Getenv("BASE_URL"), "/")
+		// Bangun URL publik (APP_HOST_URL > APP_HOST > fallback)
+		baseURL := strings.TrimSuffix(os.Getenv("APP_HOST_URL"), "/")
+		if baseURL == "" {
+			baseURL = strings.TrimSuffix(os.Getenv("APP_HOST"), "/")
+		}
 		relativePath := strings.ReplaceAll(tempPath, "\\", "/")
 		mediaURL := fmt.Sprintf("%s/%s", baseURL, relativePath)
 
