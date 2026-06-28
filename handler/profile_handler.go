@@ -71,7 +71,6 @@ func (h *UserHandler) UpdateProfile(c *fiber.Ctx) error {
 
 // GetProfile handles GET /api/profile/detail
 func (h *UserHandler) GetProfile(c *fiber.Ctx) error {
-	// Get user_id from locals (set by JWT middleware)
 	userID, ok := c.Locals("user_id").(string)
 	if !ok || userID == "" {
 		return helper.UnauthorizedResponse(c, "User not authenticated")

@@ -71,6 +71,28 @@ type FleetRepository struct {
 	driver string
 }
 
+func (r *FleetRepository) customerCityExpr() string {
+	if r.driver == "postgres" || r.driver == "pgx" {
+		return "COALESCE(c.customer_city::text, '')"
+	}
+
+	return "COALESCE(CAST(c.customer_city AS CHAR), '')"
+}
+
+func parseOrderCustomerCity(raw sql.NullString) int {
+	cityID := strings.TrimSpace(raw.String)
+	if cityID == "" {
+		return 0
+	}
+
+	parsed, err := strconv.Atoi(cityID)
+	if err != nil {
+		return 0
+	}
+
+	return parsed
+}
+
 const softDeleteFleetPostgres = `
 UPDATE fleets
 SET status = 0, updated_at = $1, updated_by = $2
@@ -137,7 +159,7 @@ func (r *FleetRepository) ListFleets(req *model.ListFleetRequest) ([]model.Fleet
 	base := `
         SELECT f.uuid AS fleet_id, ft.label AS fleet_type, f.fleet_name, f.capacity, f.engine, f.body, %s as total_unit, f.active, f.status, f.thumbnail, STRING_AGG(DISTINCT fu.engine::text, ', ') AS engines, STRING_AGG(DISTINCT fu.capacity::text, ', ') AS capacities
         FROM fleets f INNER JOIN fleet_types ft ON f.fleet_type = ft.id
-		INNER JOIN fleet_units fu ON fu.fleet_id::text = f.uuid::text
+		LEFT JOIN fleet_units fu ON fu.fleet_id::text = f.uuid::text
     `
 	base = fmt.Sprintf(base, totalUnitExpr)
 	where := make([]string, 0, 4)
@@ -230,17 +252,29 @@ func (r *FleetRepository) InsertFacilities(orgID string, facilityNames []string)
 	if len(facilityNames) == 0 {
 		return nil, nil
 	}
-	query := fmt.Sprintf("INSERT INTO facilities (facility_id, facility_name, facility_icon, organization_id) VALUES (%s, %s, %s, %s)",
+
+	// Query sudah benar dengan klausa RETURNING
+	query := fmt.Sprintf(`INSERT INTO facilities (facility_id, facility_name, facility_icon, organization_id) 
+        VALUES (%s, %s, %s, %s) 
+        ON CONFLICT (organization_id, facility_name) 
+        DO UPDATE SET facility_name = facilities.facility_name 
+        RETURNING facility_id`,
 		r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))
+
 	ids := make([]string, 0, len(facilityNames))
+
 	for _, name := range facilityNames {
-		facID := uuid2()
-		_, err := database.Exec(r.db, query, facID, name, "Check", orgID)
+		var fetchedID string
+
+		err := r.db.QueryRow(query, uuid2(), name, "Check", orgID).Scan(&fetchedID)
 		if err != nil {
 			return nil, err
 		}
-		ids = append(ids, facID)
+
+		// Masukkan ID yang didapat dari database ke dalam slice
+		ids = append(ids, fetchedID)
 	}
+
 	return ids, nil
 }
 
@@ -256,6 +290,7 @@ func (r *FleetRepository) CreateFleet(req *model.CreateFleetRequest) (string, er
 		r.getPlaceholder(10), r.getPlaceholder(11), r.getPlaceholder(12), r.getPlaceholder(13), r.getPlaceholder(14), r.getPlaceholder(15), r.getPlaceholder(16))
 
 	// Status default 1 (Active/Draft?)
+	fmt.Println("is public --- ", req.IsPublic)
 	_, err := database.Exec(r.db, query,
 		id,
 		req.OrganizationID,
@@ -613,19 +648,41 @@ func (r *FleetRepository) GetFleetDetail(id, orgID string) (*model.FleetDetailRe
 	return &res, nil
 }
 
-func (r *FleetRepository) GetFleetFacilities(fleetID string) ([]string, error) {
-	query := fmt.Sprintf("SELECT f.facility_name as facility FROM fleet_facilities ff INNER JOIN facilities f ON f.facility_id = ff.facility_id WHERE ff.fleet_id = %s", r.getPlaceholder(1))
+func (r *FleetRepository) GetFleetFacilities(fleetID string) ([]model.FacilityItem, error) {
+	// First try new approach with facilities table
+	query := fmt.Sprintf("SELECT f.facility_name, f.facility_icon FROM fleet_facilities ff INNER JOIN facilities f ON f.facility_id = ff.facility_id WHERE ff.fleet_id = %s", r.getPlaceholder(1))
 	rows, err := database.Query(r.db, query, fleetID)
+	if err == nil {
+		defer rows.Close()
+		var facilities []model.FacilityItem
+		for rows.Next() {
+			var f model.FacilityItem
+			if err := rows.Scan(&f.FacilityName, &f.FacilityIcon); err == nil {
+				facilities = append(facilities, f)
+			}
+		}
+		if len(facilities) > 0 {
+			return facilities, nil
+		}
+	}
+
+	// Fallback to old approach (direct facility column)
+	query = fmt.Sprintf("SELECT COALESCE(facility, '') AS facility FROM fleet_facilities WHERE fleet_id = %s", r.getPlaceholder(1))
+	rows, err = database.Query(r.db, query, fleetID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var facilities []string
+	var facilities []model.FacilityItem
 	for rows.Next() {
-		var f string
-		if err := rows.Scan(&f); err == nil {
-			facilities = append(facilities, f)
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			return nil, err
 		}
+		facilities = append(facilities, model.FacilityItem{FacilityName: s})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return facilities, nil
 }
@@ -2389,6 +2446,8 @@ func (r *FleetRepository) UpdateFleetOrderPaymentStatus(orderID, organizationID 
 }
 
 func (r *FleetRepository) FindOrderDetail(orderID, organizationID string) (*model.OrderDetailResponse, error) {
+	customerCityExpr := r.customerCityExpr()
+
 	query := fmt.Sprintf(`
         SELECT 
             fo.order_id, fo.created_at, fo.price_id, fo.status, fo.payment_status,
@@ -2396,19 +2455,20 @@ func (r *FleetRepository) FindOrderDetail(orderID, organizationID string) (*mode
             fp.rent_type, fp.price, 
             fo.unit_qty, fo.total_amount, COALESCE(fo.additional_amount, 0) as additional_amount,
             fo.pickup_location, fo.pickup_city_id, fo.start_date, fo.end_date,
-            COALESCE(c.customer_name, '') as customer_name, COALESCE(c.customer_phone, '') as customer_phone, COALESCE(c.customer_email, '') as customer_email, COALESCE(c.customer_address, '') as customer_address, COALESCE(c.customer_city, 0) as customer_city,
+            COALESCE(c.customer_name, '') as customer_name, COALESCE(c.customer_phone, '') as customer_phone, COALESCE(c.customer_email, '') as customer_email, COALESCE(c.customer_address, '') as customer_address, %[1]s as customer_city,
             COALESCE(fo.additional_request, '') as additional_request
         FROM fleet_orders fo
         JOIN fleets f ON fo.fleet_id = f.uuid
         JOIN fleet_prices fp ON fo.price_id = fp.uuid
         INNER JOIN customer_orders co ON fo.order_id = co.order_id
 		INNER JOIN customers c ON c.customer_id = co.customer_id
-        WHERE fo.order_id = %s AND fo.organization_id = %s
-    `, r.getPlaceholder(1), r.getPlaceholder(2))
+        WHERE fo.order_id = %[2]s AND fo.organization_id = %[3]s
+    `, customerCityExpr, r.getPlaceholder(1), r.getPlaceholder(2))
 
 	var res model.OrderDetailResponse
 	var createdAt time.Time
 	var pickupCityID string
+	var customerCity sql.NullString
 	var startDate, endDate time.Time
 
 	err := database.QueryRow(r.db, query, orderID, organizationID).Scan(
@@ -2417,13 +2477,14 @@ func (r *FleetRepository) FindOrderDetail(orderID, organizationID string) (*mode
 		&res.RentType, &res.Price,
 		&res.Quantity, &res.TotalAmount, &res.AdditionalAmount,
 		&res.Pickup.PickupLocation, &pickupCityID, &startDate, &endDate,
-		&res.Customer.CustomerName, &res.Customer.CustomerPhone, &res.Customer.CustomerEmail, &res.Customer.CustomerAddress, &res.Customer.CustomerCity,
+		&res.Customer.CustomerName, &res.Customer.CustomerPhone, &res.Customer.CustomerEmail, &res.Customer.CustomerAddress, &customerCity,
 		&res.AdditionalRequest,
 	)
 	if err != nil {
 		fmt.Println("Error querying order detail:", err)
 		return nil, err
 	}
+	res.Customer.CustomerCity = parseOrderCustomerCity(customerCity)
 	res.OrderDate = createdAt.Format("2006-01-02 15:04:05")
 	res.StatusLabel = configs.OrderStatus(res.Status).String()
 	res.Pickup.PickupCity = pickupCityID
@@ -3566,7 +3627,7 @@ func (r *FleetRepository) GetPartnerOrderFleetItems(organizationId, orderId stri
 }
 
 func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.OrderDetailResponse, error) {
-	customerCityExpr := "COALESCE(c.customer_city::text, '')"
+	customerCityExpr := r.customerCityExpr()
 	customerIDExpr := "COALESCE(c.customer_id::text, '')"
 
 	fleetJoinExpr := "fo.fleet_id::text = f.uuid::text"
@@ -3602,6 +3663,7 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 	var res model.OrderDetailResponse
 	var createdAt time.Time
 	var pickupCityID string
+	var customerCity sql.NullString
 	var startDate, endDate time.Time
 	var updatedAt sql.NullTime
 
@@ -3611,7 +3673,7 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 		&res.RentType, &res.Price,
 		&res.Quantity, &res.TotalAmount, &res.AdditionalAmount,
 		&res.Pickup.PickupLocation, &pickupCityID, &startDate, &endDate,
-		&res.Customer.CustomerID, &res.Customer.CustomerName, &res.Customer.CustomerPhone, &res.Customer.CustomerEmail, &res.Customer.CustomerAddress, &res.Customer.CustomerCity,
+		&res.Customer.CustomerID, &res.Customer.CustomerName, &res.Customer.CustomerPhone, &res.Customer.CustomerEmail, &res.Customer.CustomerAddress, &customerCity,
 		&res.AdditionalRequest, &updatedAt,
 	)
 	if err != nil {
@@ -3620,6 +3682,7 @@ func (r *FleetRepository) GetPartnerOrderDetail(orderID, orgID string) (*model.O
 		}
 		return nil, err
 	}
+	res.Customer.CustomerCity = parseOrderCustomerCity(customerCity)
 	res.OrderDate = createdAt.Format("2006-01-02 15:04:05")
 	if updatedAt.Valid {
 		res.UpdatedAt = updatedAt.Time.Format("2006-01-02 15:04:05")
@@ -4123,36 +4186,19 @@ func (r *FleetRepository) GetFleetAvailibility(orgID string, reqStart time.Time,
 	}
 
 	args := []interface{}{orgID, reqStart, reqEnd}
-	isPostgres := r.driver == "postgres" || r.driver == "pgx"
-	orgExpr := "f.organization_id = " + r.getPlaceholder(1)
-	bookOrgExpr := "sf.organization_id = " + r.getPlaceholder(1)
-	if isPostgres {
-		orgExpr = "f.organization_id::text = " + r.getPlaceholder(1)
-		bookOrgExpr = "sf.organization_id::text = " + r.getPlaceholder(1)
-	}
+	orgExpr := "f.organization_id::text = $1"
+	bookOrgExpr := "sf.organization_id::text = $1"
 
 	fleetFilterExpr := ""
 	if fleetID != "" {
-		fleetFilterExpr = " AND f.uuid = " + r.getPlaceholder(4)
-		if isPostgres {
-			fleetFilterExpr = " AND f.uuid::text = " + r.getPlaceholder(4)
-		}
+		fleetFilterExpr = " AND f.uuid::text = $4"
 		args = append(args, fleetID)
 	}
 
-	var conflictExpr string
-	if isPostgres {
-		conflictExpr = fmt.Sprintf("%s::date <= fo.end_date::date AND %s::date >= fo.start_date::date", r.getPlaceholder(2), r.getPlaceholder(3))
-	} else {
-		conflictExpr = fmt.Sprintf("DATE(%s) <= DATE(fo.end_date) AND DATE(%s) >= DATE(fo.start_date)", r.getPlaceholder(2), r.getPlaceholder(3))
-	}
+	conflictExpr := "$2::date <= fo.end_date::date AND $3::date >= fo.start_date::date"
 
-	fleetJoinExpr := "b.fleet_id = f.uuid"
-	totalUnitExpr := "COALESCE((SELECT COUNT(*) FROM fleet_units fu WHERE fu.fleet_id = f.uuid AND fu.status = 1), 0)"
-	if isPostgres {
-		fleetJoinExpr = "b.fleet_id::text = f.uuid::text"
-		totalUnitExpr = "COALESCE((SELECT COUNT(*) FROM fleet_units fu WHERE fu.fleet_id::text = f.uuid::text AND fu.status = 1), 0)"
-	}
+	fleetJoinExpr := "b.fleet_id::text = f.uuid::text"
+	totalUnitExpr := "COALESCE((SELECT COUNT(*) FROM fleet_units fu WHERE fu.fleet_id::text = f.uuid::text AND fu.status = 1), 0)"
 
 	greatestFn := "GREATEST"
 
@@ -4180,8 +4226,9 @@ func (r *FleetRepository) GetFleetAvailibility(orgID string, reqStart time.Time,
 		WHERE f.status > 0
 		  AND %s
 		  %s
+		  AND %s > 0
 		ORDER BY f.fleet_name ASC
-	`, totalUnitExpr, greatestFn, totalUnitExpr, bookOrgExpr, conflictExpr, fleetJoinExpr, orgExpr, fleetFilterExpr)
+	`, totalUnitExpr, greatestFn, totalUnitExpr, bookOrgExpr, conflictExpr, fleetJoinExpr, orgExpr, fleetFilterExpr, totalUnitExpr)
 
 	rows, err := database.Query(r.db, query, args...)
 	if err != nil {
@@ -4934,6 +4981,23 @@ func (r *FleetRepository) CancelSchedulesAndRelated(userID, orderID, orgID strin
 	}
 
 	return tx.Commit()
+}
+
+
+func (r *FleetRepository) CreateCustomer(customerName, customerPhone, customerCompany, orgID string) (string, error) {
+	customerID := uuid.New().String()
+	query := fmt.Sprintf(`
+		INSERT INTO customers
+			(customer_id, organization_id, customer_name, customer_phone, customer_company, created_at)
+		VALUES
+			(%s, %s, %s, %s, %s, %s)
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6))
+
+	_, err := database.Exec(r.db, query, customerID, orgID, customerName, customerPhone, customerCompany, time.Now())
+	if err != nil {
+		return "", err
+	}
+	return customerID, nil
 }
 
 func (r *FleetRepository) GetRefundOrderDetail(orderID string, orgID string) (*model.FleetOrderCancelRequest, error) {

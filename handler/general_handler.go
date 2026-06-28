@@ -2,6 +2,7 @@ package handler
 
 import (
 	"service-travego/helper"
+	"service-travego/model"
 	"service-travego/service"
 	"strconv"
 	"strings"
@@ -213,18 +214,16 @@ func (h *GeneralHandler) GetCities(c *fiber.Ctx) error {
 }
 
 func (h *GeneralHandler) GetPreferenceCities(c *fiber.Ctx) error {
-	if h.preferenceCityService == nil {
-		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Preference city service not configured")
-	}
-
 	orgID, ok := c.Locals("organization_id").(string)
 	if !ok || orgID == "" {
 		return helper.SendErrorResponse(c, fiber.StatusBadRequest, "Missing organization_id")
 	}
 
 	cityIDStr := c.Query("city_id", "")
+	reqType := strings.ToLower(strings.TrimSpace(c.Query("type", "")))
 
 	var cityID *int
+	var serviceType *int
 
 	if cityIDStr != "" {
 		if id, err := strconv.Atoi(cityIDStr); err == nil {
@@ -232,7 +231,15 @@ func (h *GeneralHandler) GetPreferenceCities(c *fiber.Ctx) error {
 		}
 	}
 
-	list, err := h.preferenceCityService.GetAll(orgID, cityID)
+	if reqType != "" {
+		mappedType, ok := model.ServiceTypeValues[reqType]
+		if !ok {
+			return helper.SendErrorResponse(c, fiber.StatusBadRequest, "Invalid type. Allowed values: overland, city_tour, drop_only")
+		}
+		serviceType = &mappedType
+	}
+
+	list, err := h.generalService.GetPreferenceCities(orgID, cityID, serviceType)
 	if err != nil {
 		return helper.SendErrorResponse(c, fiber.StatusInternalServerError, "Failed to load preference cities: "+err.Error())
 	}
@@ -254,5 +261,10 @@ func (h *GeneralHandler) GetPreferenceCities(c *fiber.Ctx) error {
 		})
 	}
 
-	return helper.SuccessResponse(c, fiber.StatusOK, "Preference cities loaded successfully", simplifiedList)
+	message := "Preference cities loaded successfully"
+	if reqType != "" {
+		message = "Preference cities filtered by type loaded successfully"
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, message, simplifiedList)
 }

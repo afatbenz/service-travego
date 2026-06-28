@@ -391,3 +391,41 @@ func (r *OrganizationRepository) DeleteAssistantAccountByUserID(organizationID, 
 
 	return nil
 }
+
+func (r *OrganizationRepository) GetAssistantWhatsAppBusinessList(organizationID string) (*model.AssistantWhatsAppBusinessListResponse, error) {
+	query := fmt.Sprintf(`SELECT account as account_number, COALESCE(device_id, '') as device_id, COALESCE(device_name, '') as device_name, COALESCE(device_token, '') as device_token FROM assistant_customers WHERE organization_id = %s LIMIT 1`, r.getPlaceholder(1))
+
+	var item model.AssistantWhatsAppBusinessListResponse
+	err := database.QueryRow(r.db, query, organizationID).Scan(&item.AccountNumber, &item.DeviceID, &item.DeviceName, &item.DeviceToken)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return &model.AssistantWhatsAppBusinessListResponse{}, nil
+		}
+		return nil, err
+	}
+
+	return &item, nil
+}
+
+func (r *OrganizationRepository) CreateAssistantWhatsappBusiness(organizationID, accountNumber string) error {
+	query := fmt.Sprintf(`INSERT INTO assistant_customers (account, organization_id) VALUES (%s, %s)`, r.getPlaceholder(1), r.getPlaceholder(2))
+	_, err := database.Exec(r.db, query, accountNumber, organizationID)
+	return err
+}
+
+func (r *OrganizationRepository) UpdateAssistantWhatsappBusiness(organizationID, accountNumber string) error {
+	query := fmt.Sprintf(`UPDATE assistant_customers SET account = %s WHERE organization_id = %s`, r.getPlaceholder(1), r.getPlaceholder(2))
+	result, err := database.Exec(r.db, query, accountNumber, organizationID)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}

@@ -87,9 +87,9 @@ func (r *PricingRepository) SubmitContact(contact model.ContactSubmission) error
     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)`,
 		r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4), r.getPlaceholder(5), r.getPlaceholder(6), r.getPlaceholder(7), r.getPlaceholder(8), r.getPlaceholder(9))
 
-	_, err := r.db.Exec(query, contact.TopicID, contact.FullName, contact.CompanyName,
-		contact.Email, contact.WhatsApp, contact.BusinessScale,
-		contact.Messages, time.Now(), false)
+	_, err := r.db.Exec(query, contact.TopicID, contact.FullName, contact.BusinessName,
+		contact.Email, contact.Phone, contact.BusinessScale,
+		contact.Message, time.Now(), false)
 
 	if err != nil {
 		return fmt.Errorf("gagal insert ke travego_messages: %w", err)

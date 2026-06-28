@@ -81,14 +81,18 @@ func (s *FleetService) CreateFleet(createdBy, organizationID string, req *model.
 
 	if len(req.Facilities) > 0 {
 		facilityIDs, err := s.repo.InsertFacilities(organizationID, req.Facilities)
+		fmt.Println("--- check facilityIDs ", err)
 		if err != nil {
 			return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create facilities")
 		}
+		fmt.Println("--- check facilityIDs ", facilityIDs)
 		req.FacilityIDs = append(req.FacilityIDs, facilityIDs...)
 	}
+	fmt.Println("--- check req.FacilityIDs ", req.FacilityIDs)
 
 	id, err := s.repo.CreateFleet(req)
 	if err != nil {
+		fmt.Println("--- Error creating fleet:", err)
 		return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create fleet")
 	}
 	return id, nil
@@ -228,7 +232,7 @@ func (s *FleetService) GetServiceFleetDetail(fleetID string) (*model.ServiceFlee
 	fac, err := s.repo.GetFleetFacilities(fleetID)
 	if err != nil {
 		fmt.Println("Error fetching fleet facilities:", err)
-		fac = []string{}
+		fac = []model.FacilityItem{}
 	}
 	pickup, err := s.repo.GetFleetPickup(orgID, fleetID)
 	if err != nil {
@@ -560,6 +564,22 @@ func (s *FleetService) GetFleetPricesByFleetID(orgID, fleetID, typeID string) ([
 func (s *FleetService) CreatePartnerOrder(orgID, userID string, req *model.FleetOrderCreateRequest) (string, error) {
 	if req.FleetID == "" {
 		return "", NewServiceError(ErrInvalidInput, http.StatusBadRequest, "fleet_id is required")
+	}
+
+	// Auto-create customer if customer_id is empty
+	if req.CustomerID == "" {
+		if strings.TrimSpace(req.CustomerName) == "" {
+			return "", NewServiceError(ErrInvalidInput, http.StatusBadRequest, "customer_name is required when customer_id is not provided")
+		}
+		newCustomerID, err := s.repo.CreateCustomer(req.CustomerName, req.CustomerPhone, req.CustomerCompany, orgID)
+		if err != nil {
+			msg := "failed to create customer"
+			if env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV"))); env != "production" && env != "prod" {
+				msg = fmt.Sprintf("%s: %v", msg, err)
+			}
+			return "", NewServiceError(ErrInternalServer, http.StatusInternalServerError, msg)
+		}
+		req.CustomerID = newCustomerID
 	}
 	if req.CustomerID == "" {
 		return "", NewServiceError(ErrInvalidInput, http.StatusBadRequest, "customer_id is required")
@@ -1032,7 +1052,7 @@ func (s *FleetService) GetFleetDetail(orgID, fleetID string) (*model.FleetDetail
 	}
 	fac, err := s.repo.GetFleetFacilities(fleetID)
 	if err != nil {
-		fac = []string{}
+		fac = []model.FacilityItem{}
 	}
 	pickup, err := s.repo.GetFleetPickup(orgID, fleetID)
 	if err != nil {

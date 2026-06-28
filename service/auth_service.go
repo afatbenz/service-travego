@@ -333,6 +333,7 @@ func (s *AuthService) Login(email, phone, password, userID string) (*LoginRespon
 
 	organizationID := ""
 	organizationName := ""
+	orgRole := 0
 	if user.IsAdmin {
 		organizationID = "00"
 		organizationName = "SuperAdmin"
@@ -343,6 +344,7 @@ func (s *AuthService) Login(email, phone, password, userID string) (*LoginRespon
 			log.Printf("[ERROR] Error getting organization and role - UserID: %s, Error: %v", user.UserID, err)
 		} else if err == nil {
 			organizationID = orgID
+			orgRole = role
 		}
 
 		if role == 1 {
@@ -357,8 +359,10 @@ func (s *AuthService) Login(email, phone, password, userID string) (*LoginRespon
 	}
 
 	sensitive := helper.AuthSensitiveData{
-		OrganizationID: organizationID,
-		IsAdmin:        user.IsAdmin,
+		OrganizationID:   organizationID,
+		IsAdmin:          user.IsAdmin,
+		UserID:           user.UserID,
+		OrganizationRole: orgRole,
 	}
 
 	encToken, errEnc := helper.EncryptAuthSensitiveData(sensitive)
@@ -563,11 +567,6 @@ func (s *AuthService) RefreshToken(refreshToken string) (*RefreshTokenResponse, 
 		return nil, NewServiceError(ErrInvalidCredentials, http.StatusBadRequest, "refresh token is required")
 	}
 
-	// Look up all users' refresh tokens by iterating or by encoding userID in the token.
-	// Since we store refresh tokens as refresh:{userID} -> token, we need the userID.
-	// Strategy: encode the userID inside the refresh token payload.
-	// Alternative: store as refresh:{token} -> userID (reverse mapping).
-	// For efficiency, let's look up by token value using a reverse key.
 	userID, err := helper.GetRefreshTokenUserID(refreshToken)
 	if err != nil {
 		log.Printf("[ERROR] Invalid or expired refresh token - Error: %v", err)
@@ -592,28 +591,40 @@ func (s *AuthService) RefreshToken(refreshToken string) (*RefreshTokenResponse, 
 		return nil, NewServiceError(ErrInvalidCredentials, http.StatusUnauthorized, "user is inactive or not verified")
 	}
 
-	// Get organization info
+	// Get organization info (same logic as Login())
 	organizationID := ""
-	organizationRole := 0
 	organizationName := ""
-	if s.orgUserRepo != nil {
+	orgRole := 0
+	if user.IsAdmin {
+		organizationID = "00"
+		organizationName = "SuperAdmin"
+	}
+	if s.orgUserRepo != nil && !user.IsAdmin {
 		orgID, role, err := s.orgUserRepo.GetOrganizationAndRoleByUserID(user.UserID)
-		if err == nil {
+		if err != nil && err != sql.ErrNoRows {
+			log.Printf("[ERROR] Error getting organization and role - UserID: %s, Error: %v", user.UserID, err)
+		} else if err == nil {
 			organizationID = orgID
-			organizationRole = role
+			orgRole = role
 		}
-		_, orgName, _, _, _, err := s.orgUserRepo.GetOrganizationWithJoinDateByUserID(user.UserID)
+
+		if role == 1 {
+			user.IsAdmin = true
+		}
+
+		orgCode, orgName, _, _, _, err := s.orgUserRepo.GetOrganizationWithJoinDateByUserID(user.UserID)
 		if err == nil {
 			organizationName = orgName
+			_ = orgCode
 		}
 	}
 
-	// Generate new access token
+	// Generate new access token (same payload as Login())
 	sensitive := helper.AuthSensitiveData{
 		OrganizationID:   organizationID,
-		UserID:           user.UserID,
-		OrganizationRole: organizationRole,
 		IsAdmin:          user.IsAdmin,
+		UserID:           user.UserID,
+		OrganizationRole: orgRole,
 	}
 	encToken, errEnc := helper.EncryptAuthSensitiveData(sensitive)
 	if errEnc != nil {

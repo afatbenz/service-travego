@@ -197,3 +197,84 @@ func (s *OrganizationService) EmployeeWhatsApp(organizationID, employeeID string
 		HasPhone:   phone != "",
 	}, nil
 }
+
+func (s *OrganizationService) AssistantWhatsAppBusinessList(organizationID string) (*model.AssistantWhatsAppBusinessListResponse, error) {
+	data, err := s.orgRepo.GetAssistantWhatsAppBusinessList(organizationID)
+	if err != nil {
+		fmt.Println(err, " - err")
+		return nil, NewServiceError(ErrInternalServer, 500, "failed to get assistant whatsapp business list")
+	}
+
+	// Handle empty case
+	if data == nil {
+		data = &model.AssistantWhatsAppBusinessListResponse{}
+	}
+
+	statusLabel := "Unverified"
+	if data.DeviceID != "" {
+		statusLabel = "Verified"
+	}
+
+	// Default available is false
+	available := false
+
+	if s.subscriptionRepo != nil {
+		subscriptions, subErr := s.subscriptionRepo.GetSubscriptionDetails(organizationID)
+		if subErr == nil && len(subscriptions) > 0 {
+			packageID := subscriptions[0].PackageID
+			// If package_id != trave01, available is true
+			if packageID != "trave01" {
+				available = true
+			}
+		}
+	}
+
+	response := model.AssistantWhatsAppBusinessListResponse{
+		AccountNumber: data.AccountNumber,
+		DeviceID:      data.DeviceID,
+		DeviceName:    data.DeviceName,
+		DeviceToken:   data.DeviceToken,
+		Status:        0,
+		StatusLabel:   statusLabel,
+		Available:     available,
+	}
+
+	// Set status 1 if available true
+	if available {
+		response.Status = 1
+	}
+
+	return &response, nil
+}
+
+func (s *OrganizationService) AssistantWhatsAppBusinessUpdate(organizationID, accountNumber string) error {
+	existingAccount, err := s.orgRepo.GetAssistantWhatsAppBusinessList(organizationID)
+	if err != nil {
+		return NewServiceError(ErrInternalServer, 500, "failed to check existing whatsapp business account")
+	}
+
+	hasExisting := existingAccount != nil && existingAccount.AccountNumber != ""
+	if !hasExisting {
+		// No existing record, create new
+		err = s.orgRepo.CreateAssistantWhatsappBusiness(organizationID, accountNumber)
+		if err != nil {
+			return NewServiceError(ErrInternalServer, 500, "failed to create whatsapp business account")
+		}
+	} else {
+		// Existing record, update
+		err = s.orgRepo.UpdateAssistantWhatsappBusiness(organizationID, accountNumber)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				// Maybe the record was deleted after check, try creating
+				err = s.orgRepo.CreateAssistantWhatsappBusiness(organizationID, accountNumber)
+				if err != nil {
+					return NewServiceError(ErrInternalServer, 500, "failed to create whatsapp business account")
+				}
+			} else {
+				return NewServiceError(ErrInternalServer, 500, "failed to update whatsapp business account")
+			}
+		}
+	}
+
+	return nil
+}

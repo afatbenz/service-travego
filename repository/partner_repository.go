@@ -70,37 +70,31 @@ func (r *PartnerRepository) GetCityLabel(cityID *int) string {
 
 func (r *PartnerRepository) List(orgID, partnerName, startDate, endDate string) ([]model.OperationPartner, error) {
 	args := make([]interface{}, 0, 4)
-	whereClauses := make([]string, 0, 2)
-
-	sfOrderExpr := "sf.order_id::text"
-	transactionReferenceExpr := "reference_id::text"
-	fleetOrderItemExpr := "order_id::text"
-	revenueOrgExpr := "sf.organization_id::text = op.organization_id::text"
-	partnerNameOperator := "ILIKE"
-
-	if r.driver == "mysql" {
-		sfOrderExpr = "sf.order_id"
-		transactionReferenceExpr = "reference_id"
-		fleetOrderItemExpr = "order_id"
-		revenueOrgExpr = "sf.organization_id = op.organization_id"
-		partnerNameOperator = "LIKE"
+	whereClauses := make([]string, 0, 5)
+	placeholder := func() string {
+		return fmt.Sprintf("$%d", len(args)+1)
 	}
 
-	whereClauses = append(whereClauses, fmt.Sprintf("op.organization_id = %s", r.getPlaceholder(len(args)+1)))
+	whereClauses = append(whereClauses, fmt.Sprintf("op.organization_id::text = %s", placeholder()))
 	args = append(args, orgID)
+	whereClauses = append(whereClauses,
+		"NULLIF(BTRIM(op.partner_name), '') IS NOT NULL",
+		"NULLIF(BTRIM(op.partner_phone), '') IS NOT NULL",
+		"NULLIF(BTRIM(op.pic_name), '') IS NOT NULL",
+	)
 
 	if partnerName = strings.TrimSpace(partnerName); partnerName != "" {
-		whereClauses = append(whereClauses, fmt.Sprintf("op.partner_name %s %s", partnerNameOperator, r.getPlaceholder(len(args)+1)))
+		whereClauses = append(whereClauses, fmt.Sprintf("op.partner_name ILIKE %s", placeholder()))
 		args = append(args, "%"+partnerName+"%")
 	}
 
 	revenueDateClauses := []string{"transaction_date IS NOT NULL"}
 	if startDate = strings.TrimSpace(startDate); startDate != "" {
-		revenueDateClauses = append(revenueDateClauses, fmt.Sprintf("transaction_date >= %s", r.getPlaceholder(len(args)+1)))
+		revenueDateClauses = append(revenueDateClauses, fmt.Sprintf("transaction_date >= %s", placeholder()))
 		args = append(args, startDate)
 	}
 	if endDate = strings.TrimSpace(endDate); endDate != "" {
-		revenueDateClauses = append(revenueDateClauses, fmt.Sprintf("transaction_date < %s", r.getPlaceholder(len(args)+1)))
+		revenueDateClauses = append(revenueDateClauses, fmt.Sprintf("transaction_date < %s", placeholder()))
 		args = append(args, endDate)
 	}
 
@@ -115,30 +109,35 @@ func (r *PartnerRepository) List(orgID, partnerName, startDate, endDate string) 
 			op.pic_name,
 			op.created_at,
 			op.organization_id,
-			COUNT(fuo.unit_id) AS total_unit,
+			COUNT(DISTINCT (fuo.unit_id::text, COALESCE(fu.vehicle_id, ''), COALESCE(fu.plate_number, '')))
+				FILTER (WHERE fuo.unit_id IS NOT NULL) AS total_unit,
 			COALESCE(revenue.total_revenue, 0) AS total_revenue
 		FROM operation_partner op
-		LEFT JOIN fleet_unit_ownership fuo ON fuo.partner_id = op.partner_id
+		LEFT JOIN fleet_unit_ownership fuo ON fuo.partner_id::text = op.partner_id::text
+			AND fuo.organization_id::text = op.organization_id::text
+		LEFT JOIN fleet_units fu ON fu.unit_id::text = fuo.unit_id::text
+			AND fu.organization_id::text = fuo.organization_id::text
 		LEFT JOIN LATERAL (
 			SELECT COALESCE(SUM(COALESCE(t.total_amount / NULLIF(q.total_qty, 0), 0)), 0) AS total_revenue
 			FROM (
-				SELECT DISTINCT %s AS order_id
+				SELECT DISTINCT sf.order_id::text AS order_id
 				FROM schedule_fleets sf
-				INNER JOIN fleet_unit_ownership fuo2 ON fuo2.unit_id = sf.unit_id
-				WHERE fuo2.partner_id = op.partner_id
-				  AND %s
+				INNER JOIN fleet_unit_ownership fuo2 ON fuo2.unit_id::text = sf.unit_id::text
+					AND fuo2.organization_id::text = sf.organization_id::text
+				WHERE fuo2.partner_id::text = op.partner_id::text
+				  AND sf.organization_id::text = op.organization_id::text
 			) sf
 			INNER JOIN (
-				SELECT %s AS order_id, SUM(amount) AS total_amount
+				SELECT reference_id::text AS order_id, SUM(amount) AS total_amount
 				FROM transactions
 				WHERE %s
 				  AND transaction_type = 1
-				GROUP BY %s
+				GROUP BY reference_id::text
 			) t ON t.order_id = sf.order_id
 			INNER JOIN (
-				SELECT %s AS order_id, SUM(quantity) AS total_qty
+				SELECT order_id::text AS order_id, SUM(quantity) AS total_qty
 				FROM fleet_order_items
-				GROUP BY %s
+				GROUP BY order_id::text
 			) q ON q.order_id = sf.order_id
 		) revenue ON true
 		WHERE %s
@@ -158,13 +157,7 @@ func (r *PartnerRepository) List(orgID, partnerName, startDate, endDate string) 
 			revenue.total_revenue
 		ORDER BY op.created_at DESC
 	`,
-		sfOrderExpr,
-		revenueOrgExpr,
-		transactionReferenceExpr,
 		strings.Join(revenueDateClauses, "\n\t\t\t\t  AND "),
-		transactionReferenceExpr,
-		fleetOrderItemExpr,
-		fleetOrderItemExpr,
 		strings.Join(whereClauses, "\n\t\t  AND "),
 	)
 
@@ -244,7 +237,7 @@ func (r *PartnerRepository) Update(req model.UpdateOperationPartnerRequest, orgI
 		query = strings.ReplaceAll(query, "$10", "?")
 	}
 
-	_, err := r.db.Exec(query, req.PartnerName, req.PartnerAddress, req.PartnerCity, req.PartnerPhone, req.PartnerEmail, req.PicName, now, userID, req.PartnerID, orgID)
+	_, err := r.db.Exec(query, req.PartnerName, req.PartnerAddress, req.PartnerCity, req.PartnerPhone, req.PartnerEmail, req.PartnerPic, now, userID, req.PartnerID, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -652,22 +645,14 @@ func (r *PartnerRepository) GetPartnerFleetUnits(partnerID, orgID string, req *m
 	revenueReferenceExpr := "reference_id::text"
 	revenueFleetOrderItemExpr := "order_id::text"
 	expenseReferenceExpr := "t.reference_id::text IN (sf.schedule_number::text, sf.order_id::text)"
-	partnerExpr := "fuo.partner_id = " + r.getPlaceholder(1)
-	orgExpr := "fuo.organization_id = " + r.getPlaceholder(2)
+	partnerExpr := "fuo.partner_id::text = " + r.getPlaceholder(1)
+	orgExpr := "fuo.organization_id::text = " + r.getPlaceholder(2)
 	bookingStartExpr := r.getPlaceholder(3)
 	bookingEndExpr := r.getPlaceholder(4)
 	revenueStartExpr := r.getPlaceholder(5)
 	revenueEndExpr := r.getPlaceholder(6)
 	expenseStartExpr := r.getPlaceholder(7)
 	expenseEndExpr := r.getPlaceholder(8)
-
-	if r.driver == "mysql" {
-		fleetOrderOrgExpr = "fo.organization_id = fuo.organization_id"
-		revenueOrderExpr = "sf.order_id"
-		revenueReferenceExpr = "reference_id"
-		revenueFleetOrderItemExpr = "order_id"
-		expenseReferenceExpr = "t.reference_id IN (sf.schedule_number, sf.order_id)"
-	}
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -681,7 +666,10 @@ func (r *PartnerRepository) GetPartnerFleetUnits(partnerID, orgID string, req *m
 			COALESCE(expenses.total_expenses, 0) AS total_expenses
 		FROM fleets f
 		INNER JOIN fleet_units fu ON fu.fleet_id = f.uuid
-		INNER JOIN fleet_unit_ownership fuo ON fuo.unit_id = fu.unit_id
+		INNER JOIN (
+			SELECT DISTINCT unit_id, partner_id, organization_id
+			FROM fleet_unit_ownership
+		) fuo ON fuo.unit_id = fu.unit_id
 		INNER JOIN fleet_types ft ON ft.id = f.fleet_type
 		LEFT JOIN LATERAL (
 			SELECT COALESCE(COUNT(DISTINCT sf.schedule_number), 0) AS total_booking

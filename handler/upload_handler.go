@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"mime/multipart"
 	"os"
 	"path/filepath"
@@ -96,6 +97,7 @@ func (h *UploadHandler) UploadCommon(c *fiber.Ctx) error {
 		}
 
 		file, err := c.FormFile("files")
+		fmt.Println("check file ", file)
 		if err != nil || file == nil {
 			file, err = c.FormFile("file")
 			if err != nil || file == nil {

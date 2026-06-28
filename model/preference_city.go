@@ -1,8 +1,8 @@
 package model
 
 const (
-	ServiceTypeCityTour = 1
-	ServiceTypeOverland = 2
+	ServiceTypeOverland = 1
+	ServiceTypeCityTour = 2
 	ServiceTypeDropOnly = 3
 )
 

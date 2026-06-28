@@ -116,6 +116,49 @@ func (h *OrganizationHandler) AssistantDelete(c *fiber.Ctx) error {
 	return helper.SuccessResponse(c, fiber.StatusOK, "Assistant account deleted", nil)
 }
 
+func (h *OrganizationHandler) AssistantWhatsAppBusinessList(c *fiber.Ctx) error {
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusBadRequest, "Missing organization context")
+	}
+	accountNumber, err := h.orgService.AssistantWhatsAppBusinessList(orgID)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Assistant WhatsApp business list loaded", accountNumber)
+}
+
+func (h *OrganizationHandler) AssistantWhatsAppBusinessUpdate(c *fiber.Ctx) error {
+	orgID, ok := c.Locals("organization_id").(string)
+	if !ok || orgID == "" {
+		return helper.SendErrorResponse(c, fiber.StatusBadRequest, "Missing organization context")
+	}
+
+	var req model.AssistantWhatsAppBusinessUpdateRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.SendErrorResponse(c, fiber.StatusBadRequest, "Invalid request body")
+	}
+
+	if validationErrors := helper.ValidateStruct(req); len(validationErrors) > 0 {
+		return helper.SendValidationErrorResponse(c, validationErrors)
+	}
+
+	// Validate that account number starts with "62"
+	if !strings.HasPrefix(req.AccountNumber, "62") {
+		return helper.SendErrorResponse(c, fiber.StatusBadRequest, "Account number must start with 62")
+	}
+
+	err := h.orgService.AssistantWhatsAppBusinessUpdate(orgID, req.AccountNumber)
+	if err != nil {
+		code := service.GetStatusCode(err)
+		return helper.SendErrorResponse(c, code, err.Error())
+	}
+
+	return helper.SuccessResponse(c, fiber.StatusOK, "Assistant WhatsApp business account updated", nil)
+}
+
 func (h *OrganizationHandler) EmployeeWhatsApp(c *fiber.Ctx) error {
 	orgID, ok := c.Locals("organization_id").(string)
 	if !ok || orgID == "" {

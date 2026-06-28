@@ -3,6 +3,9 @@ package model
 type FleetOrderCreateRequest struct {
 	FleetID           string                    `json:"fleet_id"`
 	CustomerID        string                    `json:"customer_id"`
+	CustomerName      string                    `json:"customer_name"`
+	CustomerPhone     string                    `json:"customer_phone"`
+	CustomerCompany   string                    `json:"customer_company"`
 	Duration          int                       `json:"duration"`
 	RentType          int                       `json:"rent_type"`
 	PickupDatetime    string                    `json:"pickup_datetime"`

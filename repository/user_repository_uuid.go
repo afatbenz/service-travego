@@ -74,14 +74,14 @@ func (r *UserRepository) Create(user *model.User) (*model.User, error) {
 func (r *UserRepository) FindByID(id string) (*model.User, error) {
 	query := fmt.Sprintf(`
         SELECT user_id, username, fullname, email, password, phone, address, city, province, postal_code,
-               npwp, gender, date_of_birth, is_active, is_verified, is_admin, created_at, updated_at, deleted_at
+               npwp, gender, date_of_birth, is_active, is_verified, is_admin, created_at, updated_at, deleted_at, avatar
         FROM users
         WHERE user_id = %s AND deleted_at IS NULL
     `, r.getPlaceholder(1))
 
 	var user model.User
 	var deletedAt, dateOfBirth sql.NullTime
-	var fullname, address, city, province, postalCode, npwp, gender sql.NullString
+	var fullname, address, city, province, postalCode, npwp, gender, avatar sql.NullString
 	var isAdmin sql.NullBool
 
 	err := database.QueryRow(r.db, query, id).Scan(
@@ -104,6 +104,7 @@ func (r *UserRepository) FindByID(id string) (*model.User, error) {
 		&user.CreatedAt,
 		&user.UpdatedAt,
 		&deletedAt,
+		&avatar,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -112,6 +113,10 @@ func (r *UserRepository) FindByID(id string) (*model.User, error) {
 		}
 		log.Printf("[ERROR] FindByID query error - Query: %s | Param: %s | Error: %v", query, id, err)
 		return nil, err
+	}
+
+	if avatar.Valid {
+		user.Avatar = avatar.String
 	}
 
 	if fullname.Valid {

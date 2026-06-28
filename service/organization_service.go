@@ -22,6 +22,7 @@ type OrganizationService struct {
 	orgUserRepo        *repository.OrganizationUserRepository
 	userRepo           *repository.UserRepository
 	orgTypeRepo        *repository.OrganizationTypeRepository
+	subscriptionRepo   *repository.SubscriptionRepository
 	citiesName         map[string]string
 	provincesName      map[string]string
 	contractTypeLabels map[int]string
@@ -42,6 +43,11 @@ func (s *OrganizationService) SetOrganizationUserRepository(orgUserRepo *reposit
 // SetOrganizationTypeRepository sets the organization type repository
 func (s *OrganizationService) SetOrganizationTypeRepository(orgTypeRepo *repository.OrganizationTypeRepository) {
 	s.orgTypeRepo = orgTypeRepo
+}
+
+// SetSubscriptionRepository sets the subscription repository
+func (s *OrganizationService) SetSubscriptionRepository(subscriptionRepo *repository.SubscriptionRepository) {
+	s.subscriptionRepo = subscriptionRepo
 }
 
 func (s *OrganizationService) generateOrganizationCode(orgName string) (string, error) {

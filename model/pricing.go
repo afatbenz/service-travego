@@ -43,12 +43,12 @@ type Review struct {
 
 type ContactSubmission struct {
 	TopicID       string `json:"topic_id"`
-	FullName      string `json:"full_name"`
-	CompanyName   string `json:"company_name"`
+	FullName      string `json:"fullname"`
+	BusinessName  string `json:"business_name"`
 	Email         string `json:"email"`
-	WhatsApp      string `json:"whatsapp"`
+	Phone         string `json:"phone"`
 	BusinessScale string `json:"business_scale"`
-	Messages      string `json:"messages"`
+	Message       string `json:"message"`
 }
 
 type Subscription struct {
