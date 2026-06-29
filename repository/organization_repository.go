@@ -66,6 +66,7 @@ func (r *OrganizationRepository) FindByID(id string) (*model.Organization, error
     `, r.getPlaceholder(1))
 
 	var org model.Organization
+	var companyName sql.NullString
 	var npwpNumber sql.NullString
 	var postalCode sql.NullString
 	var organizationLat sql.NullString
@@ -78,7 +79,7 @@ func (r *OrganizationRepository) FindByID(id string) (*model.Organization, error
 		&org.OrganizationId,
 		&org.OrganizationCode,
 		&org.OrganizationName,
-		&org.CompanyName,
+		&companyName,
 		&org.Address,
 		&org.City,
 		&org.Province,
@@ -98,6 +99,9 @@ func (r *OrganizationRepository) FindByID(id string) (*model.Organization, error
 		&org.UpdatedAt,
 	)
 	if err == nil {
+		if companyName.Valid {
+			org.CompanyName = companyName.String
+		}
 		if npwpNumber.Valid {
 			org.NPWPNumber = npwpNumber.String
 		}
