@@ -30,11 +30,13 @@ const (
 	phoneKey contextKey = "phone"
 )
 
-// AIClient handles communication with Anthropic API
+// AIClient handles communication with AI provider (Anthropic / Gemini)
 type AIClient struct {
 	apiKey                string
 	model                 string
+	fallbackModels        []string
 	baseURL               string
+	provider              string // "anthropic" or "gemini"
 	authMgr               *AuthManager
 	tenantRepo            *TenantRepository
 	sessionMgr            *SessionManager
@@ -56,18 +58,40 @@ type AIClient struct {
 	wagyClient            *wagy.WagyClient
 }
 
-// NewAIClient creates a new AI client
+// NewAIClient creates a new AI client (supports Anthropic or Gemini)
 func NewAIClient(apiKey string, db *sql.DB, dbDriver string, rdb *redis.Client, wagyClient *wagy.WagyClient) *AIClient {
-	model := os.Getenv("ANTHROPIC_MODEL")
-	if model == "" {
-		model = "claude-sonnet-4-6"
+	provider := strings.ToLower(strings.TrimSpace(os.Getenv("AI_PROVIDER")))
+	if provider == "" {
+		provider = "anthropic"
 	}
 
-	baseURL := os.Getenv("ANTHROPIC_API_URL")
-	if baseURL == "" {
-		baseURL = "https://api.anthropic.com"
+	var model, baseURL string
+	var fallbackModels []string
+
+	switch provider {
+	case "gemini":
+		fallbackModels = buildGeminiModelFallbacks()
+		model = fallbackModels[0]
+		baseURL = os.Getenv("GEMINI_API_URL")
+		if baseURL == "" {
+			baseURL = "https://generativelanguage.googleapis.com/v1beta"
+		}
+		baseURL = strings.TrimRight(baseURL, "/")
+		if geminiKey := os.Getenv("GEMINI_API_KEY"); geminiKey != "" {
+			apiKey = geminiKey
+		}
+	default:
+		provider = "anthropic"
+		model = os.Getenv("ANTHROPIC_MODEL")
+		if model == "" {
+			model = "claude-sonnet-4-6"
+		}
+		baseURL = os.Getenv("ANTHROPIC_API_URL")
+		if baseURL == "" {
+			baseURL = "https://api.anthropic.com"
+		}
+		baseURL = strings.TrimRight(baseURL, "/")
 	}
-	baseURL = strings.TrimRight(baseURL, "/")
 
 	authMgr := NewAuthManager(rdb)
 	fleetRepo := repository.NewFleetRepository(db, dbDriver)
@@ -99,8 +123,10 @@ func NewAIClient(apiKey string, db *sql.DB, dbDriver string, rdb *redis.Client, 
 	return &AIClient{
 		apiKey:                apiKey,
 		model:                 model,
+							fallbackModels:        fallbackModels[1:],
 				baseURL:               baseURL,
-			authMgr:               authMgr,
+				provider:              provider,
+				authMgr:               authMgr,
 			tenantRepo:            NewTenantRepository(db, dbDriver, authMgr),
 		sessionMgr:            NewSessionManager(rdb),
 		toolExec:              NewToolExecutor(db, dbDriver),
@@ -748,8 +774,12 @@ func parseGeminiResponse(body []byte) (*AnthropicResponse, error) {
 	return resp, nil
 }
 
-// callAnthropicRequest sends a request to the Anthropic API
+// callAnthropicRequest dispatches to Anthropic or Gemini based on ac.provider
 func (ac *AIClient) callAnthropicRequest(ctx context.Context, systemPrompt string, messages []ConversationMessage, tools []ToolDefinition) (*AnthropicResponse, error) {
+	if ac.provider == "gemini" {
+		return ac.callGeminiRequest(ctx, systemPrompt, messages, tools, false)
+	}
+
 	req := AnthropicRequest{
 		Model:        ac.model,
 		MaxTokens:    1024,
