@@ -1306,24 +1306,7 @@ Format WA: *teks* (satu asterisk). Balas Bahasa Indonesia, singkat.`,
 			userContext, dataContext, currentDate, currentMonth)
 
 		return prompt
-	} *%s*. Be professional.
-- Saat customer menanyakan data, langsung panggil tool. Jangan ngomong "saya cari dulu".
-- Jangan pernah ucapkan "terima kasih atas konteksnya". Langsung jawab.
-
-Respond in Indonesian (Bahasa Indonesia). Be concise. No fluff.
-If asked about your identity, say you are an AI assistant helping %s.
-If asked about capabilities, briefly answer (2-3 words each). Don't list.
-
-WhatsApp reply formatting:
-- This is WhatsApp, NOT Markdown. For bold use a single asterisk: *teks tebal*. Never use **double asterisks**.
-- Use bold only for key values (names, amounts, dates).
-- Prefer plain, short sentences with line breaks.`,
-		userContext, dataContext, currentDate, currentMonth, orgName, orgName)
-
-	return prompt
-}
-
-// executeTool executes a tool and returns the result
+	}
 func (ac *AIClient) executeTool(ctx context.Context, toolName string, input json.RawMessage) interface{} {
 	// Parse input parameters
 	var params map[string]interface{}
