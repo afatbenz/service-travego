@@ -123,7 +123,7 @@ func NewAIClient(apiKey string, db *sql.DB, dbDriver string, rdb *redis.Client, 
 	return &AIClient{
 		apiKey:                apiKey,
 		model:                 model,
-							fallbackModels:        fallbackModels[1:],
+							fallbackModels:        func() []string { if len(fallbackModels) > 1 { return fallbackModels[1:] }; return nil }(),
 				baseURL:               baseURL,
 				provider:              provider,
 				authMgr:               authMgr,
