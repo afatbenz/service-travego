@@ -1,5 +1,5 @@
 --
--- PostgreSQL database dump
+-- PostgreSQL database dump - 28 June 2026
 --
 
 -- Dumped from database version 16.9
@@ -259,7 +259,6 @@ CREATE TABLE public.customer_orders (
 
 
 ALTER TABLE public.customer_orders OWNER TO postgres;
-
 --
 -- TOC entry 250 (class 1259 OID 33857)
 -- Name: customers; Type: TABLE; Schema: public; Owner: postgres

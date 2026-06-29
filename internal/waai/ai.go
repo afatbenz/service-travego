@@ -32,10 +32,11 @@ const (
 
 // AIClient handles communication with AI provider (Anthropic / Gemini)
 type AIClient struct {
-	apiKey        string
-	model         string
-	baseURL       string
-	provider      string // "anthropic" or "gemini"
+	apiKey                string
+	model                 string
+	fallbackModels        []string
+	baseURL               string
+	provider              string // "anthropic" or "gemini"
 	authMgr               *AuthManager
 	tenantRepo            *TenantRepository
 	sessionMgr            *SessionManager
@@ -65,13 +66,12 @@ func NewAIClient(apiKey string, db *sql.DB, dbDriver string, rdb *redis.Client, 
 	}
 
 	var model, baseURL string
+	geminiModels := []string{}
 
 	switch provider {
 	case "gemini":
-		model = os.Getenv("GEMINI_MODEL")
-		if model == "" {
-			model = "gemini-2.5-pro" // latest with function calling
-		}
+		geminiModels = buildGeminiModelFallbacks()
+		model = geminiModels[0]
 		baseURL = os.Getenv("GEMINI_API_URL")
 		if baseURL == "" {
 			baseURL = "https://generativelanguage.googleapis.com/v1beta"
@@ -124,6 +124,7 @@ func NewAIClient(apiKey string, db *sql.DB, dbDriver string, rdb *redis.Client, 
 	return &AIClient{
 		apiKey:                apiKey,
 		model:                 model,
+		fallbackModels:        geminiModels[1:],
 		baseURL:               baseURL,
 		provider:              provider,
 		authMgr:               authMgr,
@@ -491,42 +492,42 @@ func (ac *AIClient) callGeminiRequest(ctx context.Context, systemPrompt string, 
 		case []map[string]interface{}:
 			for _, bm := range v {
 				switch bm["type"] {
-					case "text":
-						if txt, ok := bm["text"].(string); ok && txt != "" {
-							parts = append(parts, map[string]interface{}{"text": txt})
-						}
-					case "tool_use":
-						toolInput := bm["input"]
-						inputJSON, _ := json.Marshal(toolInput)
-						parts = append(parts, map[string]interface{}{
-							"functionCall": map[string]interface{}{
-								"name": bm["name"],
-								"args": json.RawMessage(inputJSON),
-							},
-						})
-					case "tool_result":
-						tc := bm["content"]
-						toolName, _ := bm["name"].(string)
-						if toolName == "" {
-							// Fallback: Anthropic style tool_use_id (toolu_xxx), cari dari name
-							if name, ok := bm["tool_use_id"].(string); ok {
-								toolName = name
-							}
-						}
-						// Untuk Gemini, tool_result → functionResponse dengan nama function asli
-						parts = append(parts, map[string]interface{}{
-							"functionResponse": map[string]interface{}{
-								"name": toolName,
-								"response": map[string]interface{}{
-									"result": tc,
-								},
-							},
-						})
-						// Function response selalu dari user/function role
-						role = "function"
+				case "text":
+					if txt, ok := bm["text"].(string); ok && txt != "" {
+						parts = append(parts, map[string]interface{}{"text": txt})
 					}
+				case "tool_use":
+					toolInput := bm["input"]
+					inputJSON, _ := json.Marshal(toolInput)
+					parts = append(parts, map[string]interface{}{
+						"functionCall": map[string]interface{}{
+							"name": bm["name"],
+							"args": json.RawMessage(inputJSON),
+						},
+					})
+				case "tool_result":
+					tc := bm["content"]
+					toolName, _ := bm["name"].(string)
+					if toolName == "" {
+						// Fallback: Anthropic style tool_use_id (toolu_xxx), cari dari name
+						if name, ok := bm["tool_use_id"].(string); ok {
+							toolName = name
+						}
+					}
+					// Untuk Gemini, tool_result → functionResponse dengan nama function asli
+					parts = append(parts, map[string]interface{}{
+						"functionResponse": map[string]interface{}{
+							"name": toolName,
+							"response": map[string]interface{}{
+								"result": tc,
+							},
+						},
+					})
+					// Function response selalu dari user/function role
+					role = "function"
 				}
 			}
+		}
 
 		if len(parts) > 0 {
 			gContents = append(gContents, map[string]interface{}{
@@ -560,34 +561,109 @@ func (ac *AIClient) callGeminiRequest(ctx context.Context, systemPrompt string, 
 		return nil, fmt.Errorf("failed to marshal gemini request: %w", err)
 	}
 
-	// Gemini endpoint: POST /v1beta/models/{model}:generateContent?key={apiKey}
-	endpoint := fmt.Sprintf("%s/models/%s:generateContent", ac.baseURL, ac.model)
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer(body))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create gemini request: %w", err)
-	}
-	httpReq.Header.Set("x-goog-api-key", ac.apiKey)
-	httpReq.Header.Set("Content-Type", "application/json")
-
 	client := &http.Client{}
-	httpResp, err := client.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send gemini request: %w", err)
-	}
-	defer httpResp.Body.Close()
+	models := ac.geminiModelSequence()
+	var lastErr error
 
-	respBody, err := io.ReadAll(httpResp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read gemini response: %w", err)
-	}
-	log.Printf("[WAAI][Gemini] Raw response status=%d body=%s", httpResp.StatusCode, truncateResponseBody(respBody))
+	for _, modelName := range models {
+		// Gemini endpoint: POST /v1beta/models/{model}:generateContent
+		endpoint := fmt.Sprintf("%s/models/%s:generateContent", ac.baseURL, modelName)
+		httpReq, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer(body))
+		if err != nil {
+			return nil, fmt.Errorf("failed to create gemini request: %w", err)
+		}
+		httpReq.Header.Set("x-goog-api-key", ac.apiKey)
+		httpReq.Header.Set("Content-Type", "application/json")
 
-	if httpResp.StatusCode < http.StatusOK || httpResp.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("gemini error (%d): %s", httpResp.StatusCode, truncateResponseBody(respBody))
+		httpResp, err := client.Do(httpReq)
+		if err != nil {
+			lastErr = fmt.Errorf("model %s: failed to send gemini request: %w", modelName, err)
+			log.Printf("[WAAI][Gemini] Request failed for model=%s: %v", modelName, err)
+			continue
+		}
+
+		respBody, readErr := io.ReadAll(httpResp.Body)
+		_ = httpResp.Body.Close()
+		if readErr != nil {
+			lastErr = fmt.Errorf("model %s: failed to read gemini response: %w", modelName, readErr)
+			log.Printf("[WAAI][Gemini] Failed reading response for model=%s: %v", modelName, readErr)
+			continue
+		}
+
+		log.Printf("[WAAI][Gemini] Raw response model=%s status=%d body=%s", modelName, httpResp.StatusCode, truncateResponseBody(respBody))
+
+		if httpResp.StatusCode < http.StatusOK || httpResp.StatusCode >= http.StatusMultipleChoices {
+			lastErr = fmt.Errorf("model %s: gemini error (%d): %s", modelName, httpResp.StatusCode, truncateResponseBody(respBody))
+			log.Printf("[WAAI][Gemini] Falling back from model=%s because status=%d", modelName, httpResp.StatusCode)
+			continue
+		}
+
+		response, parseErr := parseGeminiResponse(respBody)
+		if parseErr != nil {
+			lastErr = fmt.Errorf("model %s: failed to parse gemini response: %w", modelName, parseErr)
+			log.Printf("[WAAI][Gemini] Failed parsing response for model=%s: %v", modelName, parseErr)
+			continue
+		}
+
+		if modelName != ac.model {
+			log.Printf("[WAAI][Gemini] Using fallback model=%s", modelName)
+		}
+
+		return response, nil
 	}
 
-	// Parse Gemini response to AnthropicResponse
-	return parseGeminiResponse(respBody)
+	if lastErr != nil {
+		return nil, lastErr
+	}
+
+	return nil, fmt.Errorf("gemini request failed: no model configured")
+}
+
+func buildGeminiModelFallbacks() []string {
+	models := []string{
+		strings.TrimSpace(os.Getenv("GEMINI_MODEL")),
+		strings.TrimSpace(os.Getenv("GEMINI_MODEL_FALLBACK1")),
+		strings.TrimSpace(os.Getenv("GEMINI_MODEL_FALLBACK2")),
+	}
+
+	result := make([]string, 0, len(models))
+	seen := make(map[string]struct{}, len(models))
+	for _, model := range models {
+		if model == "" {
+			continue
+		}
+		if _, exists := seen[model]; exists {
+			continue
+		}
+		seen[model] = struct{}{}
+		result = append(result, model)
+	}
+
+	if len(result) == 0 {
+		return []string{"gemini-2.5-pro"}
+	}
+
+	return result
+}
+
+func (ac *AIClient) geminiModelSequence() []string {
+	models := make([]string, 0, 1+len(ac.fallbackModels))
+	seen := make(map[string]struct{}, 1+len(ac.fallbackModels))
+	for _, model := range append([]string{ac.model}, ac.fallbackModels...) {
+		model = strings.TrimSpace(model)
+		if model == "" {
+			continue
+		}
+		if _, exists := seen[model]; exists {
+			continue
+		}
+		seen[model] = struct{}{}
+		models = append(models, model)
+	}
+	if len(models) == 0 {
+		return []string{"gemini-2.5-pro"}
+	}
+	return models
 }
 
 // convertToolsToGemini converts Anthropic-style tool definitions to Gemini FunctionDeclaration
@@ -1969,13 +2045,13 @@ func (ac *AIClient) executeTool(ctx context.Context, toolName string, input json
 								description = transactionItemInput
 							}
 							break
-							}
 						}
 					}
 				}
 			}
+		}
 
-			if paymentMethod == 0 {
+		if paymentMethod == 0 {
 			paymentMethod = 1 // Default to Biaya Operasional
 		}
 
