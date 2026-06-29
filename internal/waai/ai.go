@@ -1969,9 +1969,7 @@ func (ac *AIClient) executeTool(ctx context.Context, toolName string, input json
 								description = transactionItemInput
 							}
 							break
-						} // close switch bm["type"]
-					} // close for
-				} // close case []map
+			}
 		}
 
 		if paymentMethod == 0 {
