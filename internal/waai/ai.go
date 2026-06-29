@@ -1969,10 +1969,13 @@ func (ac *AIClient) executeTool(ctx context.Context, toolName string, input json
 								description = transactionItemInput
 							}
 							break
+							}
+						}
+					}
+				}
 			}
-		}
 
-		if paymentMethod == 0 {
+			if paymentMethod == 0 {
 			paymentMethod = 1 // Default to Biaya Operasional
 		}
 
