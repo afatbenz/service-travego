@@ -160,7 +160,7 @@ func (h *Handler) processCompanyMessageAsync(customerPhone, messageText string, 
 
 	tenant := &TenantInfo{
 		OrganizationID:   asstCust.OrganizationID,
-		OrganizationName: asstCust.DeviceName,
+		OrganizationName: "",
 		Role:             "CustomerAssistant",
 	}
 

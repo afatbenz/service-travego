@@ -1238,9 +1238,9 @@ func (ac *AIClient) BuildCompanySystemPrompt(
 	currentMonth := now.Format("2006-01")
 	currentDate := now.Format("2006-01-02")
 
-	displayName := assistantName
+	displayName := tenant.OrganizationName
 	if displayName == "" {
-		displayName = tenant.OrganizationName
+		displayName = assistantName
 	}
 
 	orgName := tenant.OrganizationName
@@ -1286,45 +1286,66 @@ You have access to the following business tools to help customers:
 12. get_garage_list - Get daftar garasi/lokasi perusahaan
 13. get_bank_accounts - Get daftar rekening pembayaran perusahaan
 14. print_invoice - Generate and send invoice PDF for an order to WhatsApp
+15. get_fleet_prices - Get rental prices by fleet_id and type_id (1=CityTour, 2=Overland, 3=DropOnly)
+16. get_fleet_addons - Get available add-ons/extra services for a specific fleet
+17. create_order - Create a new booking/order for fleet rental
 
 PENGETAHUAN LAYANAN:
 Ada 3 jenis sewa (service type) yang perlu anda pahami untuk membantu customer:
 
-1. *Overland* — Sewa antar kota di luar wilayah asal (antar provinsi/kota). Biasanya untuk perjalanan jauh seperti Jakarta-Bandung, Yogyakarta-Surabaya, dll. Ciri-ciri: service_type mengandung "overland".
-2. *CityTour* — Sewa antar jemput hanya di dalam kota / wilayah asal. Biasanya untuk city tour, wisata lokal, atau kunjungan dalam kota. Ciri-ciri: service_type mengandung "city_tour".
-3. *Drop Only* — Sewa untuk pengantaran / penjemputan saja (one way / single trip). Ciri-ciri: service_type mengandung "drop_only".
+1. *Overland* — Sewa antar kota di luar wilayah asal (antar provinsi/kota). Biasanya untuk perjalanan jauh seperti Jakarta-Bandung, Yogyakarta-Surabaya, dll.
+2. *CityTour* — Sewa antar jemput hanya di dalam kota / wilayah asal. Biasanya untuk city tour, wisata lokal, atau kunjungan dalam kota.
+3. *Drop Only* — Sewa untuk pengantaran / penjemputan saja (one way / single trip).
 
-Jenis sewa bisa diketahui melalui get_preference_cities yang menampilkan service_types (Overland, CityTour, DropOnly) dan minimal_day (minimal sewa berapa hari) untuk setiap kota tujuan.
+Jenis sewa bisa diketahui melalui get_preference_cities yang menampilkan service_types dan minimal_day (minimal sewa berapa hari) untuk setiap kota tujuan.
 
 Rent type order (dari get_order_detail):
 - RentType 1 = City Tour
 - RentType 2 = Overland
 - RentType 3 = Pickup / Drop Only
 
+KEMAMPUAN ANDA (8 Layanan Utama):
+1. *Ketersediaan Armada* — Cek armada yang tersedia via get_fleet_list atau get_fleet_availability.
+2. *Harga Sewa* — Tanya dulu armada dan jenis sewa yang diharapkan (CityTour/Overland/Drop Only), lalu call get_fleet_prices(fleet_id, type_id). Jelaskan daftar harga yang tersedia berdasarkan durasi sewa.
+3. *Layanan* — Jelaskan 3 jenis sewa: CityTour (dalam kota), Overland (antar kota), Drop Only (satu arah).
+4. *Lokasi Kantor* — Call get_organization_info. Jika organization_lat dan organization_lng ada, berikan link Google Maps: https://www.google.com/maps?q={lat},{lng}
+5. *Lacak Pesanan* — Call get_order_detail dengan order_id yang diberikan customer. Sistem akan memvalidasi kepemilikan.
+6. *Detail Pesanan* — Call get_order_detail dengan order_id untuk lihat detail lengkap pesanan.
+7. *Fasilitas Armada* — Call get_fleet_detail, fasilitas ada di field facilities[].facility_name.
+8. *Melakukan Pesanan* — Proses bertahap (lihat FLOW MELAKUKAN PESANAN di bawah).
+
 Tool usage rules:
 - ALWAYS call tools for data queries. Do not guess or rely on conversation history for data.
 - Always use the latest data from tools. Do not trust previous answers.
 
-- *Cek Ketersediaan Armada*: call get_fleet_list or get_fleet_availability for availability questions.
-- *Cek Pesanan*: call get_order_list. Sistem OTOMATIS hanya akan menampilkan pesanan milik customer berdasarkan nomor WhatsApp yang mengirim pesan. Jika customer tidak memiliki pesanan, sampaikan dengan sopan.
-- *Cek Detail Pesanan*: call get_order_detail dengan order_id. Sistem akan memvalidasi bahwa pesanan tersebut milik customer yang bersangkutan.
-- *Cek Jadwal*: call get_schedule_list when customer asks about trip schedules.
-- *Cek Rute / Harga*: call get_preference_cities untuk melihat kota tujuan yang dilayani dan minimal sewa. Call get_city_list untuk daftar kota. Call get_fleet_list untuk armada yang tersedia.
-- *Cek Fasilitas Armada*: call get_fleet_detail — data fasilitas ada di response field fascilities[] / facilities[], termasuk nama fasilitas seperti AC, Toilet, Reclining Seat, TV, dll.
-- *Tanya Lokasi Kantor*: call get_organization_info — alamat kantor ada di field address, city_name, province_name.
-- *Tanya Lokasi Garasi*: call get_garage_list untuk mendapatkan daftar garasi/lokasi penyimpanan armada.
-- *Tanya Nomor Rekening Pembayaran*: call get_bank_accounts untuk mendapatkan daftar rekening bank perusahaan. Jelaskan informasi bank, nomor rekening, dan atas nama.
-- *Kirim Invoice*: call print_invoice dengan order_id. Sistem akan mengirimkan PDF invoice langsung ke WhatsApp customer. Hanya invoice milik customer yang bersangkutan yang bisa dikirim.
-- *Penjelasan Perbedaan Layanan*: Gunakan pengetahuan jenis sewa (Overland, CityTour, Drop Only) di atas untuk menjelaskan perbedaan kepada customer.
+FLOW MELAKUKAN PESANAN:
+Informasi yang dibutuhkan untuk create_order:
+1. fleet_id — Tanya armada yang diinginkan, call get_fleet_list / get_fleet_detail
+2. Jenis sewa dan durasi — Tanya jenis sewa (CityTour/Overland/Drop Only), call get_fleet_prices(fleet_id, type_id), dan minta customer pilih durasi dari daftar harga
+3. Data customer (fullname, email, address) — Tanya nama lengkap, email, dan alamat. Nomor telepon diambil otomatis dari WhatsApp.
+4. Tanggal — start_date (keberangkatan) dan end_date (kembali) dalam format YYYY-MM-DD HH:MM
+5. pickup_city_id — Call get_city_list(search) untuk mencari kota penjemputan, gunakan searchText untuk filter
+6. pickup_location — Tanya detail lokasi penjemputan
+7. destinations — Tanya tujuan perjalanan per hari (opsional)
+8. qty — Tanya jumlah armada yang dipesan (default: 1)
+9. addons — Call get_fleet_addons(fleet_id) jika customer ingin tambahan layanan (opsional)
+Setelah SEMUA data lengkap, barulah panggil create_order.
+
+VALIDASI DURASI SEWA:
+- Jika jarak kota asal ke kota tujuan >= 200 km: minimal sewa 2 hari ATAU pilih Drop Only
+- Jika jarak kota asal ke kota tujuan >= 400 km: minimal sewa 3 hari ATAU Drop Only minimal 2 hari
+- Gunakan get_preference_cities untuk lihat minimal_sewa per kota tujuan
 
 IMPORTANT:
 - This is a CUSTOMER-facing assistant. Focus on: bookings, fleet availability, schedules, routes, pricing, facilities, company info.
 - For internal operations (approve/reject orders, expenses, employee management, inventory, SPJ, employee schedules), politely explain that the customer needs to contact the office directly.
 - You represent *%s*. Be professional and welcoming.
+- Saat customer menyebutkan nomor pesanan (order_id), segera panggil get_order_detail. Jika tidak ditemukan, sampaikan bahwa pesanan tidak ditemukan.
 
 Respond in Indonesian (Bahasa Indonesia).
 Be professional, concise, and welcoming.
 If asked about your identity, say you are an AI assistant helping %s.
+If asked about your capabilities, mention all 8 services above.
 
 WhatsApp reply formatting:
 - This is WhatsApp, NOT Markdown. For bold use a single asterisk: *teks tebal*. Never use **double asterisks**.
@@ -2240,7 +2261,33 @@ func (ac *AIClient) executeTool(ctx context.Context, toolName string, input json
 		}
 		return trips
 
-	case "print_invoice":
+	case "get_fleet_prices":
+			fleetID := getStringParam(params, "fleet_id")
+			typeID := getStringParam(params, "type_id")
+			if fleetID == "" || typeID == "" {
+				return map[string]interface{}{"error": "fleet_id and type_id are required"}
+			}
+			prices, err := ac.fleetService.GetFleetPricesByFleetID(orgID, fleetID, typeID)
+			if err != nil {
+				return map[string]interface{}{"error": err.Error()}
+			}
+			return prices
+
+		case "get_fleet_addons":
+			fleetID := getStringParam(params, "fleet_id")
+			if fleetID == "" {
+				return map[string]interface{}{"error": "fleet_id is required"}
+			}
+			addons, err := ac.fleetService.GetFleetAddonList(orgID, fleetID)
+			if err != nil {
+				return map[string]interface{}{"error": err.Error()}
+			}
+			return addons
+
+		case "create_order":
+			return ac.executeCreateOrder(ctx, orgID, userID, params)
+
+		case "print_invoice":
 		orderID := getStringParam(params, "order_id")
 		if orderID == "" {
 			return map[string]interface{}{"error": "order_id is required"}
@@ -2763,6 +2810,116 @@ func (ac *AIClient) requireAdmin(ctx context.Context) error {
 		return fmt.Errorf("unauthorized: only admin can perform this action")
 	}
 	return nil
+}
+
+func (ac *AIClient) executeCreateOrder(ctx context.Context, orgID, userID string, params map[string]interface{}) interface{} {
+	fleetID := getStringParam(params, "fleet_id")
+	priceID := getStringParam(params, "price_id")
+	fullname := getStringParam(params, "fullname")
+	email := getStringParam(params, "email")
+	address := getStringParam(params, "address")
+	startDate := getStringParam(params, "start_date")
+	endDate := getStringParam(params, "end_date")
+	pickupCityID := getStringParam(params, "pickup_city_id")
+	pickupLocation := getStringParam(params, "pickup_location")
+	qty := getIntParam(params, "qty")
+	additionalRequest := getStringParam(params, "additional_request")
+
+	missing := make([]string, 0)
+	if fleetID == "" {
+		missing = append(missing, "fleet_id")
+	}
+	if priceID == "" {
+		missing = append(missing, "price_id")
+	}
+	if fullname == "" {
+		missing = append(missing, "fullname")
+	}
+	if email == "" {
+		missing = append(missing, "email")
+	}
+	if address == "" {
+		missing = append(missing, "address")
+	}
+	if startDate == "" {
+		missing = append(missing, "start_date")
+	}
+	if endDate == "" {
+		missing = append(missing, "end_date")
+	}
+	if pickupCityID == "" {
+		missing = append(missing, "pickup_city_id")
+	}
+	if pickupLocation == "" {
+		missing = append(missing, "pickup_location")
+	}
+	if len(missing) > 0 {
+		return map[string]interface{}{
+			"error":           "Missing required parameters",
+			"missing_required": missing,
+		}
+	}
+
+	if qty <= 0 {
+		qty = 1
+	}
+
+	phone, _ := ctx.Value(phoneKey).(string)
+
+	// Get organization code
+	orgDetail, err := ac.organizationService.GetOrganizationDetail(orgID)
+	if err != nil {
+		return map[string]interface{}{"error": "Failed to get organization info: " + err.Error()}
+	}
+	orgCode, _ := orgDetail["organization_code"].(string)
+
+	// Parse destinations and addons from JSON strings
+	var destinations []model.OrderDestination
+	if destStr := getStringParam(params, "destinations"); destStr != "" {
+		_ = json.Unmarshal([]byte(destStr), &destinations)
+	}
+	if destinations == nil {
+		destinations = []model.OrderDestination{}
+	}
+
+	var addons []string
+	if addonStr := getStringParam(params, "addons"); addonStr != "" {
+		_ = json.Unmarshal([]byte(addonStr), &addons)
+	}
+	if addons == nil {
+		addons = []string{}
+	}
+
+	req := &model.CreateOrderRequest{
+		FleetID:           fleetID,
+		PriceID:           priceID,
+		Fullname:          fullname,
+		Email:             email,
+		Phone:             phone,
+		Address:           address,
+		StartDate:         startDate,
+		EndDate:           endDate,
+		PickupCityID:      pickupCityID,
+		PickupLocation:    pickupLocation,
+		Destinations:      destinations,
+		Qty:               qty,
+		Addons:            addons,
+		AdditionalRequest: additionalRequest,
+		OrganizationID:    orgID,
+		OrganizationCode:  orgCode,
+	}
+
+	result, err := ac.orderService.CreateOrder(req)
+	if err != nil {
+		return map[string]interface{}{"error": err.Error()}
+	}
+
+	return map[string]interface{}{
+		"status":   "success",
+		"message":  "Pesanan berhasil dibuat",
+		"order_id": result.OrderID,
+		"token":    result.Token,
+	}
 }
 
 func (ac *AIClient) createInventoryRequest(ctx context.Context, orgID, userID string, params map[string]interface{}) interface{} {
