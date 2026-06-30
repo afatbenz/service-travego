@@ -599,3 +599,7 @@ func (s *OrganizationService) GetOrganizationDetail(organizationID string) (map[
 	}
 	return res, nil
 }
+
+func (s *OrganizationService) GetAdminAccountNumber(organizationID string) (string, error) {
+	return s.orgRepo.GetAdminAccountNumber(organizationID)
+}

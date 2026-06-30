@@ -166,6 +166,28 @@ func GetToolDefinitions() []ToolDefinition {
 		},
 		{
 			Type: "function",
+			Name: "get_trip_distance",
+			Function: FunctionDefinition{
+				Name:        "get_trip_distance",
+				Description: "Estimate trip distance (km) between pickup/origin and destination using public routing/geocoding. Returns recommended minimal rental days for overland (pulang-pergi) vs drop-only based on distance thresholds.",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"from": map[string]interface{}{
+							"type":        "string",
+							"description": "Origin/pickup city or location name. If empty, will default to company city.",
+						},
+						"to": map[string]interface{}{
+							"type":        "string",
+							"description": "Destination city or location name (e.g. Brebes)",
+						},
+					},
+					"required": []string{"to"},
+				},
+			},
+		},
+		{
+			Type: "function",
 			Name: "get_customer_list",
 			Function: FunctionDefinition{
 				Name:        "get_customer_list",
@@ -1294,6 +1316,28 @@ func GetCompanyToolDefinitions() []ToolDefinition {
 						},
 					},
 					"required": []string{},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Name: "get_trip_distance",
+			Function: FunctionDefinition{
+				Name:        "get_trip_distance",
+				Description: "Estimate trip distance (km) between pickup/origin and destination using public routing/geocoding. Returns recommended minimal rental days for overland (pulang-pergi) vs drop-only based on distance thresholds.",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"from": map[string]interface{}{
+							"type":        "string",
+							"description": "Origin/pickup city or location name. If empty, will default to company city.",
+						},
+						"to": map[string]interface{}{
+							"type":        "string",
+							"description": "Destination city or location name (e.g. Brebes)",
+						},
+					},
+					"required": []string{"to"},
 				},
 			},
 		},

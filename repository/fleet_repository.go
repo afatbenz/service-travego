@@ -836,11 +836,13 @@ func (r *FleetRepository) CreateOrder(req *model.CreateOrderRequest) error {
 	var custID string
 	checkQuery := fmt.Sprintf(`
 		SELECT customer_id FROM customers 
-		WHERE organization_id = %s AND (customer_email = %s AND customer_phone = %s)
+		WHERE organization_id = %s
+		  AND customer_phone = %s
+		  AND (%s = '' OR customer_email = %s)
 		LIMIT 1
-	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3), r.getPlaceholder(4))
 
-	err = database.TxQueryRow(tx, checkQuery, req.OrganizationID, req.Email, req.Phone).Scan(&custID)
+	err = database.TxQueryRow(tx, checkQuery, req.OrganizationID, req.Phone, req.Email, req.Email).Scan(&custID)
 	if err != nil && err != sql.ErrNoRows {
 		fmt.Println("error checking existing customer", err)
 		return err
@@ -4982,7 +4984,6 @@ func (r *FleetRepository) CancelSchedulesAndRelated(userID, orderID, orgID strin
 
 	return tx.Commit()
 }
-
 
 func (r *FleetRepository) CreateCustomer(customerName, customerPhone, customerCompany, orgID string) (string, error) {
 	customerID := uuid.New().String()
