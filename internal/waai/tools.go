@@ -778,7 +778,7 @@ func GetToolDefinitions() []ToolDefinition {
 			Name: "reject_order",
 			Function: FunctionDefinition{
 				Name:        "reject_order",
-				Description: "Tolak (reject) an order by order_id",
+				Description: "Tolak (reject) an order by order_id. Sertakan reason singkat agar customer menerima alasan pembatalan dari tim.",
 				Parameters: map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -786,8 +786,12 @@ func GetToolDefinitions() []ToolDefinition {
 							"type":        "string",
 							"description": "Order ID to reject",
 						},
+						"reason": map[string]interface{}{
+							"type":        "string",
+							"description": "Alasan singkat penolakan/pembatalan pesanan untuk dikirim ke customer",
+						},
 					},
-					"required": []string{"order_id"},
+					"required": []string{"order_id", "reason"},
 				},
 			},
 		},

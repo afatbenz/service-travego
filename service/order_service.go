@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -20,6 +21,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 )
 
 type OrderService struct {
@@ -227,6 +229,8 @@ func (s *OrderService) CreateOrder(req *model.CreateOrderRequest) (*model.Create
 			)
 			if _, err := waClient.SendMessage(NormalizeAssistantAccountNumber(adminAccountNumber), message); err != nil {
 				log.Printf("[WARN] Failed to send order WhatsApp notification to %s for order %s: %v", adminAccountNumber, orderID, err)
+			} else {
+				appendWAAIAssistantSessionMessage(NormalizeAssistantAccountNumber(adminAccountNumber), message)
 			}
 		}
 	}
@@ -235,6 +239,74 @@ func (s *OrderService) CreateOrder(req *model.CreateOrderRequest) (*model.Create
 		Token:   token,
 		OrderID: orderID,
 	}, nil
+}
+
+func appendWAAIAssistantSessionMessage(phone, message string) {
+	phone = NormalizeAssistantAccountNumber(strings.TrimSpace(phone))
+	message = strings.TrimSpace(message)
+	if phone == "" || message == "" {
+		return
+	}
+
+	redisURL := strings.TrimSpace(os.Getenv("REDIS_URL"))
+	if redisURL == "" {
+		return
+	}
+
+	opts, err := redis.ParseURL(redisURL)
+	if err != nil {
+		log.Printf("[WARN] Failed to parse REDIS_URL for WAAI session append: %v", err)
+		return
+	}
+
+	client := redis.NewClient(opts)
+	defer func() {
+		_ = client.Close()
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	key := fmt.Sprintf("waai:session:%s", phone)
+	type sessionMessage struct {
+		Role    string      `json:"role"`
+		Content interface{} `json:"content"`
+	}
+
+	messages := make([]sessionMessage, 0, 8)
+	if raw, err := client.Get(ctx, key).Result(); err == nil {
+		if err := json.Unmarshal([]byte(raw), &messages); err != nil {
+			log.Printf("[WARN] Failed to unmarshal WAAI session for %s: %v", phone, err)
+			messages = []sessionMessage{}
+		}
+	} else if err != redis.Nil {
+		log.Printf("[WARN] Failed to load WAAI session for %s: %v", phone, err)
+		return
+	}
+
+	if n := len(messages); n > 0 {
+		if lastText, ok := messages[n-1].Content.(string); ok && strings.TrimSpace(lastText) == message && messages[n-1].Role == "assistant" {
+			return
+		}
+	}
+
+	messages = append(messages, sessionMessage{
+		Role:    "assistant",
+		Content: message,
+	})
+	if len(messages) > 40 {
+		messages = messages[len(messages)-40:]
+	}
+
+	data, err := json.Marshal(messages)
+	if err != nil {
+		log.Printf("[WARN] Failed to marshal WAAI session for %s: %v", phone, err)
+		return
+	}
+
+	if err := client.Set(ctx, key, data, 24*time.Hour).Err(); err != nil {
+		log.Printf("[WARN] Failed to save WAAI session for %s: %v", phone, err)
+	}
 }
 
 func (s *OrderService) GetPaymentMethods(organizationID string) (*model.PaymentMethodGroupedResponse, error) {

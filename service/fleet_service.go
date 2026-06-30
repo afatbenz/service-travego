@@ -4,10 +4,13 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"service-travego/configs"
 	"service-travego/helper"
+	"service-travego/internal/wagy"
 	"service-travego/model"
 	"service-travego/repository"
 	"service-travego/utils"
@@ -20,6 +23,7 @@ import (
 
 type FleetService struct {
 	repo                *repository.FleetRepository
+	printService        *PrintManagementService
 	citiesName          map[string]string
 	paymentMethodLabels map[int]string
 	paymentTypeLabels   map[int]string
@@ -70,6 +74,11 @@ type FleetOrderDeleteAddonRequest struct {
 
 func NewFleetService(repo *repository.FleetRepository) *FleetService {
 	return &FleetService{repo: repo}
+}
+
+func (s *FleetService) SetPrintService(printService *PrintManagementService) *FleetService {
+	s.printService = printService
+	return s
 }
 
 func (s *FleetService) CreateFleet(createdBy, organizationID string, req *model.CreateFleetRequest) (string, error) {
@@ -1228,10 +1237,80 @@ func calculateDurationString(startDateStr, endDateStr string) string {
 	}
 }
 
-func (s *FleetService) ProcessFleetOrder(orgID, userID, orderID string, processTypeId int) error {
+func (s *FleetService) ProcessFleetOrder(orgID, userID, orderID string, processTypeId int, reasons ...string) error {
 	if err := s.repo.ProcessFleetOrder(orgID, userID, orderID, processTypeId); err != nil {
 		return err
 	}
+
+	customerPhone, err := s.repo.GetCustomerPhoneByOrderID(orderID, orgID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil
+		}
+		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to load customer phone")
+	}
+	customerPhone = NormalizeAssistantAccountNumber(customerPhone)
+	if strings.TrimSpace(customerPhone) == "" {
+		return nil
+	}
+
+	wagyDeviceID := strings.TrimSpace(os.Getenv("WAGY_DEVICE_ID"))
+	wagyToken := strings.TrimSpace(os.Getenv("WAGY_TOKEN"))
+	if wagyDeviceID == "" || wagyToken == "" {
+		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "wagy configuration is not set")
+	}
+	waClient := wagy.NewWagyClient(wagyDeviceID, wagyToken)
+
+	if processTypeId == 1 {
+		if s.printService == nil {
+			return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "print service is not configured")
+		}
+		pdfData, err := s.printService.GenerateFleetInvoicePDF(orgID, orderID, nil)
+		if err != nil {
+			return err
+		}
+
+		tempDir := filepath.Join("assets", "temp", "invoice")
+		if err := os.MkdirAll(tempDir, 0755); err != nil {
+			return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create temp invoice directory")
+		}
+
+		filename := fmt.Sprintf("invoice_%s.pdf", orderID)
+		tempPath := filepath.Join(tempDir, filename)
+		if err := os.WriteFile(tempPath, pdfData, 0644); err != nil {
+			return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to save temporary invoice pdf")
+		}
+
+		baseURL := strings.TrimSuffix(os.Getenv("APP_HOST_URL"), "/")
+		if baseURL == "" {
+			baseURL = strings.TrimSuffix(os.Getenv("APP_HOST"), "/")
+		}
+		if baseURL == "" {
+			return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "APP_HOST_URL is not set")
+		}
+
+		relativePath := strings.ReplaceAll(tempPath, "\\", "/")
+		mediaURL := fmt.Sprintf("%s/%s", baseURL, relativePath)
+		caption := fmt.Sprintf("Pesanan *%s* telah ditinjau dan disetujui oleh tim.\n\nBerikut invoice pembayaran Anda.", orderID)
+		if _, err := waClient.SendDocumentWithURLAndHook(customerPhone, filename, mediaURL, caption, nil); err != nil {
+			return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to send approved order invoice")
+		}
+		log.Printf("[FleetService] Approved order notification sent | order_id=%s | phone=%s | media_url=%s", orderID, customerPhone, mediaURL)
+		return nil
+	}
+
+	reason := ""
+	if len(reasons) > 0 {
+		reason = strings.TrimSpace(reasons[0])
+	}
+	message := fmt.Sprintf("Pesanan *%s* dibatalkan oleh tim.", orderID)
+	if reason != "" {
+		message += " Alasan: " + reason
+	}
+	if _, err := waClient.SendMessage(customerPhone, message); err != nil {
+		return NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to send rejected order notification")
+	}
+	log.Printf("[FleetService] Rejected order notification sent | order_id=%s | phone=%s", orderID, customerPhone)
 	return nil
 }
 

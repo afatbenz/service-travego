@@ -4515,6 +4515,24 @@ func (r *FleetRepository) GetCustomerOrderMeta(orderID, organizationID string) (
 	return customerID, orderType, nil
 }
 
+func (r *FleetRepository) GetCustomerPhoneByOrderID(orderID, organizationID string) (string, error) {
+	query := fmt.Sprintf(`
+		SELECT c.customer_phone
+		FROM customers c
+		INNER JOIN customer_orders co ON co.customer_id = c.customer_id
+		WHERE co.order_id = %s
+		  AND co.organization_id = %s
+		  AND c.organization_id = %s
+		LIMIT 1
+	`, r.getPlaceholder(1), r.getPlaceholder(2), r.getPlaceholder(3))
+
+	var phone string
+	if err := database.QueryRow(r.db, query, orderID, organizationID, organizationID).Scan(&phone); err != nil {
+		return "", err
+	}
+	return phone, nil
+}
+
 func (r *FleetRepository) InsertOrderReview(reviewID, orderID string, star int, review string, organizationID string, customerID string, orderType int, createdAt time.Time) error {
 	query := fmt.Sprintf(`
 		INSERT INTO order_reviews (

@@ -31,13 +31,13 @@ const (
 	phoneKey contextKey = "phone"
 )
 
-// AIClient handles communication with AI provider (Anthropic / Gemini)
+// AIClient handles communication with AI provider (Anthropic / Gemini / SumoPod)
 type AIClient struct {
 	apiKey                string
 	model                 string
 	fallbackModels        []string
 	baseURL               string
-	provider              string // "anthropic" or "gemini"
+	provider              string // "anthropic", "gemini", or "sumopod"
 	db                    *sql.DB
 	driver                string
 	authMgr               *AuthManager
@@ -61,7 +61,7 @@ type AIClient struct {
 	wagyClient            *wagy.WagyClient
 }
 
-// NewAIClient creates a new AI client (supports Anthropic or Gemini)
+// NewAIClient creates a new AI client (supports Anthropic, Gemini, or SumoPod)
 func NewAIClient(apiKey string, db *sql.DB, dbDriver string, rdb *redis.Client, wagyClient *wagy.WagyClient) *AIClient {
 	provider := strings.ToLower(strings.TrimSpace(os.Getenv("AI_PROVIDER")))
 	if provider == "" {
@@ -82,6 +82,17 @@ func NewAIClient(apiKey string, db *sql.DB, dbDriver string, rdb *redis.Client, 
 		baseURL = strings.TrimRight(baseURL, "/")
 		if geminiKey := os.Getenv("GEMINI_API_KEY"); geminiKey != "" {
 			apiKey = geminiKey
+		}
+	case "sumopod":
+		fallbackModels = buildSumoPodModelFallbacks()
+		model = fallbackModels[0]
+		baseURL = os.Getenv("SUMODOP_API_URL")
+		if baseURL == "" {
+			baseURL = "https://ai.sumopod.com"
+		}
+		baseURL = strings.TrimRight(baseURL, "/")
+		if sumopodKey := os.Getenv("SUMODOP_API_KEY"); sumopodKey != "" {
+			apiKey = sumopodKey
 		}
 	default:
 		provider = "anthropic"
@@ -285,6 +296,22 @@ func (ac *AIClient) ProcessMessage(ctx context.Context, phone, incomingMessage s
 // callAnthropicWithTools calls Anthropic API and handles tool use
 func (ac *AIClient) callAnthropicWithTools(ctx context.Context, systemPrompt string, messages []ConversationMessage) (string, error) {
 	lastTextResponse := ""
+	latestUserMessage := latestUserText(messages)
+	if approveOrderID, ambiguous := detectAdminApproveOrderTarget(latestUserMessage, messages); ambiguous {
+		return "Mohon sebutkan *Order ID* yang akan dikonfirmasi, karena ada lebih dari satu pesanan yang mungkin ingin disetujui.", nil
+	} else if strings.TrimSpace(approveOrderID) != "" {
+		input, _ := json.Marshal(map[string]interface{}{"order_id": approveOrderID})
+		toolResult := ac.executeTool(ctx, "approve_order", input)
+		if resultMap, ok := toolResult.(map[string]interface{}); ok {
+			if errMsg := strings.TrimSpace(getStringValue(resultMap["error"])); errMsg != "" {
+				return "Gagal menyetujui pesanan *" + approveOrderID + "*: " + errMsg, nil
+			}
+			if status := strings.TrimSpace(getStringValue(resultMap["status"])); status == "success" {
+				return "Pesanan *" + approveOrderID + "* berhasil disetujui.", nil
+			}
+		}
+		return "Pesanan *" + approveOrderID + "* sudah diproses.", nil
+	}
 
 	for i := 0; i < 5; i++ { // Max 5 iterations to prevent infinite loops
 		response, err := ac.callAnthropic(ctx, systemPrompt, messages)
@@ -1160,10 +1187,293 @@ func parseGeminiResponse(body []byte) (*AnthropicResponse, error) {
 	return resp, nil
 }
 
-// callAnthropicRequest dispatches to Anthropic or Gemini based on ac.provider
+// ===== SumoPod provider (OpenAI-compatible) =====
+
+// callSumoPodRequest calls SumoPod API (OpenAI-compatible /v1/chat/completions) and converts to AnthropicResponse.
+func (ac *AIClient) callSumoPodRequest(ctx context.Context, systemPrompt string, messages []ConversationMessage, tools []ToolDefinition) (*AnthropicResponse, error) {
+	openAIMsgs := convertMessagesToOpenAI(systemPrompt, messages)
+
+	req := map[string]interface{}{
+		"model":       ac.model,
+		"messages":    openAIMsgs,
+		"max_tokens":  1024,
+		"temperature": 0.7,
+	}
+
+	if len(tools) > 0 {
+		req["tools"] = convertToolsToOpenAI(tools)
+	}
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal sumopod request: %w", err)
+	}
+
+	client := &http.Client{}
+	models := ac.sumoPodModelSequence()
+	var lastErr error
+
+	for _, modelName := range models {
+		endpoint := fmt.Sprintf("%s/v1/chat/completions", ac.baseURL)
+		httpReq, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer(body))
+		if err != nil {
+			return nil, fmt.Errorf("failed to create sumopod request: %w", err)
+		}
+
+		httpReq.Header.Set("Authorization", "Bearer "+ac.apiKey)
+		httpReq.Header.Set("Content-Type", "application/json")
+
+		// Override model per attempt
+		var attemptReq map[string]interface{}
+		if err := json.Unmarshal(body, &attemptReq); err == nil {
+			attemptReq["model"] = modelName
+			if attemptBody, err := json.Marshal(attemptReq); err == nil {
+				httpReq.Body = io.NopCloser(bytes.NewBuffer(attemptBody))
+			}
+		}
+
+		httpResp, err := client.Do(httpReq)
+		if err != nil {
+			lastErr = fmt.Errorf("model %s: failed to send sumopod request: %w", modelName, err)
+			log.Printf("[WAAI][SumoPod] Request failed for model=%s: %v", modelName, err)
+			continue
+		}
+
+		respBody, readErr := io.ReadAll(httpResp.Body)
+		_ = httpResp.Body.Close()
+		if readErr != nil {
+			lastErr = fmt.Errorf("model %s: failed to read sumopod response: %w", modelName, readErr)
+			log.Printf("[WAAI][SumoPod] Failed reading response for model=%s: %v", modelName, readErr)
+			continue
+		}
+
+		log.Printf("[WAAI][SumoPod] Raw response model=%s status=%d body=%s", modelName, httpResp.StatusCode, truncateResponseBody(respBody))
+
+		if httpResp.StatusCode < http.StatusOK || httpResp.StatusCode >= http.StatusMultipleChoices {
+			lastErr = fmt.Errorf("model %s: sumopod error (%d): %s", modelName, httpResp.StatusCode, truncateResponseBody(respBody))
+			log.Printf("[WAAI][SumoPod] Falling back from model=%s because status=%d", modelName, httpResp.StatusCode)
+			continue
+		}
+
+		// Reuse the existing OpenAI-compatible parser in parseAnthropicResponse
+		response, parseErr := parseAnthropicResponse(respBody)
+		if parseErr != nil {
+			lastErr = fmt.Errorf("model %s: failed to parse sumopod response: %w", modelName, parseErr)
+			log.Printf("[WAAI][SumoPod] Failed parsing response for model=%s: %v", modelName, parseErr)
+			continue
+		}
+
+		if modelName != ac.model {
+			log.Printf("[WAAI][SumoPod] Using fallback model=%s", modelName)
+		}
+
+		return response, nil
+	}
+
+	if lastErr != nil {
+		return nil, lastErr
+	}
+
+	return nil, fmt.Errorf("sumopod request failed: no model configured")
+}
+
+func buildSumoPodModelFallbacks() []string {
+	models := []string{
+		strings.TrimSpace(os.Getenv("SUMODOP_MODEL")),
+		strings.TrimSpace(os.Getenv("SUMODOP_MODEL_FALLBACK1")),
+		strings.TrimSpace(os.Getenv("SUMODOP_MODEL_FALLBACK2")),
+	}
+
+	result := make([]string, 0, len(models))
+	seen := make(map[string]struct{}, len(models))
+	for _, model := range models {
+		if model == "" {
+			continue
+		}
+		if _, exists := seen[model]; exists {
+			continue
+		}
+		seen[model] = struct{}{}
+		result = append(result, model)
+	}
+
+	if len(result) == 0 {
+		return []string{"deepseek-v4-flash", "deepseek-v4-pro", "glm-5"}
+	}
+
+	return result
+}
+
+func (ac *AIClient) sumoPodModelSequence() []string {
+	models := make([]string, 0, 1+len(ac.fallbackModels))
+	seen := make(map[string]struct{}, 1+len(ac.fallbackModels))
+	for _, model := range append([]string{ac.model}, ac.fallbackModels...) {
+		model = strings.TrimSpace(model)
+		if model == "" {
+			continue
+		}
+		if _, exists := seen[model]; exists {
+			continue
+		}
+		seen[model] = struct{}{}
+		models = append(models, model)
+	}
+	if len(models) == 0 {
+		return []string{"deepseek-v4-flash"}
+	}
+	return models
+}
+
+// convertToolsToOpenAI converts Anthropic-style tool definitions to OpenAI tool format.
+func convertToolsToOpenAI(tools []ToolDefinition) []map[string]interface{} {
+	result := make([]map[string]interface{}, 0, len(tools))
+	for _, t := range tools {
+		tool := map[string]interface{}{
+			"type": "function",
+			"function": map[string]interface{}{
+				"name":        t.Function.Name,
+				"description": t.Function.Description,
+			},
+		}
+		if t.Function.Parameters != nil {
+			tool["function"].(map[string]interface{})["parameters"] = t.Function.Parameters
+		}
+		result = append(result, tool)
+	}
+	return result
+}
+
+// convertMessagesToOpenAI converts ConversationMessage history to OpenAI-format message array.
+func convertMessagesToOpenAI(systemPrompt string, messages []ConversationMessage) []map[string]interface{} {
+	result := make([]map[string]interface{}, 0, len(messages)+1)
+
+	// System prompt as a separate system message
+	if systemPrompt != "" {
+		result = append(result, map[string]interface{}{
+			"role":    "system",
+			"content": systemPrompt,
+		})
+	}
+
+	for _, msg := range messages {
+		// Strip tool_content blocks; OpenAI /v1/chat/completions uses a
+		// different tool message format. Handle text-only content for now.
+		switch v := msg.Content.(type) {
+		case string:
+			result = append(result, map[string]interface{}{
+				"role":    msg.Role,
+				"content": v,
+			})
+		case []map[string]interface{}:
+			// Multi-block content - extract text, tool calls, and tool results
+			hasToolResult := false
+			for _, block := range v {
+				if block["type"] == "tool_result" {
+					hasToolResult = true
+					result = append(result, map[string]interface{}{
+						"role":         "tool",
+						"tool_call_id": block["tool_use_id"],
+						"content":      fmt.Sprintf("%v", block["content"]),
+					})
+				}
+			}
+			if hasToolResult {
+				continue
+			}
+
+			openAIMsg := map[string]interface{}{
+				"role":    msg.Role,
+				"content": "",
+			}
+			var toolCalls []map[string]interface{}
+
+			for _, block := range v {
+				switch block["type"] {
+				case "text":
+					if txt, ok := block["text"].(string); ok {
+						if openAIMsg["content"].(string) != "" {
+							openAIMsg["content"] = openAIMsg["content"].(string) + "\n" + txt
+						} else {
+							openAIMsg["content"] = txt
+						}
+					}
+				case "tool_use":
+					inputJSON, _ := json.Marshal(block["input"])
+					toolCalls = append(toolCalls, map[string]interface{}{
+						"id":   block["id"],
+						"type": "function",
+						"function": map[string]interface{}{
+							"name":      block["name"],
+							"arguments": string(inputJSON),
+						},
+					})
+				}
+			}
+
+			if len(toolCalls) > 0 {
+				openAIMsg["tool_calls"] = toolCalls
+			}
+			result = append(result, openAIMsg)
+
+		case []interface{}:
+			// Same as above but with []interface{} type
+			openAIMsg := map[string]interface{}{
+				"role":    msg.Role,
+				"content": "",
+			}
+			var toolCalls []map[string]interface{}
+
+			for _, raw := range v {
+				block, ok := raw.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				switch block["type"] {
+				case "text":
+					if txt, ok := block["text"].(string); ok {
+						if openAIMsg["content"].(string) != "" {
+							openAIMsg["content"] = openAIMsg["content"].(string) + "\n" + txt
+						} else {
+							openAIMsg["content"] = txt
+						}
+					}
+				case "tool_use":
+					inputJSON, _ := json.Marshal(block["input"])
+					toolCalls = append(toolCalls, map[string]interface{}{
+						"id":   block["id"],
+						"type": "function",
+						"function": map[string]interface{}{
+							"name":      block["name"],
+							"arguments": string(inputJSON),
+						},
+					})
+				case "tool_result":
+					// OpenAI uses "tool" role for tool results
+					result = append(result, map[string]interface{}{
+						"role":         "tool",
+						"tool_call_id": block["tool_use_id"],
+						"content":      fmt.Sprintf("%v", block["content"]),
+					})
+				}
+			}
+
+			if len(toolCalls) > 0 {
+				openAIMsg["tool_calls"] = toolCalls
+			}
+			result = append(result, openAIMsg)
+		}
+	}
+
+	return result
+}
+
+// callAnthropicRequest dispatches to Anthropic, Gemini, or SumoPod based on ac.provider
 func (ac *AIClient) callAnthropicRequest(ctx context.Context, systemPrompt string, messages []ConversationMessage, tools []ToolDefinition) (*AnthropicResponse, error) {
 	if ac.provider == "gemini" {
 		return ac.callGeminiRequest(ctx, systemPrompt, messages, tools, false)
+	}
+	if ac.provider == "sumopod" {
+		return ac.callSumoPodRequest(ctx, systemPrompt, messages, tools)
 	}
 
 	req := AnthropicRequest{
@@ -1532,6 +1842,8 @@ You have access to the following functions to help users:
 - [CRITICAL] Data dalam database dapat BERUBAH sewaktu-waktu. JANGAN PERCAYA jawaban Anda dari riwayat percakapan sebelumnya. Selalu PANGGIL TOOL setiap kali user menanyakan data (pesanan, pelanggan, jadwal, armada, dll.) untuk mendapatkan data TERBARU dari database.
 - GUESTS CANNOT USE TOOLS THAT REQUIRE ORGANIZATION CONTEXT. If a guest asks for data, explain how to register.
 - When the user asks about their business or organization name, answer using Business Name from context above. For full organization details (address, phone, NPWP, etc.), call get_organization_info.
+- Jika Anda sebelumnya baru saja mengirim notifikasi internal "Pesanan baru berhasil dibuat" yang berisi Order ID ke admin/company, lalu admin membalas singkat seperti OK, Siap, Approve, Setuju, Confirm, Konfirmasi, atau Noted, anggap balasan itu merujuk ke Order ID pada notifikasi terakhir tersebut dan setujui pesanan itu.
+- Jika ada lebih dari satu Order ID kandidat dan tidak jelas mana yang dimaksud, JANGAN mengarang. Minta user menyebutkan Order ID yang akan dikonfirmasi.
 - When the user asks for customer contact or details by name (not customer_id), you MUST:
   1. Call get_customer_list with customer_name set to the name provided
   2. If one match is found, call get_customer_detail with that customer_id and share the contact info
@@ -2201,6 +2513,136 @@ func buildCreateOrderFailureCorrection(missing []string, errMsg string) string {
 	return "PERBAIKAN WAJIB: Tool create_order gagal sehingga pesanan BELUM dibuat. Jangan bilang pesanan sudah diterima, diproses, atau berhasil. Minta data yang masih kurang atau jelaskan kendalanya secara singkat."
 }
 
+func detectAdminApproveOrderTarget(message string, messages []ConversationMessage) (string, bool) {
+	if !isAdminApprovalReply(message) {
+		return "", false
+	}
+
+	messageIDs := uniqueOrderIDs(extractOrderIDCandidatesFromText(message))
+	switch len(messageIDs) {
+	case 1:
+		return messageIDs[0], false
+	case 0:
+		// continue using context/history
+	default:
+		return "", true
+	}
+
+	lastAssistant := latestAssistantText(messages)
+	lastAssistantIDs := uniqueOrderIDs(extractOrderIDCandidatesFromText(lastAssistant))
+	if isOrderCreatedNotificationText(lastAssistant) {
+		switch len(lastAssistantIDs) {
+		case 1:
+			return lastAssistantIDs[0], false
+		case 0:
+			// continue
+		default:
+			return "", true
+		}
+	}
+
+	recentIDs := extractRecentApprovalCandidateOrderIDs(messages, 5)
+	switch len(recentIDs) {
+	case 1:
+		return recentIDs[0], false
+	case 0:
+		return "", false
+	default:
+		return "", true
+	}
+}
+
+func isAdminApprovalReply(text string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(text))
+	if normalized == "" {
+		return false
+	}
+	normalized = collapseRepeatedLetters(normalized)
+	normalized = strings.TrimSpace(normalized)
+	if normalized == "" {
+		return false
+	}
+	if strings.Contains(normalized, "tapi") || strings.Contains(normalized, "namun") || strings.Contains(normalized, "kecuali") {
+		return false
+	}
+
+	approvalWords := []string{
+		"ok",
+		"oke",
+		"siap",
+		"approve",
+		"setuju",
+		"confirm",
+		"konfirmasi",
+		"noted",
+	}
+	for _, word := range approvalWords {
+		if normalized == word || strings.HasPrefix(normalized, word+" ") {
+			return true
+		}
+	}
+	if strings.HasPrefix(normalized, "ya ") || strings.HasPrefix(normalized, "iya ") {
+		return true
+	}
+	return normalized == "ya" || normalized == "iya"
+}
+
+func isOrderCreatedNotificationText(text string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(text))
+	if normalized == "" {
+		return false
+	}
+	return strings.Contains(normalized, "pesanan baru berhasil dibuat") && strings.Contains(normalized, "order id")
+}
+
+func extractRecentApprovalCandidateOrderIDs(messages []ConversationMessage, limit int) []string {
+	if limit <= 0 {
+		limit = 5
+	}
+	result := make([]string, 0, limit)
+	seen := make(map[string]struct{}, limit)
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role != "assistant" {
+			continue
+		}
+		text := assistantMessageText(messages[i].Content)
+		if !isOrderCreatedNotificationText(text) {
+			continue
+		}
+		for _, orderID := range uniqueOrderIDs(extractOrderIDCandidatesFromText(text)) {
+			if _, exists := seen[orderID]; exists {
+				continue
+			}
+			seen[orderID] = struct{}{}
+			result = append(result, orderID)
+			if len(result) >= limit {
+				return result
+			}
+		}
+	}
+	return result
+}
+
+func uniqueOrderIDs(orderIDs []string) []string {
+	if len(orderIDs) == 0 {
+		return nil
+	}
+	result := make([]string, 0, len(orderIDs))
+	seen := make(map[string]struct{}, len(orderIDs))
+	for _, orderID := range orderIDs {
+		orderID = strings.TrimSpace(orderID)
+		if orderID == "" {
+			continue
+		}
+		if _, exists := seen[orderID]; exists {
+			continue
+		}
+		seen[orderID] = struct{}{}
+		result = append(result, orderID)
+	}
+	return result
+}
+
 func isAffirmationReply(text string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(text))
 	if normalized == "" {
@@ -2330,6 +2772,42 @@ func latestAssistantText(messages []ConversationMessage) string {
 		}
 	}
 	return ""
+}
+
+func assistantMessageText(content interface{}) string {
+	switch v := content.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	case []map[string]interface{}:
+		var parts []string
+		for _, bm := range v {
+			if bm == nil {
+				continue
+			}
+			if t, ok := bm["type"].(string); ok && t == "text" {
+				if txt, ok := bm["text"].(string); ok && strings.TrimSpace(txt) != "" {
+					parts = append(parts, strings.TrimSpace(txt))
+				}
+			}
+		}
+		return strings.Join(parts, "\n")
+	case []interface{}:
+		var parts []string
+		for _, raw := range v {
+			bm, ok := raw.(map[string]interface{})
+			if !ok || bm == nil {
+				continue
+			}
+			if t, ok := bm["type"].(string); ok && t == "text" {
+				if txt, ok := bm["text"].(string); ok && strings.TrimSpace(txt) != "" {
+					parts = append(parts, strings.TrimSpace(txt))
+				}
+			}
+		}
+		return strings.Join(parts, "\n")
+	default:
+		return ""
+	}
 }
 
 func collapseRepeatedLetters(text string) string {
