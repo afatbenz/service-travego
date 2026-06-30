@@ -3972,39 +3972,50 @@ func (ac *AIClient) executeCreateOrder(ctx context.Context, orgID, userID string
 			address = pickupLocation
 		}
 	}
+	missingVariable := ""
 	if fleetID == "" {
+		missingVariable += "fleet_id, "
 		missing = append(missing, "fleet_id")
 	}
 	if priceID == "" {
+		missingVariable += "price_id, "
 		missing = append(missing, "price_id")
 	}
 	if fullname == "" {
+		missingVariable += "fullname, "
 		missing = append(missing, "fullname")
 	}
 	if strings.TrimSpace(roleName) != "CustomerAssistant" && email == "" {
+		missingVariable += "email, "
 		missing = append(missing, "email")
 	}
 	if address == "" {
+		missingVariable += "address, "
 		missing = append(missing, "address")
 	}
 	if startDate == "" {
+		missingVariable += "start_date, "
 		missing = append(missing, "start_date")
 	}
 	if endDate == "" {
+		missingVariable += "end_date, "
 		missing = append(missing, "end_date")
 	}
 	if pickupCityID == "" {
+		missingVariable += "pickup_city_id, "
 		missing = append(missing, "pickup_city_id")
 	}
 	if pickupLocation == "" {
+		missingVariable += "pickup_location, "
 		missing = append(missing, "pickup_location")
 	}
 	if len(missing) > 0 {
 		customerPhone, _ := ctx.Value(phoneKey).(string)
+		fmt.Println("==== missingVariable:", missingVariable)
 		if suppress, _ := ctx.Value(contextSuppressAdminNotify).(bool); !suppress {
 			ac.notifyAdminCreateOrderFailed(ctx, orgID, strings.TrimSpace(orgName), strings.TrimSpace(customerPhone), map[string]interface{}{
-				"error":            "Missing required parameters",
-				"missing_required": missing,
+				"error":            "Missing required parameters: " + missingVariable,
+				"missing_required": missingVariable,
 				"fleet_id":         fleetID,
 				"price_id":         priceID,
 				"fullname":         fullname,
