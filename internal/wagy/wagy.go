@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"service-travego/helper"
 	"strings"
+	"time"
 )
 
 // SendMessageRequest represents the request body for sending a message
@@ -64,68 +65,28 @@ func NewWagyClient(deviceID, token string) *WagyClient {
 
 // SendMessage sends a message via Wagy API
 func (wc *WagyClient) SendMessage(phone, message string) (int64, error) {
+	return wc.SendMessageWithHook(phone, message, nil)
+}
+
+// SendMessageWithHook sends a message via Wagy API and reports the result to the provided hook.
+func (wc *WagyClient) SendMessageWithHook(phone, message string, onResult func(error)) (int64, error) {
 	url := fmt.Sprintf("%s/%s/send", wc.baseURL, wc.deviceID)
-	fmt.Println("URL:", url)
 
 	payload := SendMessageRequest{
 		Phone:   phone,
 		Message: message,
 	}
 
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return 0, fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
-	if err != nil {
-		return 0, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+wc.token)
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return 0, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return 0, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	trimmedBody := strings.TrimSpace(string(respBody))
-	if trimmedBody == "" {
-		if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
-			return 0, nil
-		}
-		return 0, fmt.Errorf("wagy returned status %d with empty response body", resp.StatusCode)
-	}
-
-	var result SendMessageResponse
-	err = json.Unmarshal(respBody, &result)
-	if err != nil {
-		if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
-			return 0, nil
-		}
-		return 0, fmt.Errorf("failed to parse wagy response (status %d): %s", resp.StatusCode, truncateForError(trimmedBody))
-	}
-
-	if result.Status != "success" {
-		if result.Error != nil {
-			return 0, fmt.Errorf("wagy error: %s - %s", result.Error.Code, result.Error.Message)
-		}
-		return 0, fmt.Errorf("wagy returned non-success status: %s", result.Status)
-	}
-
-	return result.Data.MessageID, nil
+	return wc.sendJSONWithHook(url, payload, onResult)
 }
 
 // SendDocument sends a document (PDF, etc.) via Wagy API using base64
 func (wc *WagyClient) SendDocument(phone, filename string, fileData []byte, caption string) (int64, error) {
+	return wc.SendDocumentWithHook(phone, filename, fileData, caption, nil)
+}
+
+// SendDocumentWithHook sends a document and reports the result to the provided hook.
+func (wc *WagyClient) SendDocumentWithHook(phone, filename string, fileData []byte, caption string, onResult func(error)) (int64, error) {
 	url := fmt.Sprintf("%s/%s/send", wc.baseURL, wc.deviceID)
 
 	// Encode file to base64
@@ -139,62 +100,18 @@ func (wc *WagyClient) SendDocument(phone, filename string, fileData []byte, capt
 		MediaType: "document",
 	}
 
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return 0, fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
-	if err != nil {
-		return 0, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+wc.token)
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return 0, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return 0, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	trimmedBody := strings.TrimSpace(string(respBody))
-	if trimmedBody == "" {
-		if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
-			return 0, nil
-		}
-		return 0, fmt.Errorf("wagy returned status %d with empty response body", resp.StatusCode)
-	}
-
-	var result SendMessageResponse
-	err = json.Unmarshal(respBody, &result)
-	if err != nil {
-		if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
-			return 0, nil
-		}
-		return 0, fmt.Errorf("failed to parse wagy response (status %d): %s", resp.StatusCode, truncateForError(trimmedBody))
-	}
-
-	if result.Status != "success" {
-		if result.Error != nil {
-			return 0, fmt.Errorf("wagy error: %s - %s", result.Error.Code, result.Error.Message)
-		}
-		return 0, fmt.Errorf("wagy returned non-success status: %s", result.Status)
-	}
-
-	return result.Data.MessageID, nil
+	return wc.sendJSONWithHook(url, payload, onResult)
 }
 
 // SendDocumentWithURL sends a document via Wagy API using a public URL
 func (wc *WagyClient) SendDocumentWithURL(phone, filename, mediaURL, caption string) (int64, error) {
+	return wc.SendDocumentWithURLAndHook(phone, filename, mediaURL, caption, nil)
+}
+
+// SendDocumentWithURLAndHook sends a document via URL and reports the result to the provided hook.
+func (wc *WagyClient) SendDocumentWithURLAndHook(phone, filename, mediaURL, caption string, onResult func(error)) (int64, error) {
 	url := fmt.Sprintf("%s/%s/send", wc.baseURL, wc.deviceID)
-	log.Printf("[Wagy][SendDocumentWithURL called for %s", filename)
+	log.Printf("[Wagy] SendDocumentWithURL filename=%s media_url=%s", filename, mediaURL)
 
 	payload := SendDocumentRequest{
 		Phone:     phone,
@@ -206,60 +123,16 @@ func (wc *WagyClient) SendDocumentWithURL(phone, filename, mediaURL, caption str
 
 	log.Printf("[Wagy] payload: %+v", payload)
 
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return 0, fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
-	if err != nil {
-		return 0, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+wc.token)
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return 0, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return 0, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	trimmedBody := strings.TrimSpace(string(respBody))
-	if trimmedBody == "" {
-		if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
-			return 0, nil
-		}
-		return 0, fmt.Errorf("wagy returned status %d with empty response body", resp.StatusCode)
-	}
-
-	var result SendMessageResponse
-	err = json.Unmarshal(respBody, &result)
-	if err != nil {
-		if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
-			return 0, nil
-		}
-		return 0, fmt.Errorf("failed to parse wagy response (status %d): %s", resp.StatusCode, truncateForError(trimmedBody))
-	}
-
-	if result.Status != "success" {
-		if result.Error != nil {
-			return 0, fmt.Errorf("wagy error: %s - %s", result.Error.Code, result.Error.Message)
-		}
-		return 0, fmt.Errorf("wagy returned non-success status: %s", result.Status)
-	}
-
-	return result.Data.MessageID, nil
+	return wc.sendJSONWithHook(url, payload, onResult)
 }
 
 // SendImage sends an image via Wagy API using base64
 func (wc *WagyClient) SendImage(phone, filename string, fileData []byte, caption string) (int64, error) {
+	return wc.SendImageWithHook(phone, filename, fileData, caption, nil)
+}
+
+// SendImageWithHook sends an image and reports the result to the provided hook.
+func (wc *WagyClient) SendImageWithHook(phone, filename string, fileData []byte, caption string, onResult func(error)) (int64, error) {
 	url := fmt.Sprintf("%s/%s/send", wc.baseURL, wc.deviceID)
 
 	// Encode file to base64
@@ -273,60 +146,16 @@ func (wc *WagyClient) SendImage(phone, filename string, fileData []byte, caption
 		MediaType: "image",
 	}
 
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return 0, fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
-	if err != nil {
-		return 0, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+wc.token)
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return 0, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return 0, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	trimmedBody := strings.TrimSpace(string(respBody))
-	if trimmedBody == "" {
-		if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
-			return 0, nil
-		}
-		return 0, fmt.Errorf("wagy returned status %d with empty response body", resp.StatusCode)
-	}
-
-	var result SendMessageResponse
-	err = json.Unmarshal(respBody, &result)
-	if err != nil {
-		if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
-			return 0, nil
-		}
-		return 0, fmt.Errorf("failed to parse wagy response (status %d): %s", resp.StatusCode, truncateForError(trimmedBody))
-	}
-
-	if result.Status != "success" {
-		if result.Error != nil {
-			return 0, fmt.Errorf("wagy error: %s - %s", result.Error.Code, result.Error.Message)
-		}
-		return 0, fmt.Errorf("wagy returned non-success status: %s", result.Status)
-	}
-
-	return result.Data.MessageID, nil
+	return wc.sendJSONWithHook(url, payload, onResult)
 }
 
 // SendImageWithURL sends an image via Wagy API using a public URL
 func (wc *WagyClient) SendImageWithURL(phone, mediaURL, caption string) (int64, error) {
+	return wc.SendImageWithURLAndHook(phone, mediaURL, caption, nil)
+}
+
+// SendImageWithURLAndHook sends an image via URL and reports the result to the provided hook.
+func (wc *WagyClient) SendImageWithURLAndHook(phone, mediaURL, caption string, onResult func(error)) (int64, error) {
 	url := fmt.Sprintf("%s/%s/send", wc.baseURL, wc.deviceID)
 
 	payload := SendDocumentRequest{
@@ -336,56 +165,7 @@ func (wc *WagyClient) SendImageWithURL(phone, mediaURL, caption string) (int64, 
 		MediaURL:  mediaURL,
 	}
 
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return 0, fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
-	if err != nil {
-		return 0, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+wc.token)
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return 0, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return 0, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	trimmedBody := strings.TrimSpace(string(respBody))
-	if trimmedBody == "" {
-		if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
-			return 0, nil
-		}
-		return 0, fmt.Errorf("wagy returned status %d with empty response body", resp.StatusCode)
-	}
-
-	var result SendMessageResponse
-	err = json.Unmarshal(respBody, &result)
-	if err != nil {
-		if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
-			return 0, nil
-		}
-		return 0, fmt.Errorf("failed to parse wagy response (status %d): %s", resp.StatusCode, truncateForError(trimmedBody))
-	}
-
-	if result.Status != "success" {
-		if result.Error != nil {
-			return 0, fmt.Errorf("wagy error: %s - %s", result.Error.Code, result.Error.Message)
-		}
-		return 0, fmt.Errorf("wagy returned non-success status: %s", result.Status)
-	}
-
-	return result.Data.MessageID, nil
+	return wc.sendJSONWithHook(url, payload, onResult)
 }
 
 // SendMediaWithTempFile saves file to temporary directory, sends via Wagy using URL, then deletes file
@@ -427,4 +207,78 @@ func truncateForError(body string) string {
 		return body
 	}
 	return body[:maxLen] + "..."
+}
+
+func (wc *WagyClient) sendJSON(url string, payload interface{}) (int64, error) {
+	return wc.sendJSONWithHook(url, payload, nil)
+}
+
+func (wc *WagyClient) sendJSONWithHook(url string, payload interface{}, onResult func(error)) (messageID int64, retErr error) {
+	defer func() {
+		if onResult != nil {
+			onResult(retErr)
+		}
+	}()
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		retErr = fmt.Errorf("failed to marshal request: %w", err)
+		return 0, retErr
+	}
+
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(body))
+	if err != nil {
+		retErr = fmt.Errorf("failed to create request: %w", err)
+		return 0, retErr
+	}
+
+	req.Header.Set("Authorization", "Bearer "+wc.token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := wagyHTTPClient().Do(req)
+	if err != nil {
+		retErr = fmt.Errorf("failed to send request: %w", err)
+		return 0, retErr
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		retErr = fmt.Errorf("failed to read response: %w", err)
+		return 0, retErr
+	}
+
+	messageID, retErr = parseWagySendResponse(resp.StatusCode, respBody)
+	return messageID, retErr
+}
+
+func parseWagySendResponse(statusCode int, respBody []byte) (int64, error) {
+	trimmedBody := strings.TrimSpace(string(respBody))
+	if trimmedBody == "" {
+		if statusCode >= http.StatusOK && statusCode < http.StatusMultipleChoices {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("wagy returned status %d with empty response body", statusCode)
+	}
+
+	var result SendMessageResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		if statusCode >= http.StatusOK && statusCode < http.StatusMultipleChoices {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("failed to parse wagy response (status %d): %s", statusCode, truncateForError(trimmedBody))
+	}
+
+	if result.Status != "success" {
+		if result.Error != nil {
+			return 0, fmt.Errorf("wagy error: %s - %s", result.Error.Code, result.Error.Message)
+		}
+		return 0, fmt.Errorf("wagy returned non-success status: %s", result.Status)
+	}
+
+	return result.Data.MessageID, nil
+}
+
+func wagyHTTPClient() *http.Client {
+	return &http.Client{Timeout: 30 * time.Second}
 }

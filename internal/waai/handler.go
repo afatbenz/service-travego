@@ -154,21 +154,22 @@ func (h *Handler) processCompanyMessageAsync(customerPhone, messageText string, 
 		fmt.Println("sendClient is nil -- deviceID ", asstCust.DeviceID)
 		log.Printf("[WAAI][Company] Cannot get WagyClient for device %s", asstCust.DeviceID)
 		finalResponse := "Maaf, layanan assistant sedang tidak tersedia. Silakan hubungi kantor langsung."
-		_ = h.sendMessage(customerPhone, finalResponse)
+		_ = h.sendMessageWithClient(customerPhone, finalResponse, h.wagyClient, asstCust.OrganizationID, "CustomerAssistant")
 		return
 	}
 
 	tenant := &TenantInfo{
 		OrganizationID:   asstCust.OrganizationID,
-		OrganizationName: asstCust.DeviceName,
+		OrganizationName: "",
 		Role:             "CustomerAssistant",
+		RoleName:         "CustomerAssistant",
 	}
 
 	snapshot := make(map[string]interface{})
 	if tenant.OrganizationID != "" {
-		ctxAuth := withAuthorizedTenantContext(ctx, tenant)
+		ctx = withAuthorizedTenantContext(ctx, tenant)
 		var err error
-		snapshot, err = h.tenantRepo.GetOrganizationSnapshot(ctxAuth, tenant.OrganizationID)
+		snapshot, err = h.tenantRepo.GetOrganizationSnapshot(ctx, tenant.OrganizationID)
 		if err != nil {
 			log.Printf("[WAAI][Company] Failed snapshot org %s: %v", tenant.OrganizationID, err)
 			snapshot = map[string]interface{}{}
@@ -201,31 +202,38 @@ func (h *Handler) processCompanyMessageAsync(customerPhone, messageText string, 
 	systemPrompt := h.aiClient.BuildCompanySystemPrompt(tenant, snapshot, messageText, asstCust.DeviceName)
 
 	// Use Company-specific AI method with restricted tool definitions
-	finalResponse, err := h.aiClient.callAnthropicWithCompanyTools(ctx, systemPrompt, history)
+	finalResponse, updatedHistory, err := h.aiClient.callAnthropicWithCompanyTools(ctx, systemPrompt, history)
 	if err != nil {
 		log.Printf("[WAAI][Company] AI error: %v", err)
 		finalResponse = "Maaf, layanan sedang sibuk. Silakan coba lagi."
 	}
 	finalResponse = formatWhatsAppReply(finalResponse)
 
-	history = append(history, ConversationMessage{
-		Role:    "assistant",
-		Content: finalResponse,
-	})
+	if len(updatedHistory) > 0 {
+		history = updatedHistory
+	} else {
+		history = append(history, ConversationMessage{
+			Role:    "assistant",
+			Content: finalResponse,
+		})
+	}
+	if len(history) > 40 {
+		history = history[len(history)-40:]
+	}
 	_ = h.sessionMgr.SaveSessionFor(ctx, asstCust.OrganizationID, customerPhone, history)
 
-	if err := h.sendMessageWithClient(customerPhone, finalResponse, sendClient); err != nil {
+	if err := h.sendMessageWithClient(customerPhone, finalResponse, sendClient, asstCust.OrganizationID, tenant.RoleName); err != nil {
 		log.Printf("[WAAI][Company] Failed send via device %s: %v", asstCust.AssistantDeviceID, err)
 	}
 
 	log.Printf("[WAAI][Company] Reply sent | device=%s | to=%s", asstCust.AssistantDeviceID, customerPhone)
 }
 
-func (h *Handler) sendMessageWithClient(phone, message string, client *wagy.WagyClient) error {
+func (h *Handler) sendMessageWithClient(phone, message string, client *wagy.WagyClient, organizationID string, roleName string) error {
 	if client == nil {
 		return fmt.Errorf("WagyClient is nil")
 	}
-	_, err := client.SendMessage(phone, message)
+	_, err := client.SendMessageWithHook(phone, message, buildAssistantSendResultHook(h.aiClient.db, h.aiClient.driver, organizationID, roleName))
 	if err != nil {
 		return err
 	}
@@ -253,7 +261,18 @@ func (h *Handler) processMessageAsync(phone, messageText string) {
 
 // sendMessage sends a message via Wagy API
 func (h *Handler) sendMessage(phone, message string) error {
-	_, err := h.wagyClient.SendMessage(phone, message)
+	organizationID := ""
+	roleName := ""
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	tenant, err := h.tenantRepo.GetTenantByPhone(ctx, phone)
+	if err == nil {
+		organizationID = tenant.OrganizationID
+		roleName = tenant.RoleName
+	}
+
+	_, err = h.wagyClient.SendMessageWithHook(phone, message, buildAssistantSendResultHook(h.aiClient.db, h.aiClient.driver, organizationID, roleName))
 	if err != nil {
 		fmt.Printf("Error sending message to %s: %v", phone, err)
 		return err
@@ -324,7 +343,7 @@ func RegisterRoutes(app *fiber.App, cfg *Config, db *sql.DB, dbDriver string, rd
 
 func buildUnregisteredReply(messageText string) string {
 	if isIdentityOrDeveloperQuestion(messageText) {
-		return "Halo! Saya Trave AI Assistant Travego.\n\n" +
+		return "Halo.\n\nSaya Trave AI Assistant Travego.\n\n" +
 			"Trave AI Assistant Travego diciptakan oleh Afatbenz Tech.\n" +
 			"Untuk diskusi lebih lanjut, Anda bisa hubungi 6281335884729 atau kunjungi mafatichulfuadi.com.\n\n" +
 			"Jika Anda ingin mengetahui lebih lanjut tentang layanan Travego, saya siap membantu."
@@ -333,13 +352,13 @@ func buildUnregisteredReply(messageText string) string {
 		return "Untuk mendaftar dan menikmati layanan AI Assistant, silakan register di platform https://www.travego.id lalu tambahkan nomor WhatsApp Anda di menu Pengaturan > AI Assistant."
 	}
 
-	return "Halo! \nMaaf, sepertinya nomor Anda belum terdaftar di sistem kami.\n\n" +
+	return "Halo.\n\nMaaf, sepertinya nomor Anda belum terdaftar di sistem kami.\n\n" +
 		"Ingin mengoptimalkan operasional bisnis transportasi Anda dengan bantuan AI Assistant dan sistem ERP Travego? " +
 		"Segera daftar dan nikmati kemudahannya.\n\n" +
 		"Informasi lebih lanjut, silakan kunjungi:\n" +
 		"Website: http://www.travego.id\n" +
 		"Whatsapp: 6281335884729\n\n" +
-		"Terimakasih"
+		"Terima kasih."
 }
 
 func isIdentityOrDeveloperQuestion(messageText string) bool {

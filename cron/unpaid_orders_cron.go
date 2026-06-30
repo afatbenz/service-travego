@@ -195,6 +195,7 @@ func (c *UnpaidOrdersCron) queryUnpaidOrders(organizationID string, nextWeek str
 		INNER JOIN fleet_order_itinerary foi ON foi.order_id = fo.order_id
 		WHERE fo.payment_status > 1
 		  AND fo.start_date <= $1
+		  AND fo.start_date >= CURRENT_DATE
 		  AND fo.organization_id = $2
 	`
 

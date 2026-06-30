@@ -11,6 +11,7 @@ import (
 	"os"
 	"service-travego/configs"
 	"service-travego/helper"
+	"service-travego/internal/wagy"
 	"service-travego/model"
 	"service-travego/repository"
 	"service-travego/utils"
@@ -92,6 +93,7 @@ func (s *OrderService) CreateOrder(req *model.CreateOrderRequest) (*model.Create
 	req.TotalAmount = totalAmount
 	err = s.fleetRepo.CreateOrder(req)
 	if err != nil {
+		fmt.Printf("---- CreateOrder failed: %v\n", err)
 		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to create order")
 	}
 
@@ -201,6 +203,31 @@ func (s *OrderService) CreateOrder(req *model.CreateOrderRequest) (*model.Create
 					log.Printf("[ERROR] Failed to send order received email to organization %s: %v", orgEmail, err)
 				}
 			}()
+		}
+	}
+
+	adminAccountNumber, err := s.orgRepo.GetAdminAccountNumber(req.OrganizationID)
+	if err != nil {
+		log.Printf("[WARN] Failed to get admin account number for org %s: %v", req.OrganizationID, err)
+	} else if strings.TrimSpace(adminAccountNumber) != "" {
+		wagyDeviceID := strings.TrimSpace(os.Getenv("WAGY_DEVICE_ID"))
+		wagyToken := strings.TrimSpace(os.Getenv("WAGY_TOKEN"))
+		if wagyDeviceID == "" || wagyToken == "" {
+			log.Printf("[WARN] WAGY_DEVICE_ID or WAGY_TOKEN is empty, skip order WhatsApp notification for order %s", orderID)
+		} else {
+			waClient := wagy.NewWagyClient(wagyDeviceID, wagyToken)
+			message := fmt.Sprintf(
+				"Pesanan baru berhasil dibuat.\n\nOrder ID: %s\nNama Customer: %s\nNo. HP: %s\nTanggal Sewa: %s s/d %s\nPickup: %s",
+				orderID,
+				req.Fullname,
+				req.Phone,
+				req.StartDate,
+				req.EndDate,
+				req.PickupLocation,
+			)
+			if _, err := waClient.SendMessage(NormalizeAssistantAccountNumber(adminAccountNumber), message); err != nil {
+				log.Printf("[WARN] Failed to send order WhatsApp notification to %s for order %s: %v", adminAccountNumber, orderID, err)
+			}
 		}
 	}
 

@@ -166,6 +166,28 @@ func GetToolDefinitions() []ToolDefinition {
 		},
 		{
 			Type: "function",
+			Name: "get_trip_distance",
+			Function: FunctionDefinition{
+				Name:        "get_trip_distance",
+				Description: "Estimate trip distance (km) between pickup/origin and destination using public routing/geocoding. Returns recommended minimal rental days for overland (pulang-pergi) vs drop-only based on distance thresholds.",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"from": map[string]interface{}{
+							"type":        "string",
+							"description": "Origin/pickup city or location name. If empty, will default to company city.",
+						},
+						"to": map[string]interface{}{
+							"type":        "string",
+							"description": "Destination city or location name (e.g. Brebes)",
+						},
+					},
+					"required": []string{"to"},
+				},
+			},
+		},
+		{
+			Type: "function",
 			Name: "get_customer_list",
 			Function: FunctionDefinition{
 				Name:        "get_customer_list",
@@ -1049,6 +1071,112 @@ func GetToolDefinitions() []ToolDefinition {
 				},
 			},
 		},
+		{
+			Type: "function",
+			Name: "get_fleet_prices",
+			Function: FunctionDefinition{
+				Name:        "get_fleet_prices",
+				Description: "Get rental prices for a specific fleet. type_id: 1 = CityTour, 2 = Overland, 3 = Drop Only.",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"fleet_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Fleet ID",
+						},
+						"type_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Service type: 1 = CityTour, 2 = Overland, 3 = Drop Only",
+						},
+					},
+					"required": []string{"fleet_id", "type_id"},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Name: "get_fleet_addons",
+			Function: FunctionDefinition{
+				Name:        "get_fleet_addons",
+				Description: "Get available add-ons/extra services for a specific fleet.",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"fleet_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Fleet ID",
+						},
+					},
+					"required": []string{"fleet_id"},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Name: "create_order",
+			Function: FunctionDefinition{
+				Name:        "create_order",
+				Description: "Create a new booking/order for fleet rental. All required params must be collected first: fleet_id, price_id, fullname, email, address, start_date, end_date, pickup_city_id, pickup_location, qty.",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"fleet_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Fleet/armada ID",
+						},
+						"price_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Price ID from get_fleet_prices",
+						},
+						"fullname": map[string]interface{}{
+							"type":        "string",
+							"description": "Customer full name",
+						},
+						"email": map[string]interface{}{
+							"type":        "string",
+							"description": "Customer email",
+						},
+						"address": map[string]interface{}{
+							"type":        "string",
+							"description": "Customer address",
+						},
+						"start_date": map[string]interface{}{
+							"type":        "string",
+							"description": "Departure YYYY-MM-DD HH:MM",
+						},
+						"end_date": map[string]interface{}{
+							"type":        "string",
+							"description": "Return YYYY-MM-DD HH:MM",
+						},
+						"pickup_city_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Pickup city ID (get from get_city_list)",
+						},
+						"pickup_location": map[string]interface{}{
+							"type":        "string",
+							"description": "Pickup location address",
+						},
+						"destinations": map[string]interface{}{
+							"type":        "string",
+							"description": "JSON: [{\"location\": \"...\", \"city_id\": \"1\"}]",
+						},
+						"qty": map[string]interface{}{
+							"type":        "integer",
+							"description": "Number of units (default 1)",
+						},
+						"addons": map[string]interface{}{
+							"type":        "string",
+							"description": "JSON: [\"addon_id_1\"]",
+						},
+						"additional_request": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional notes",
+						},
+					},
+					"required": []string{"fleet_id", "price_id", "fullname", "email", "address", "start_date", "end_date", "pickup_city_id", "pickup_location"},
+				},
+			},
+		},
 	}
 }
 
@@ -1188,6 +1316,28 @@ func GetCompanyToolDefinitions() []ToolDefinition {
 						},
 					},
 					"required": []string{},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Name: "get_trip_distance",
+			Function: FunctionDefinition{
+				Name:        "get_trip_distance",
+				Description: "Estimate trip distance (km) between pickup/origin and destination using public routing/geocoding. Returns recommended minimal rental days for overland (pulang-pergi) vs drop-only based on distance thresholds.",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"from": map[string]interface{}{
+							"type":        "string",
+							"description": "Origin/pickup city or location name. If empty, will default to company city.",
+						},
+						"to": map[string]interface{}{
+							"type":        "string",
+							"description": "Destination city or location name (e.g. Brebes)",
+						},
+					},
+					"required": []string{"to"},
 				},
 			},
 		},

@@ -66,6 +66,7 @@ func (r *OrganizationRepository) FindByID(id string) (*model.Organization, error
     `, r.getPlaceholder(1))
 
 	var org model.Organization
+	var companyName sql.NullString
 	var npwpNumber sql.NullString
 	var postalCode sql.NullString
 	var organizationLat sql.NullString
@@ -73,16 +74,17 @@ func (r *OrganizationRepository) FindByID(id string) (*model.Organization, error
 	var addressLabel sql.NullString
 	var domainURL sql.NullString
 	var whatsApp sql.NullString
+	var phone sql.NullString
 	var logo sql.NullString
 	err := database.QueryRow(r.db, query, id).Scan(
 		&org.OrganizationId,
 		&org.OrganizationCode,
 		&org.OrganizationName,
-		&org.CompanyName,
+		&companyName,
 		&org.Address,
 		&org.City,
 		&org.Province,
-		&org.Phone,
+		&phone,
 		&whatsApp,
 		&org.Email,
 		&npwpNumber,
@@ -98,6 +100,9 @@ func (r *OrganizationRepository) FindByID(id string) (*model.Organization, error
 		&org.UpdatedAt,
 	)
 	if err == nil {
+		if companyName.Valid {
+			org.CompanyName = companyName.String
+		}
 		if npwpNumber.Valid {
 			org.NPWPNumber = npwpNumber.String
 		}
@@ -121,6 +126,9 @@ func (r *OrganizationRepository) FindByID(id string) (*model.Organization, error
 		}
 		if whatsApp.Valid {
 			org.WhatsApp = whatsApp.String
+		}
+		if phone.Valid {
+			org.Phone = phone.String
 		}
 	}
 	if err != nil {
@@ -702,6 +710,26 @@ func (r *OrganizationRepository) GetOrganizationEmailAndName(orgID string) (stri
 		return "", "", "", err
 	}
 	return email, organizationName, domainURL, nil
+}
+
+func (r *OrganizationRepository) GetAdminAccountNumber(organizationID string) (string, error) {
+	query := fmt.Sprintf(`
+		SELECT COALESCE(account_number, '')
+		FROM assistant_accounts
+		WHERE %s
+		  AND user_type = 1
+		LIMIT 1
+	`, r.assistantOrgWhere("", 1))
+
+	var accountNumber string
+	if err := database.QueryRow(r.db, query, organizationID).Scan(&accountNumber); err != nil {
+		if err == sql.ErrNoRows {
+			return "", nil
+		}
+		return "", err
+	}
+
+	return accountNumber, nil
 }
 
 // UpdateDomainURL updates domain_url

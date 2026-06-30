@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"service-travego/configs"
 	"service-travego/internal/wagy"
@@ -37,6 +38,8 @@ type AIClient struct {
 	fallbackModels        []string
 	baseURL               string
 	provider              string // "anthropic" or "gemini"
+	db                    *sql.DB
+	driver                string
 	authMgr               *AuthManager
 	tenantRepo            *TenantRepository
 	sessionMgr            *SessionManager
@@ -66,18 +69,17 @@ func NewAIClient(apiKey string, db *sql.DB, dbDriver string, rdb *redis.Client, 
 	}
 
 	var model, baseURL string
-	geminiModels := []string{}
+	var fallbackModels []string
 
 	switch provider {
 	case "gemini":
-		geminiModels = buildGeminiModelFallbacks()
-		model = geminiModels[0]
+		fallbackModels = buildGeminiModelFallbacks()
+		model = fallbackModels[0]
 		baseURL = os.Getenv("GEMINI_API_URL")
 		if baseURL == "" {
 			baseURL = "https://generativelanguage.googleapis.com/v1beta"
 		}
 		baseURL = strings.TrimRight(baseURL, "/")
-		// Override apiKey with GEMINI_API_KEY when provider is gemini
 		if geminiKey := os.Getenv("GEMINI_API_KEY"); geminiKey != "" {
 			apiKey = geminiKey
 		}
@@ -122,11 +124,18 @@ func NewAIClient(apiKey string, db *sql.DB, dbDriver string, rdb *redis.Client, 
 	notificationSvc := service.NewNotificationService(db, dbDriver)
 
 	return &AIClient{
-		apiKey:                apiKey,
-		model:                 model,
-		fallbackModels:        geminiModels[1:],
+		apiKey: apiKey,
+		model:  model,
+		fallbackModels: func() []string {
+			if len(fallbackModels) > 1 {
+				return fallbackModels[1:]
+			}
+			return nil
+		}(),
 		baseURL:               baseURL,
 		provider:              provider,
+		db:                    db,
+		driver:                dbDriver,
 		authMgr:               authMgr,
 		tenantRepo:            NewTenantRepository(db, dbDriver, authMgr),
 		sessionMgr:            NewSessionManager(rdb),
@@ -182,13 +191,26 @@ type AnthropicResponse struct {
 }
 
 // ProcessMessage processes an incoming WhatsApp message
-func (ac *AIClient) ProcessMessage(ctx context.Context, phone, incomingMessage string) (string, error) {
+func (ac *AIClient) ProcessMessage(ctx context.Context, phone, incomingMessage string) (finalResponse string, retErr error) {
 	// Get tenant info
 	tenant, err := ac.tenantRepo.GetTenantByPhone(ctx, phone)
 	var snapshot map[string]interface{}
+	var statOrganizationID string
+
+	defer func() {
+		if statOrganizationID == "" {
+			return
+		}
+		status := 1
+		if retErr != nil {
+			status = 0
+		}
+		insertAssistantAccountStat(ac.db, ac.driver, statOrganizationID, 1, status)
+	}()
 
 	if err == nil {
 		// Tenant found - proceed with tenant context
+		statOrganizationID = tenant.OrganizationID
 		ctx = withAuthorizedTenantContext(ctx, tenant)
 
 		// Get business snapshot
@@ -217,7 +239,8 @@ func (ac *AIClient) ProcessMessage(ctx context.Context, phone, incomingMessage s
 	// Load conversation history
 	history, err := ac.sessionMgr.LoadSession(ctx, phone)
 	if err != nil {
-		return "", fmt.Errorf("failed to load session: %w", err)
+		retErr = fmt.Errorf("failed to load session: %w", err)
+		return "", retErr
 	}
 
 	// Limit history to last 20 messages to balance context while avoiding outdated data
@@ -236,9 +259,10 @@ func (ac *AIClient) ProcessMessage(ctx context.Context, phone, incomingMessage s
 	systemPrompt := ac.buildSystemPrompt(tenant, snapshot)
 
 	// Call Anthropic API with tool support
-	finalResponse, err := ac.callAnthropicWithTools(ctx, systemPrompt, history)
+	finalResponse, err = ac.callAnthropicWithTools(ctx, systemPrompt, history)
 	if err != nil {
-		return "", fmt.Errorf("anthropic call failed: %w", err)
+		retErr = fmt.Errorf("anthropic call failed: %w", err)
+		return "", retErr
 	}
 	finalResponse = formatWhatsAppReply(finalResponse)
 
@@ -359,18 +383,60 @@ func (ac *AIClient) callAnthropic(ctx context.Context, systemPrompt string, mess
 
 // callAnthropicCompany makes a single call to Anthropic API using Company Assistant tool definitions
 func (ac *AIClient) callAnthropicCompany(ctx context.Context, systemPrompt string, messages []ConversationMessage) (*AnthropicResponse, error) {
-	return ac.callAnthropicRequest(ctx, systemPrompt, messages, GetCompanyToolDefinitions())
+	return ac.callAnthropicRequest(ctx, systemPrompt, messages, getCompanyAssistantToolDefinitions())
 }
 
 // callAnthropicWithCompanyTools calls Anthropic API with tool support, using Company Assistant tool definitions.
 // Mirrors callAnthropicWithTools but uses getCompanyToolDefinitions for restricted tool access.
-func (ac *AIClient) callAnthropicWithCompanyTools(ctx context.Context, systemPrompt string, messages []ConversationMessage) (string, error) {
+func (ac *AIClient) callAnthropicWithCompanyTools(ctx context.Context, systemPrompt string, messages []ConversationMessage) (finalResponse string, updatedMessages []ConversationMessage, retErr error) {
 	lastTextResponse := ""
+	latestUserMessage := latestUserText(messages)
+	toolRequired := companyMessageNeedsTool(latestUserMessage)
+	createOrderToolRequired := false
+	if isAffirmationReply(latestUserMessage) && conversationSuggestsCreateOrderFlow(messages) {
+		toolRequired = true
+		createOrderToolRequired = true
+	}
+	correctionInjected := false
+	createOrderForceAttempted := false
+	toolUsed := false
+	toolContextNotes := make([]string, 0, 4)
+	createOrderSucceeded := false
+	createOrderFailed := false
+	createOrderMissing := []string{}
+	createOrderError := ""
+	createOrderID := ""
+	bankAccountsBlocked := false
+	bankAccountsLoaded := false
+	createdOrderStatus := 0
+	createdOrderStatusKnown := false
+	tripMinDays := 0
+	tripDistanceKm := 0.0
+	tripMinDaysOverland := 0
+	fleetInfoLoaded := false
+	fleetPriceLoaded := false
+	preferenceCitiesChecked := false
+	cityListUnfiltered := false
+	knownOrderIDs := map[string]struct{}{}
+	knownOrderIDsLoaded := false
+	orgID, _ := getAuthorizedContextValues(ctx)
+
+	defer func() {
+		if orgID == "" {
+			return
+		}
+		status := 1
+		if retErr != nil {
+			status = 0
+		}
+		insertAssistantCustomerStat(ac.db, ac.driver, orgID, 1, status)
+	}()
 
 	for i := 0; i < 5; i++ {
 		response, err := ac.callAnthropicCompany(ctx, systemPrompt, messages)
 		if err != nil {
-			return "", err
+			retErr = err
+			return "", messages, retErr
 		}
 		log.Printf("[WAAI][Company] Iteration %d stop_reason=%s content=%s", i+1, response.StopReason, summarizeAnthropicContent(response.Content))
 
@@ -405,6 +471,9 @@ func (ac *AIClient) callAnthropicWithCompanyTools(ctx context.Context, systemPro
 		if textResponse != "" {
 			lastTextResponse = textResponse
 		}
+		if hasToolUse {
+			toolUsed = true
+		}
 
 		if len(assistantBlocks) > 0 {
 			messages = append(messages, ConversationMessage{
@@ -418,14 +487,68 @@ func (ac *AIClient) callAnthropicWithCompanyTools(ctx context.Context, systemPro
 				continue
 			}
 
+			log.Printf("[WAAI][Company] Executing tool name=%s input=%s", content.Name, truncateResponseBody(content.Input))
 			toolResult := ac.executeTool(ctx, content.Name, content.Input)
+			formattedToolResult := formatToolResult(toolResult)
+			log.Printf("[WAAI][Company] Tool result name=%s output=%s", content.Name, truncateResponseBody([]byte(formattedToolResult)))
+			toolContextNotes = append(toolContextNotes, fmt.Sprintf("Tool %s result: %s", content.Name, formattedToolResult))
+			if content.Name == "create_order" {
+				createOrderSucceeded, createOrderFailed, createOrderMissing, createOrderError, createOrderID = analyzeCreateOrderToolResult(toolResult)
+				if createOrderSucceeded && !createdOrderStatusKnown && strings.TrimSpace(createOrderID) != "" && ac != nil && ac.fleetService != nil {
+					if detail, err := ac.fleetService.GetPartnerOrderDetail(strings.TrimSpace(createOrderID), orgID); err == nil && detail != nil {
+						createdOrderStatus = detail.Status
+						createdOrderStatusKnown = true
+					}
+				}
+			}
+			if content.Name == "get_order_list" {
+				knownOrderIDs = extractOrderIDsFromOrderListToolResult(toolResult)
+				knownOrderIDsLoaded = true
+			}
+			if content.Name == "get_bank_accounts" {
+				bankAccountsBlocked = bankAccountsBlocked || bankAccountsToolResultBlocked(toolResult)
+				bankAccountsLoaded = true
+			}
+			if content.Name == "get_fleet_list" || content.Name == "get_fleet_detail" || content.Name == "get_fleet_units" {
+				fleetInfoLoaded = true
+			}
+			if content.Name == "get_fleet_prices" {
+				fleetPriceLoaded = true
+			}
+			if content.Name == "get_trip_distance" {
+				if v, ok := toolResult.(map[string]interface{}); ok {
+					if n := getIntParam(v, "min_days"); n > 0 {
+						tripMinDays = n
+					}
+					if n := getIntParam(v, "min_days_overland"); n > 0 {
+						tripMinDaysOverland = n
+					}
+					if f := getFloatParam(v, "distance_km"); f > 0 {
+						tripDistanceKm = f
+					}
+				}
+			}
+			if content.Name == "get_preference_cities" {
+				preferenceCitiesChecked = true
+			}
+			if content.Name == "get_city_list" {
+				var inputParams map[string]interface{}
+				_ = json.Unmarshal(content.Input, &inputParams)
+				searchText := strings.TrimSpace(getStringValue(inputParams["search"]))
+				if searchText == "" {
+					if n := sliceLen(toolResult); n > 50 {
+						cityListUnfiltered = true
+					}
+				}
+			}
+
 			toolResultMsg := ConversationMessage{
 				Role: "user",
 				Content: []map[string]interface{}{
 					{
 						"type":        "tool_result",
 						"tool_use_id": content.ID,
-						"content":     formatToolResult(toolResult),
+						"content":     formattedToolResult,
 					},
 				},
 			}
@@ -434,26 +557,249 @@ func (ac *AIClient) callAnthropicWithCompanyTools(ctx context.Context, systemPro
 
 		if !hasToolUse {
 			if textResponse != "" {
-				return textResponse, nil
+				if !createOrderSucceeded && !createOrderForceAttempted && (containsOrderIDCandidate(textResponse) || companyResponseClaimsOrderSuccess(textResponse) || companyResponseClaimsOrderAccepted(textResponse)) {
+					createOrderForceAttempted = true
+					forcedCtx := context.WithValue(ctx, contextSuppressAdminNotify, true)
+					forcedResult := ac.executeTool(forcedCtx, "create_order", json.RawMessage(`{}`))
+					formattedForced := formatToolResult(forcedResult)
+					toolContextNotes = append(toolContextNotes, fmt.Sprintf("Tool create_order result (forced): %s", formattedForced))
+					toolUsed = true
+					createOrderSucceeded, createOrderFailed, createOrderMissing, createOrderError, createOrderID = analyzeCreateOrderToolResult(forcedResult)
+					if createOrderSucceeded && !createdOrderStatusKnown && strings.TrimSpace(createOrderID) != "" && ac != nil && ac.fleetService != nil {
+						if detail, err := ac.fleetService.GetPartnerOrderDetail(strings.TrimSpace(createOrderID), orgID); err == nil && detail != nil {
+							createdOrderStatus = detail.Status
+							createdOrderStatusKnown = true
+						}
+					}
+					messages = append(messages, ConversationMessage{
+						Role:    "user",
+						Content: "SISTEM: Anda menyebut status/nomor pesanan tanpa hasil tool create_order. Sistem memanggil create_order dengan input {}. Hasil: " + formattedForced + "\n\nInstruksi: Jika missing_required muncul, ajukan tepat satu pertanyaan klarifikasi yang paling penting agar create_order bisa berhasil. Jika status success, sebut order_id dari hasil tool. Jangan menyebut rekening bank kecuali status pesanan = 1 (Pesanan Dikonfirmasi) dan nomor rekening berasal dari tool get_bank_accounts.",
+					})
+					continue
+				}
+				if createOrderToolRequired && !createOrderSucceeded && !createOrderForceAttempted {
+					createOrderForceAttempted = true
+					forcedCtx := context.WithValue(ctx, contextSuppressAdminNotify, true)
+					forcedResult := ac.executeTool(forcedCtx, "create_order", json.RawMessage(`{}`))
+					formattedForced := formatToolResult(forcedResult)
+					toolContextNotes = append(toolContextNotes, fmt.Sprintf("Tool create_order result (forced): %s", formattedForced))
+					toolUsed = true
+					createOrderSucceeded, createOrderFailed, createOrderMissing, createOrderError, createOrderID = analyzeCreateOrderToolResult(forcedResult)
+					if createOrderSucceeded && !createdOrderStatusKnown && strings.TrimSpace(createOrderID) != "" && ac != nil && ac.fleetService != nil {
+						if detail, err := ac.fleetService.GetPartnerOrderDetail(strings.TrimSpace(createOrderID), orgID); err == nil && detail != nil {
+							createdOrderStatus = detail.Status
+							createdOrderStatusKnown = true
+						}
+					}
+					messages = append(messages, ConversationMessage{
+						Role:    "user",
+						Content: "SISTEM: Customer sudah konfirmasi tetapi Anda belum memanggil tool create_order. Sistem memanggil create_order dengan input {}. Hasil: " + formattedForced + "\n\nInstruksi: Jika missing_required muncul, ajukan tepat satu pertanyaan klarifikasi yang paling penting agar create_order bisa berhasil. Jika status success, sebut order_id dari hasil tool. Jangan menyebut rekening bank kecuali status pesanan = 1 (Pesanan Dikonfirmasi) dan nomor rekening berasal dari tool get_bank_accounts.",
+					})
+					continue
+				}
+				if responseContainsBankAccountDetails(textResponse) && !bankAccountsLoaded {
+					correctionInjected = true
+					messages = append(messages, ConversationMessage{
+						Role:    "user",
+						Content: "PERBAIKAN WAJIB: Jangan menyebut nomor rekening atau detail bank tanpa memanggil tool get_bank_accounts. Jika customer menanyakan pembayaran, jelaskan singkat bahwa info pembayaran akan diberikan setelah pesanan dibuat (create_order) dan dikonfirmasi (status=1).",
+					})
+					continue
+				}
+				if responseContainsBankAccountDetails(textResponse) && (createOrderToolRequired && !createOrderSucceeded) {
+					correctionInjected = true
+					messages = append(messages, ConversationMessage{
+						Role:    "user",
+						Content: "PERBAIKAN WAJIB: Customer sudah konfirmasi, tetapi create_order belum berhasil. Jangan kirim rekening bank sebelum create_order status success. Panggil create_order sekarang (atau minta 1 data wajib yang paling penting jika masih kurang).",
+					})
+					continue
+				}
+				if responseContainsBankAccountDetails(textResponse) && !createOrderSucceeded && !correctionInjected {
+					correctionInjected = true
+					messages = append(messages, ConversationMessage{
+						Role:    "user",
+						Content: "PERBAIKAN WAJIB: Jangan kirim rekening bank sebelum tool create_order berhasil (status success) dan pesanan berstatus 1 (Pesanan Dikonfirmasi). Panggil create_order sekarang atau minta 1 data wajib yang paling penting jika masih kurang.",
+					})
+					continue
+				}
+				if responseContainsBankAccountDetails(textResponse) && createdOrderStatusKnown && createdOrderStatus != 1 {
+					correctionInjected = true
+					messages = append(messages, ConversationMessage{
+						Role:    "user",
+						Content: "PERBAIKAN WAJIB: Jangan kirim rekening bank jika status pesanan bukan 1 (Pesanan Dikonfirmasi). Sampaikan bahwa pembayaran dapat dilakukan setelah pesanan dikonfirmasi oleh tim.",
+					})
+					continue
+				}
+				if createOrderFailed && !createOrderSucceeded && (companyResponseClaimsOrderSuccess(textResponse) || companyResponseClaimsOrderAccepted(textResponse) || containsOrderIDCandidate(textResponse)) {
+					correctionInjected = true
+					messages = append(messages, ConversationMessage{
+						Role:    "user",
+						Content: buildCreateOrderFailureCorrection(createOrderMissing, createOrderError),
+					})
+					continue
+				}
+				if !createOrderSucceeded && !createOrderFailed && createOrderToolRequired && companyResponseClaimsOrderSuccess(textResponse) && containsOrderIDCandidate(textResponse) && !correctionInjected {
+					correctionInjected = true
+					messages = append(messages, ConversationMessage{
+						Role:    "user",
+						Content: "PERBAIKAN WAJIB: Anda mengklaim pesanan berhasil dibuat dan menyebut nomor pesanan, tetapi tool create_order belum berhasil. Panggil tool create_order sekarang (atau minta 1 data wajib yang paling penting jika masih kurang). Jangan mengarang nomor pesanan.",
+					})
+					continue
+				}
+				if !createOrderSucceeded && !createOrderFailed && createOrderToolRequired && companyResponseClaimsOrderAccepted(textResponse) && containsOrderIDCandidate(textResponse) && !correctionInjected {
+					correctionInjected = true
+					messages = append(messages, ConversationMessage{
+						Role:    "user",
+						Content: "PERBAIKAN WAJIB: Anda menyatakan pesanan sudah dicatat dan menyebut nomor pesanan, tetapi tool create_order belum dipanggil/berhasil. Panggil tool create_order sekarang (atau minta 1 data wajib yang paling penting jika masih kurang). Jangan mengarang nomor pesanan.",
+					})
+					continue
+				}
+				if createOrderSucceeded && strings.TrimSpace(createOrderID) != "" {
+					unknown := extractUnknownOrderIDsFromText(textResponse, map[string]struct{}{createOrderID: {}})
+					if len(unknown) > 0 {
+						correctionInjected = true
+						messages = append(messages, ConversationMessage{
+							Role:    "user",
+							Content: "PERBAIKAN WAJIB: Anda menyebut order_id yang tidak sama dengan hasil tool create_order. Jangan mengarang nomor pesanan. Gunakan hanya order_id dari hasil tool create_order.",
+						})
+						continue
+					}
+				}
+				if !createOrderSucceeded && (createOrderToolRequired || conversationSuggestsCreateOrderFlow(messages)) && textContainsFleetOrderID(textResponse) {
+					correctionInjected = true
+					messages = append(messages, ConversationMessage{
+						Role:    "user",
+						Content: "PERBAIKAN WAJIB: Jangan memberikan atau memilih nomor pesanan dari histori (get_order_list) ketika customer sedang meminta dibuatkan pesanan baru. Nomor pesanan hanya boleh disebut jika berasal dari hasil tool create_order (status success). Jika pesanan baru belum berhasil dibuat, minta data yang kurang atau jelaskan kendalanya.",
+					})
+					continue
+				}
+				if bankAccountsBlocked && responseContainsBankAccountDetails(textResponse) && !correctionInjected {
+					correctionInjected = true
+					messages = append(messages, ConversationMessage{
+						Role:    "user",
+						Content: "PERBAIKAN WAJIB: Jangan kirim nomor rekening ke customer jika pesanan berstatus 2 (belum dikonfirmasi). Sampaikan bahwa pembayaran dapat dilakukan setelah pesanan selesai ditinjau dan dikonfirmasi oleh tim.",
+					})
+					continue
+				}
+				if tripMinDays > 1 && responseClaimsOneDay(textResponse) && !correctionInjected {
+					correctionInjected = true
+					messages = append(messages, ConversationMessage{
+						Role:    "user",
+						Content: fmt.Sprintf("PERBAIKAN WAJIB: Berdasarkan perhitungan jarak, minimal durasi sewa adalah %d hari. Jangan mengatakan bisa 1 hari / sehari. Jelaskan singkat ke customer bahwa minimal durasi %d hari.", tripMinDays, tripMinDays),
+					})
+					continue
+				}
+				if durationQuestionNeedsValidation(latestUserMessage) && !preferenceCitiesChecked && tripDistanceKm == 0 && !correctionInjected {
+					correctionInjected = true
+					messages = append(messages, ConversationMessage{
+						Role:    "user",
+						Content: "PERBAIKAN WAJIB: Pertanyaan customer tentang durasi/minimal hari harus divalidasi. Gunakan get_city_list dengan parameter search untuk mencari city_id tujuan, lalu panggil get_preference_cities (city_id). Jika kota tujuan tidak ada di preference, panggil get_trip_distance lalu terapkan aturan minimal hari (overland vs drop only).",
+					})
+					continue
+				}
+				if cityListUnfiltered && durationQuestionNeedsValidation(latestUserMessage) && !correctionInjected {
+					correctionInjected = true
+					messages = append(messages, ConversationMessage{
+						Role:    "user",
+						Content: "PERBAIKAN WAJIB: Jangan panggil get_city_list tanpa search karena hasilnya terlalu besar dan tidak spesifik. Panggil lagi get_city_list dengan search=nama kota tujuan.",
+					})
+					continue
+				}
+				if tripDistanceKm > 250 && tripMinDaysOverland >= 2 && durationQuestionOneDay(latestUserMessage) && responseClaimsOneDayPossible(textResponse) && !mentionsDropOnlyContext(latestUserMessage) && !correctionInjected {
+					correctionInjected = true
+					messages = append(messages, ConversationMessage{
+						Role:    "user",
+						Content: "PERBAIKAN WAJIB: Untuk jarak > 250 km, pulang-pergi (Overland) minimal 2 hari. Jangan bilang '1 hari memungkinkan' untuk Overland. Tanyakan apakah kebutuhannya *Drop Only* (antar/jemput saja) atau *Overland* (pulang-pergi). Jika Drop Only dan jarak 250-400 km, 1 hari masih memungkinkan.",
+					})
+					continue
+				}
+				if responseContainsSeatCapacity(textResponse) && !fleetInfoLoaded && !correctionInjected {
+					correctionInjected = true
+					messages = append(messages, ConversationMessage{
+						Role:    "user",
+						Content: "PERBAIKAN WAJIB: Customer menanyakan kapasitas/seat. Jangan mengarang kapasitas (angka seat/kursi). Panggil get_fleet_list untuk menemukan armada yang dimaksud, lalu get_fleet_detail untuk membaca kapasitas resmi. Jika armada belum jelas, ajukan 1 pertanyaan klarifikasi (Big Bus yang mana).",
+					})
+					continue
+				}
+				if responseContainsUnitRecommendation(textResponse) && !fleetInfoLoaded && !correctionInjected {
+					correctionInjected = true
+					messages = append(messages, ConversationMessage{
+						Role:    "user",
+						Content: "PERBAIKAN WAJIB: Jangan merekomendasikan jumlah unit (mis. 2 unit/3 unit) tanpa data kapasitas armada dari tool. Panggil get_fleet_list/get_fleet_detail dulu atau minta klarifikasi armada yang dipilih.",
+					})
+					continue
+				}
+				if responseContainsPriceAmount(textResponse) && !fleetPriceLoaded && !correctionInjected {
+					correctionInjected = true
+					messages = append(messages, ConversationMessage{
+						Role:    "user",
+						Content: "PERBAIKAN WAJIB: Jangan menyebut harga (Rp ...) tanpa hasil tool get_fleet_prices. Panggil get_fleet_prices atau minta data yang diperlukan (armada & jenis layanan).",
+					})
+					continue
+				}
+				if createOrderToolRequired && !createOrderSucceeded && !correctionInjected {
+					correctionInjected = true
+					messages = append(messages, ConversationMessage{
+						Role:    "user",
+						Content: "Customer sudah menyetujui untuk dibuatkan pesanan. Panggil tool create_order sekarang menggunakan data yang sudah ada di percakapan. Jika ada data wajib yang belum lengkap, ajukan tepat satu pertanyaan klarifikasi yang paling penting. Jangan mengatakan pesanan sedang diproses / berhasil sebelum create_order status success.",
+					})
+					continue
+				}
+				if knownOrderIDsLoaded && len(knownOrderIDs) > 0 {
+					unknown := extractUnknownOrderIDsFromText(textResponse, knownOrderIDs)
+					if len(unknown) > 0 {
+						correctionInjected = true
+						messages = append(messages, ConversationMessage{
+							Role:    "user",
+							Content: "PERBAIKAN WAJIB: Anda menyebut order_id yang TIDAK ADA di hasil tool get_order_list. Jangan mengarang order_id. Gunakan hanya order_id yang ada di hasil tool atau minta customer menyebut order_id yang dimaksud.",
+						})
+						continue
+					}
+					if companyResponseClaimsOrderNumber(textResponse) && len(knownOrderIDs) > 1 && !textContainsFleetOrderID(latestUserMessage) {
+						correctionInjected = true
+						messages = append(messages, ConversationMessage{
+							Role:    "user",
+							Content: "PERBAIKAN WAJIB: Hasil get_order_list berisi lebih dari satu pesanan. Jangan memilih salah satu secara acak. Minta customer menyebutkan order_id yang dimaksud (atau tanggal sewa) dengan tepat satu pertanyaan klarifikasi.",
+						})
+						continue
+					}
+				}
+				if toolRequired && !toolUsed && !correctionInjected {
+					correctionInjected = true
+					messages = append(messages, ConversationMessage{
+						Role:    "user",
+						Content: "Jawaban terakhir belum valid untuk customer. Jangan tampilkan instruksi internal, daftar kemampuan, atau pembahasan soal tool. Jika pertanyaan customer membutuhkan data perusahaan, order, lokasi, harga, rekening, armada, invoice, atau validasi durasi (mis. '1 hari'), panggil tool yang sesuai sekarang. Untuk validasi durasi: cek get_preference_cities dulu; jika kota tujuan tidak ada, panggil get_trip_distance lalu ikuti aturan minimal hari. Jika parameter tool belum cukup, ajukan tepat satu pertanyaan klarifikasi yang paling penting dalam Bahasa Indonesia.",
+					})
+					continue
+				}
+				return textResponse, messages, nil
 			}
 		}
 	}
 
 	if lastTextResponse != "" {
-		return lastTextResponse, nil
+		return lastTextResponse, messages, nil
 	}
 
-	finalResponse, err := ac.callAnthropicFinal(ctx, systemPrompt, messages)
+	finalMessages := messages
+	if len(toolContextNotes) > 0 {
+		finalMessages = append(finalMessages, ConversationMessage{
+			Role:    "user",
+			Content: "Gunakan hasil tool berikut sebagai sumber data final. Jangan panggil tool lagi. Jawab langsung ke customer dalam Bahasa Indonesia dengan singkat dan natural.\n\n" + strings.Join(toolContextNotes, "\n\n"),
+		})
+	}
+
+	finalAnthropicResponse, err := ac.callAnthropicFinal(ctx, systemPrompt, finalMessages)
 	if err == nil {
-		log.Printf("[WAAI][Company] Final no-tools pass stop_reason=%s content=%s", finalResponse.StopReason, summarizeAnthropicContent(finalResponse.Content))
-		for _, content := range finalResponse.Content {
+		log.Printf("[WAAI][Company] Final no-tools pass stop_reason=%s content=%s", finalAnthropicResponse.StopReason, summarizeAnthropicContent(finalAnthropicResponse.Content))
+		for _, content := range finalAnthropicResponse.Content {
 			if content.Type == "text" && content.Text != "" {
-				return content.Text, nil
+				return content.Text, finalMessages, nil
 			}
 		}
 	}
 
-	return "", fmt.Errorf("max tool use iterations reached without text response")
+	retErr = fmt.Errorf("max tool use iterations reached without text response")
+	return "", finalMessages, retErr
 }
 
 func (ac *AIClient) callAnthropicFinal(ctx context.Context, systemPrompt string, messages []ConversationMessage) (*AnthropicResponse, error) {
@@ -524,6 +870,45 @@ func (ac *AIClient) callGeminiRequest(ctx context.Context, systemPrompt string, 
 						},
 					})
 					// Function response selalu dari user/function role
+					role = "function"
+				}
+			}
+		case []interface{}:
+			for _, raw := range v {
+				bm, ok := raw.(map[string]interface{})
+				if !ok || bm == nil {
+					continue
+				}
+				switch bm["type"] {
+				case "text":
+					if txt, ok := bm["text"].(string); ok && txt != "" {
+						parts = append(parts, map[string]interface{}{"text": txt})
+					}
+				case "tool_use":
+					toolInput := bm["input"]
+					inputJSON, _ := json.Marshal(toolInput)
+					parts = append(parts, map[string]interface{}{
+						"functionCall": map[string]interface{}{
+							"name": bm["name"],
+							"args": json.RawMessage(inputJSON),
+						},
+					})
+				case "tool_result":
+					tc := bm["content"]
+					toolName, _ := bm["name"].(string)
+					if toolName == "" {
+						if name, ok := bm["tool_use_id"].(string); ok {
+							toolName = name
+						}
+					}
+					parts = append(parts, map[string]interface{}{
+						"functionResponse": map[string]interface{}{
+							"name": toolName,
+							"response": map[string]interface{}{
+								"result": tc,
+							},
+						},
+					})
 					role = "function"
 				}
 			}
@@ -1144,7 +1529,6 @@ You have access to the following functions to help users:
 48. cancel_purchase_order - Cancel/reject inventory purchase order
 49. create_new_item - Create new inventory item or add/update item stock; SKU is generated automatically when empty
 
-Tool usage rules:
 - [CRITICAL] Data dalam database dapat BERUBAH sewaktu-waktu. JANGAN PERCAYA jawaban Anda dari riwayat percakapan sebelumnya. Selalu PANGGIL TOOL setiap kali user menanyakan data (pesanan, pelanggan, jadwal, armada, dll.) untuk mendapatkan data TERBARU dari database.
 - GUESTS CANNOT USE TOOLS THAT REQUIRE ORGANIZATION CONTEXT. If a guest asks for data, explain how to register.
 - When the user asks about their business or organization name, answer using Business Name from context above. For full organization details (address, phone, NPWP, etc.), call get_organization_info.
@@ -1213,6 +1597,8 @@ WhatsApp reply formatting:
 - This is WhatsApp, NOT Markdown. For bold use a single asterisk on each side: *teks tebal*. Never use **double asterisks**.
 - Use bold sparingly — only for key values such as names, amounts, or dates. Do not bold whole sentences.
 - Prefer plain, short sentences. Use line breaks between list items instead of Markdown bullets or headers.
+- Use minimal emoji. Default to no emoji unless the user is clearly casual and one small emoji truly helps.
+- When the reply contains more than one important point, split it into short paragraphs or one item per line so it is easy to read in WhatsApp.
 - Do not use # headings, **bold**, __underline__, or [link](url) Markdown syntax.`,
 		userContext,
 		currentDate,
@@ -1238,9 +1624,9 @@ func (ac *AIClient) BuildCompanySystemPrompt(
 	currentMonth := now.Format("2006-01")
 	currentDate := now.Format("2006-01-02")
 
-	displayName := assistantName
+	displayName := tenant.OrganizationName
 	if displayName == "" {
-		displayName = tenant.OrganizationName
+		displayName = assistantName
 	}
 
 	orgName := tenant.OrganizationName
@@ -1263,79 +1649,713 @@ You represent this transport company and assist customers via WhatsApp.`,
 - Today's Bookings: %v`,
 		orgName, snapshot["fleet_count"], snapshot["unit_count"], snapshot["today_bookings"])
 
-	prompt := fmt.Sprintf(`You are a helpful WhatsApp AI Assistant for a transport rental company.
+	prompt := fmt.Sprintf(`Anda adalah customer service WhatsApp resmi untuk perusahaan transportasi rental bernama %s.
+Nama assistant yang boleh disebut ke customer: %s.
 
 %s
 
 %s
 
-Current Date: %s (current month: %s)
+Pesan customer terbaru:
+%s
 
-You have access to the following business tools to help customers:
-1. get_business_snapshot - Get current business metrics
-2. get_fleet_availability - Check vehicle availability by date range
-3. get_fleet_list - View available fleets/armada
-4. get_fleet_detail - View fleet detail (includes facilities/fasilitas armada, reviews, ratings)
-5. get_city_list - View city list
-6. get_preference_cities - View served cities with minimal rental days and service types (Overland, CityTour, DropOnly)
-7. get_customer_list - Search customers by name
-8. get_order_list - View bookings/orders (customer-facing, only your own orders)
-9. get_order_detail - View order detail (only your own orders)
-10. get_schedule_list - View schedules
-11. get_organization_info - Get company information (address, phone, WhatsApp, email, NPWP, location)
-12. get_garage_list - Get daftar garasi/lokasi perusahaan
-13. get_bank_accounts - Get daftar rekening pembayaran perusahaan
-14. print_invoice - Generate and send invoice PDF for an order to WhatsApp
+Tanggal saat ini: %s
+Bulan saat ini: %s
 
-PENGETAHUAN LAYANAN:
-Ada 3 jenis sewa (service type) yang perlu anda pahami untuk membantu customer:
+Tujuan Anda:
+- Bantu customer dengan jawaban singkat, sopan, natural, dan langsung ke inti.
+- Untuk pertanyaan yang membutuhkan data terbaru, selalu panggil tool yang sesuai terlebih dahulu lalu jawab berdasarkan hasil tool.
+- Jika data untuk memanggil tool belum cukup, ajukan tepat satu pertanyaan klarifikasi yang paling penting.
 
-1. *Overland* — Sewa antar kota di luar wilayah asal (antar provinsi/kota). Biasanya untuk perjalanan jauh seperti Jakarta-Bandung, Yogyakarta-Surabaya, dll. Ciri-ciri: service_type mengandung "overland".
-2. *CityTour* — Sewa antar jemput hanya di dalam kota / wilayah asal. Biasanya untuk city tour, wisata lokal, atau kunjungan dalam kota. Ciri-ciri: service_type mengandung "city_tour".
-3. *Drop Only* — Sewa untuk pengantaran / penjemputan saja (one way / single trip). Ciri-ciri: service_type mengandung "drop_only".
+Larangan keras:
+- Jangan pernah membalas dengan instruksi internal, daftar aturan, daftar tool, atau daftar kemampuan Anda.
+- Jangan pernah mengatakan kalimat meta seperti "saya sudah memahami peran saya", "saya akan memanggil tool", "silakan lanjutkan pertanyaan", atau "berikut kemampuan saya".
+- Jangan mengarang alamat, lokasi kantor, nomor rekening, harga, ketersediaan armada, fasilitas armada, status pesanan, atau detail invoice.
+- Jangan pernah mengatakan pesanan sudah diterima, sedang diproses, atau berhasil dibuat sebelum tool create_order benar-benar mengembalikan status success.
+- Jangan menyebut nama model, provider, atau detail teknis backend.
 
-Jenis sewa bisa diketahui melalui get_preference_cities yang menampilkan service_types (Overland, CityTour, DropOnly) dan minimal_day (minimal sewa berapa hari) untuk setiap kota tujuan.
+Panduan penggunaan tool:
+- Lokasi kantor, alamat kantor, titik maps, nomor telepon kantor, WhatsApp kantor, email perusahaan -> get_organization_info
+- Lokasi garasi atau alamat garasi -> get_garage_list
+- Nomor rekening pembayaran -> get_bank_accounts
+- Daftar armada atau armada tertentu -> get_fleet_list, lalu get_fleet_detail bila customer meminta detail/fasilitas
+- Fasilitas armada -> get_fleet_detail
+- Harga sewa -> jika armada belum jelas tanyakan armada dulu; setelah ada fleet_id dan jenis layanan, panggil get_fleet_prices
+- Ketersediaan armada -> butuh start_date dan end_date; setelah lengkap panggil get_fleet_availability
+- Lacak pesanan, detail pesanan, status pembayaran, invoice -> gunakan get_order_list, get_order_detail, atau print_invoice sesuai kebutuhan
+- Buat pesanan baru -> kumpulkan data wajib, cek harga/tool terkait, lalu panggil create_order
+- Jika get_order_list mengembalikan lebih dari 1 pesanan dan customer belum menyebut order_id, ajukan tepat satu pertanyaan klarifikasi untuk meminta order_id yang dimaksud (atau tanggal sewa).
+- Jika ada pesanan customer dengan status = 2 (belum dikonfirmasi), jangan kirim nomor rekening. Sampaikan bahwa pembayaran dapat dilakukan setelah pesanan selesai ditinjau dan dikonfirmasi oleh tim.
 
-Rent type order (dari get_order_detail):
-- RentType 1 = City Tour
-- RentType 2 = Overland
-- RentType 3 = Pickup / Drop Only
+Layanan sewa:
+- type_id 1 = CityTour
+- type_id 2 = Overland
+- type_id 3 = Drop Only
+- Definisi layanan yang WAJIB diikuti:
+  - CityTour = perjalanan wisata atau keliling area/kota tujuan dengan agenda beberapa titik.
+  - Overland = perjalanan luar kota / antar kota dengan armada sewa, bisa pergi-pulang atau multi-destinasi sesuai itinerary customer.
+  - Drop Only = layanan antar atau jemput saja ke satu tujuan, tanpa standby perjalanan lanjutan.
+  - JANGAN PERNAH menjelaskan Overland sebagai "perjalanan dengan guide", "trip dengan tour guide", atau istilah serupa kecuali customer memang meminta layanan guide secara terpisah.
+  - Jika customer menyebut tujuan luar kota seperti Bandung, Semarang, Surabaya, Malang, atau kota lain di luar kota asal, arahkan konteksnya ke Overland atau Drop Only sesuai pola perjalanannya, bukan ke layanan guide.
 
-Tool usage rules:
-- ALWAYS call tools for data queries. Do not guess or rely on conversation history for data.
-- Always use the latest data from tools. Do not trust previous answers.
+Validasi durasi sewa:
+- Untuk pertanyaan layanan CityTour, Overland, atau Drop Only, selalu cek get_preference_cities. Jika customer menyebut kota dengan nama (mis. "Brebes"), cari city_id via get_city_list (search) lalu panggil get_preference_cities dengan city_id tersebut
+- Logic CityTour: jika service_types pada kota tersebut berisi city_tour maka kota itu tersedia untuk CityTour; gunakan minimal_day sebagai minimal durasi sewa
+- Logic Overland / Drop Only: cek kota tujuan di get_preference_cities; jika service_types sesuai, gunakan minimal_day sebagai minimal durasi sewa
+- Jika pelanggan belum menentukan lokasi penjemputan, gunakan kota asal company sebagai default pickup city
+- Jika kota tujuan tidak ada di get_preference_cities: gunakan get_trip_distance untuk menghitung jarak dari pickup (default kota asal company bila pickup belum ada) ke kota tujuan, lalu tentukan minimal durasi:
+  - Overland (pulang-pergi):
+    - jika jarak > 700 km -> minimal 4 hari
+    - jika jarak > 400 km -> minimal 3 hari
+    - jika jarak > 250 km -> minimal 2 hari
+    - selain itu -> minimal 1 hari
+  - Drop Only (antar/jemput saja):
+    - jika jarak > 700 km -> minimal 3 hari
+    - jika jarak > 400 km -> minimal 2 hari
+    - selain itu -> minimal 1 hari
+- Setelah create_order berhasil untuk kota yang belum ada di get_preference_cities, tambahkan persis teks ini:
+  Tim sedang meninjau pesanan anda, kami akan segera menghubungi anda.
+  Terimakasih, Calista Prima
+- Jangan menjanjikan durasi atau harga tanpa data tool
 
-- *Cek Ketersediaan Armada*: call get_fleet_list or get_fleet_availability for availability questions.
-- *Cek Pesanan*: call get_order_list. Sistem OTOMATIS hanya akan menampilkan pesanan milik customer berdasarkan nomor WhatsApp yang mengirim pesan. Jika customer tidak memiliki pesanan, sampaikan dengan sopan.
-- *Cek Detail Pesanan*: call get_order_detail dengan order_id. Sistem akan memvalidasi bahwa pesanan tersebut milik customer yang bersangkutan.
-- *Cek Jadwal*: call get_schedule_list when customer asks about trip schedules.
-- *Cek Rute / Harga*: call get_preference_cities untuk melihat kota tujuan yang dilayani dan minimal sewa. Call get_city_list untuk daftar kota. Call get_fleet_list untuk armada yang tersedia.
-- *Cek Fasilitas Armada*: call get_fleet_detail — data fasilitas ada di response field fascilities[] / facilities[], termasuk nama fasilitas seperti AC, Toilet, Reclining Seat, TV, dll.
-- *Tanya Lokasi Kantor*: call get_organization_info — alamat kantor ada di field address, city_name, province_name.
-- *Tanya Lokasi Garasi*: call get_garage_list untuk mendapatkan daftar garasi/lokasi penyimpanan armada.
-- *Tanya Nomor Rekening Pembayaran*: call get_bank_accounts untuk mendapatkan daftar rekening bank perusahaan. Jelaskan informasi bank, nomor rekening, dan atas nama.
-- *Kirim Invoice*: call print_invoice dengan order_id. Sistem akan mengirimkan PDF invoice langsung ke WhatsApp customer. Hanya invoice milik customer yang bersangkutan yang bisa dikirim.
-- *Penjelasan Perbedaan Layanan*: Gunakan pengetahuan jenis sewa (Overland, CityTour, Drop Only) di atas untuk menjelaskan perbedaan kepada customer.
+Format jawaban WhatsApp:
+- Gunakan Bahasa Indonesia
+- Maksimal 4 kalimat pendek kecuali customer meminta detail
+- Gunakan *teks* hanya untuk nilai penting
+- Hindari emoji berlebihan. Default tanpa emoji.
+- Jika ada lebih dari satu informasi penting, pisahkan dengan enter atau baris baru agar mudah dibaca
+- Jangan gunakan heading markdown, bullet markdown, atau format dokumentasi
+- Untuk sapaan pembuka, gunakan gaya seperti: "Halo, Selamat datang di Nama Perusahaan!" lalu lanjutkan pertanyaan bantuan di baris berikutnya
 
-IMPORTANT:
-- This is a CUSTOMER-facing assistant. Focus on: bookings, fleet availability, schedules, routes, pricing, facilities, company info.
-- For internal operations (approve/reject orders, expenses, employee management, inventory, SPJ, employee schedules), politely explain that the customer needs to contact the office directly.
-- You represent *%s*. Be professional and welcoming.
+Contoh jawaban yang salah:
+Siap! Saya sudah memahami peran saya sebagai AI Assistant...
 
-Respond in Indonesian (Bahasa Indonesia).
-Be professional, concise, and welcoming.
-If asked about your identity, say you are an AI assistant helping %s.
-
-WhatsApp reply formatting:
-- This is WhatsApp, NOT Markdown. For bold use a single asterisk: *teks tebal*. Never use **double asterisks**.
-- Use bold only for key values (names, amounts, dates).
-- Prefer plain, short sentences with line breaks.`,
-		userContext, dataContext, currentDate, currentMonth, orgName, orgName)
+Contoh perilaku yang benar:
+- Pertanyaan "lokasi kantor di mana?" -> panggil get_organization_info lalu jawab alamatnya
+- Pertanyaan "berapa harga sewanya?" tanpa armada -> tanya 1 hal penting: armadanya apa
+- Pertanyaan "invoice order OR-123 bisa dikirim?" -> panggil print_invoice dengan order_id yang sesuai
+- Pertanyaan "30 orang ke Bandung 2-3 Juli" -> pahami Bandung sebagai tujuan luar kota. Jika belum jelas pola perjalanannya, tanyakan apakah kebutuhannya *Drop Only* atau *Overland* tanpa menyebut guide`, orgName, displayName, userContext, dataContext, customerMessage, currentDate, currentMonth)
 
 	return prompt
 }
 
-// executeTool executes a tool and returns the result
+func getCompanyAssistantToolDefinitions() []ToolDefinition {
+	companyTools := GetCompanyToolDefinitions()
+	needed := map[string]struct{}{
+		"get_fleet_prices": {},
+		"get_fleet_addons": {},
+		"create_order":     {},
+	}
+
+	existing := make(map[string]struct{}, len(companyTools))
+	for _, tool := range companyTools {
+		name := strings.TrimSpace(tool.Function.Name)
+		if name == "" {
+			name = strings.TrimSpace(tool.Name)
+		}
+		if name != "" {
+			existing[name] = struct{}{}
+		}
+	}
+
+	for _, tool := range GetToolDefinitions() {
+		name := strings.TrimSpace(tool.Function.Name)
+		if name == "" {
+			name = strings.TrimSpace(tool.Name)
+		}
+		if _, wanted := needed[name]; !wanted {
+			continue
+		}
+		if _, ok := existing[name]; ok {
+			continue
+		}
+		companyTools = append(companyTools, tool)
+		existing[name] = struct{}{}
+	}
+
+	return companyTools
+}
+
+func latestUserText(messages []ConversationMessage) string {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role != "user" {
+			continue
+		}
+		if text, ok := messages[i].Content.(string); ok {
+			text = strings.TrimSpace(text)
+			if text != "" {
+				return text
+			}
+		}
+	}
+	return ""
+}
+
+func companyMessageNeedsTool(message string) bool {
+	text := strings.ToLower(strings.TrimSpace(message))
+	if text == "" {
+		return false
+	}
+
+	greetings := []string{
+		"halo",
+		"hai",
+		"hi",
+		"pagi",
+		"siang",
+		"sore",
+		"malam",
+		"assalamualaikum",
+		"permisi",
+	}
+	for _, greeting := range greetings {
+		if text == greeting {
+			return false
+		}
+	}
+
+	keywords := []string{
+		"alamat",
+		"lokasi",
+		"kantor",
+		"maps",
+		"telepon",
+		"telp",
+		"whatsapp",
+		"wa ",
+		"email",
+		"rekening",
+		"bank",
+		"harga",
+		"tarif",
+		"biaya",
+		"sewa",
+		"armada",
+		"bus",
+		"unit",
+		"seat",
+		"kursi",
+		"kapasitas",
+		"muat",
+		"fasilitas",
+		"tersedia",
+		"ketersediaan",
+		"order",
+		"pesanan",
+		"booking",
+		"invoice",
+		"jadwal",
+		"garasi",
+	}
+	for _, keyword := range keywords {
+		if strings.Contains(text, keyword) {
+			return true
+		}
+	}
+
+	if regexp.MustCompile(`\b\d+\s*hari\b`).FindStringIndex(text) != nil {
+		return true
+	}
+	if strings.Contains(text, "berapa hari") || strings.Contains(text, "durasi") || strings.Contains(text, "sehari") {
+		return true
+	}
+
+	return false
+}
+
+func responseContainsSeatCapacity(text string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(text))
+	if normalized == "" {
+		return false
+	}
+	if !strings.Contains(normalized, "kapasitas") && !strings.Contains(normalized, "seat") && !strings.Contains(normalized, "kursi") {
+		return false
+	}
+	re := regexp.MustCompile(`\b\d{2,3}\b`)
+	return re.FindStringIndex(normalized) != nil
+}
+
+func responseContainsUnitRecommendation(text string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(text))
+	if normalized == "" {
+		return false
+	}
+	if !strings.Contains(normalized, "unit") {
+		return false
+	}
+	if !strings.Contains(normalized, "big bus") && !strings.Contains(normalized, "medium bus") && !strings.Contains(normalized, "bus") {
+		return false
+	}
+	re := regexp.MustCompile(`\b\d+\s*unit\b`)
+	return re.FindStringIndex(normalized) != nil
+}
+
+func responseContainsPriceAmount(text string) bool {
+	normalized := strings.TrimSpace(text)
+	if normalized == "" {
+		return false
+	}
+	re := regexp.MustCompile(`(?i)\brp\s*[\d\.,]{4,}\b`)
+	return re.FindStringIndex(normalized) != nil
+}
+
+func analyzeCreateOrderToolResult(toolResult interface{}) (success bool, failed bool, missing []string, errMsg string, orderID string) {
+	resultMap, ok := toolResult.(map[string]interface{})
+	if !ok {
+		return false, false, nil, "", ""
+	}
+
+	status := strings.ToLower(strings.TrimSpace(getStringValue(resultMap["status"])))
+	if status == "success" {
+		orderID = strings.TrimSpace(getStringValue(resultMap["order_id"]))
+		return true, false, nil, "", orderID
+	}
+
+	errMsg = strings.TrimSpace(getStringValue(resultMap["error"]))
+	if errMsg == "" {
+		return false, false, nil, "", ""
+	}
+
+	return false, true, getStringSliceValue(resultMap["missing_required"]), errMsg, ""
+}
+
+func getStringValue(value interface{}) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case fmt.Stringer:
+		return v.String()
+	default:
+		return fmt.Sprintf("%v", value)
+	}
+}
+
+func getStringSliceValue(value interface{}) []string {
+	rawItems, ok := value.([]interface{})
+	if !ok {
+		return nil
+	}
+
+	items := make([]string, 0, len(rawItems))
+	for _, raw := range rawItems {
+		item := strings.TrimSpace(getStringValue(raw))
+		if item != "" {
+			items = append(items, item)
+		}
+	}
+
+	return items
+}
+
+func bankAccountsToolResultBlocked(toolResult interface{}) bool {
+	resultMap, ok := toolResult.(map[string]interface{})
+	if !ok {
+		return false
+	}
+	errMsg := strings.TrimSpace(getStringValue(resultMap["error"]))
+	return errMsg == "ORDER_UNCONFIRMED"
+}
+
+func responseContainsBankAccountDetails(text string) bool {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return false
+	}
+	normalized := strings.ToLower(text)
+	if strings.Contains(normalized, "rekening") || strings.Contains(normalized, "bank") || strings.Contains(normalized, "no rekening") || strings.Contains(normalized, "nomor rekening") {
+		if containsLongDigitSequence(text) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsLongDigitSequence(text string) bool {
+	re := regexp.MustCompile(`\b\d{8,20}\b`)
+	return re.FindStringIndex(text) != nil
+}
+
+func responseClaimsOneDay(text string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(text))
+	if normalized == "" {
+		return false
+	}
+	return strings.Contains(normalized, "1 hari") || strings.Contains(normalized, "sehari")
+}
+
+func responseClaimsOneDayPossible(text string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(text))
+	if normalized == "" {
+		return false
+	}
+	return strings.Contains(normalized, "bisa 1 hari") ||
+		strings.Contains(normalized, "1 hari memungkinkan") ||
+		strings.Contains(normalized, "memungkinkan") ||
+		strings.Contains(normalized, "sehari memungkinkan")
+}
+
+func durationQuestionOneDay(message string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(message))
+	if normalized == "" {
+		return false
+	}
+	return strings.Contains(normalized, "1 hari") || strings.Contains(normalized, "sehari")
+}
+
+func durationQuestionNeedsValidation(message string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(message))
+	if normalized == "" {
+		return false
+	}
+	if durationQuestionOneDay(normalized) {
+		return true
+	}
+	if strings.Contains(normalized, "berapa hari") || strings.Contains(normalized, "durasi") {
+		return true
+	}
+	return regexp.MustCompile(`\b\d+\s*hari\b`).FindStringIndex(normalized) != nil
+}
+
+func mentionsDropOnlyContext(message string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(message))
+	if normalized == "" {
+		return false
+	}
+	return strings.Contains(normalized, "drop") ||
+		strings.Contains(normalized, "antar") ||
+		strings.Contains(normalized, "jemput") ||
+		strings.Contains(normalized, "one way") ||
+		strings.Contains(normalized, "sekali jalan")
+}
+
+func sliceLen(value interface{}) int {
+	if value == nil {
+		return 0
+	}
+	rv := reflect.ValueOf(value)
+	if rv.Kind() != reflect.Slice && rv.Kind() != reflect.Array {
+		return 0
+	}
+	return rv.Len()
+}
+
+func extractOrderIDsFromOrderListToolResult(toolResult interface{}) map[string]struct{} {
+	resultMap, ok := toolResult.(map[string]interface{})
+	if !ok {
+		return map[string]struct{}{}
+	}
+
+	rawOrders, ok := resultMap["orders"]
+	if !ok || rawOrders == nil {
+		return map[string]struct{}{}
+	}
+
+	items, ok := rawOrders.([]interface{})
+	if !ok {
+		return map[string]struct{}{}
+	}
+
+	out := make(map[string]struct{}, len(items))
+	for _, rawItem := range items {
+		itemMap, ok := rawItem.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		orderID := strings.TrimSpace(getStringValue(itemMap["order_id"]))
+		if orderID == "" {
+			continue
+		}
+		out[orderID] = struct{}{}
+	}
+	return out
+}
+
+func extractUnknownOrderIDsFromText(text string, known map[string]struct{}) []string {
+	candidates := extractFleetOrderIDsFromText(text)
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	unknown := make([]string, 0, len(candidates))
+	seen := make(map[string]struct{}, len(candidates))
+	for _, id := range candidates {
+		if _, ok := known[id]; ok {
+			continue
+		}
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		unknown = append(unknown, id)
+	}
+	return unknown
+}
+
+func extractFleetOrderIDsFromText(text string) []string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+
+	re := regexp.MustCompile(`\bFO-[A-Za-z0-9-]+\b`)
+	return re.FindAllString(text, -1)
+}
+
+func textContainsFleetOrderID(text string) bool {
+	return len(extractFleetOrderIDsFromText(text)) > 0
+}
+
+func extractOrderIDCandidatesFromText(text string) []string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+	re := regexp.MustCompile(`\b(?:FO|OR)-[A-Za-z0-9-]+\b`)
+	return re.FindAllString(text, -1)
+}
+
+func containsOrderIDCandidate(text string) bool {
+	return len(extractOrderIDCandidatesFromText(text)) > 0
+}
+
+func companyResponseClaimsOrderNumber(text string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(text))
+	if normalized == "" {
+		return false
+	}
+	phrases := []string{
+		"nomor order",
+		"no. order",
+		"no order",
+		"order anda adalah",
+		"order kamu adalah",
+	}
+	for _, phrase := range phrases {
+		if strings.Contains(normalized, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+func companyResponseClaimsOrderSuccess(text string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(text))
+	if normalized == "" {
+		return false
+	}
+
+	successPhrases := []string{
+		"pesanan berhasil",
+		"pesanan sudah kami terima",
+		"pesanan anda sudah kami terima",
+		"pesanan anda sedang kami proses",
+		"pesanan sedang kami proses",
+		"berhasil dibuat",
+		"sudah berhasil dibuat",
+		"akan diproses segera",
+		"order berhasil",
+		"order sudah dibuat",
+	}
+	for _, phrase := range successPhrases {
+		if strings.Contains(normalized, phrase) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func companyResponseClaimsOrderAccepted(text string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(text))
+	if normalized == "" {
+		return false
+	}
+
+	phrases := []string{
+		"saya catat",
+		"sudah saya catat",
+		"kami catat",
+		"sudah kami catat",
+		"pesanan sudah kami catat",
+		"pesanan sudah dicatat",
+		"pesanan anda sudah dicatat",
+		"pesanan anda sudah kami catat",
+	}
+	for _, phrase := range phrases {
+		if strings.Contains(normalized, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+func buildCreateOrderFailureCorrection(missing []string, errMsg string) string {
+	if len(missing) > 0 {
+		return "PERBAIKAN WAJIB: Tool create_order gagal sehingga pesanan BELUM dibuat. Jangan bilang pesanan sudah diterima, diproses, atau berhasil. Minta customer melengkapi data yang belum ada. Jika ada beberapa data yang kurang, tanyakan tepat satu pertanyaan yang paling penting dulu. Data yang masih kurang: " + strings.Join(missing, ", ") + "."
+	}
+
+	if strings.TrimSpace(errMsg) != "" {
+		return "PERBAIKAN WAJIB: Tool create_order gagal sehingga pesanan BELUM dibuat. Jangan bilang pesanan sudah diterima, diproses, atau berhasil. Jelaskan kendalanya secara singkat dalam Bahasa Indonesia dan arahkan customer ke langkah berikutnya. Error tool: " + errMsg
+	}
+
+	return "PERBAIKAN WAJIB: Tool create_order gagal sehingga pesanan BELUM dibuat. Jangan bilang pesanan sudah diterima, diproses, atau berhasil. Minta data yang masih kurang atau jelaskan kendalanya secara singkat."
+}
+
+func isAffirmationReply(text string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(text))
+	if normalized == "" {
+		return false
+	}
+	normalized = collapseRepeatedLetters(normalized)
+	normalized = strings.TrimSpace(normalized)
+	if normalized == "" {
+		return false
+	}
+
+	affirmations := []string{
+		"iya",
+		"ya",
+		"iya mau",
+		"mau",
+		"mau dong",
+		"ok",
+		"oke",
+		"baik",
+		"boleh",
+		"silakan",
+		"lanjut",
+		"setuju",
+	}
+	for _, phrase := range affirmations {
+		if normalized == phrase {
+			return true
+		}
+	}
+	if strings.Contains(normalized, "tapi") || strings.Contains(normalized, "namun") || strings.Contains(normalized, "kecuali") {
+		return false
+	}
+	if strings.HasPrefix(normalized, "ya ") || strings.HasPrefix(normalized, "iya ") || strings.HasPrefix(normalized, "ok ") || strings.HasPrefix(normalized, "oke ") {
+		return true
+	}
+	if strings.Contains(normalized, "sudah sesuai") || strings.Contains(normalized, "sudah oke") || strings.Contains(normalized, "sudah benar") || strings.Contains(normalized, "sudah pas") || strings.Contains(normalized, "sesuai") {
+		return true
+	}
+	if strings.Contains(normalized, "lanjut") {
+		return true
+	}
+
+	return false
+}
+
+func conversationSuggestsCreateOrderFlow(messages []ConversationMessage) bool {
+	lastAssistant := latestAssistantText(messages)
+	if strings.TrimSpace(lastAssistant) == "" {
+		return false
+	}
+
+	normalized := strings.ToLower(lastAssistant)
+	offerPhrases := []string{
+		"bantu buat pesanan",
+		"bantu buat pesanan baru",
+		"saya bantu buat pesanan",
+		"mau saya bantu buat pesanan",
+		"mau lanjut",
+		"mau lanjut pesan",
+		"mau lanjut pesan dengan",
+		"mau lanjut dengan",
+		"lanjut pesan",
+		"lanjut pesan dengan",
+		"untuk melanjutkan",
+		"silakan konfirmasi",
+		"silahkan konfirmasi",
+		"balas konfirmasi",
+		"balas ya",
+		"jika sudah sesuai",
+		"kalau sudah sesuai",
+		"apakah sudah sesuai",
+		"untuk konfirmasi",
+		"konfirmasi pesanan",
+		"konfirmasi pemesanan",
+	}
+	for _, phrase := range offerPhrases {
+		if strings.Contains(normalized, phrase) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func latestAssistantText(messages []ConversationMessage) string {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role != "assistant" {
+			continue
+		}
+		switch v := messages[i].Content.(type) {
+		case string:
+			if s := strings.TrimSpace(v); s != "" {
+				return s
+			}
+		case []map[string]interface{}:
+			var parts []string
+			for _, bm := range v {
+				if bm == nil {
+					continue
+				}
+				if t, ok := bm["type"].(string); ok && t == "text" {
+					if txt, ok := bm["text"].(string); ok && strings.TrimSpace(txt) != "" {
+						parts = append(parts, strings.TrimSpace(txt))
+					}
+				}
+			}
+			if len(parts) > 0 {
+				return strings.Join(parts, "\n")
+			}
+		case []interface{}:
+			var parts []string
+			for _, raw := range v {
+				bm, ok := raw.(map[string]interface{})
+				if !ok || bm == nil {
+					continue
+				}
+				if t, ok := bm["type"].(string); ok && t == "text" {
+					if txt, ok := bm["text"].(string); ok && strings.TrimSpace(txt) != "" {
+						parts = append(parts, strings.TrimSpace(txt))
+					}
+				}
+			}
+			if len(parts) > 0 {
+				return strings.Join(parts, "\n")
+			}
+		}
+	}
+	return ""
+}
+
+func collapseRepeatedLetters(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return text
+	}
+	var b strings.Builder
+	b.Grow(len(text))
+	var prev rune
+	first := true
+	for _, r := range text {
+		if first {
+			b.WriteRune(r)
+			prev = r
+			first = false
+			continue
+		}
+		if r == prev {
+			continue
+		}
+		b.WriteRune(r)
+		prev = r
+	}
+	return b.String()
+}
 func (ac *AIClient) executeTool(ctx context.Context, toolName string, input json.RawMessage) interface{} {
 	// Parse input parameters
 	var params map[string]interface{}
@@ -1721,18 +2741,88 @@ func (ac *AIClient) executeTool(ctx context.Context, toolName string, input json
 		return ac.toolExec.ExecuteGetRevenueSummary(ctx, orgID, period)
 
 	case "get_organization_info":
+		fmt.Println("------ get organization info")
 		res, err := ac.organizationService.GetOrganizationDetail(orgID)
+		fmt.Println("res:", res)
 		if err != nil {
 			return map[string]interface{}{"error": err.Error()}
 		}
 		return res
 
 	case "get_bank_accounts":
+		roleName, _ := ctx.Value(contextRoleName).(string)
+		phone, _ := ctx.Value(phoneKey).(string)
+		if strings.TrimSpace(roleName) == "CustomerAssistant" && strings.TrimSpace(phone) != "" {
+			if blocked := ac.customerHasUnconfirmedOrderStatus2(ctx, orgID, strings.TrimSpace(phone)); blocked {
+				return map[string]interface{}{
+					"error":   "ORDER_UNCONFIRMED",
+					"message": "Pembayaran dapat dilakukan setelah pesanan selesai ditinjau dan dikonfirmasi oleh tim.",
+				}
+			}
+			if confirmed := ac.customerHasConfirmedOrderStatus1(ctx, orgID, strings.TrimSpace(phone)); !confirmed {
+				return map[string]interface{}{
+					"error":   "ORDER_NOT_CONFIRMED",
+					"message": "Pembayaran dapat dilakukan setelah pesanan dibuat (create_order) dan dikonfirmasi oleh tim.",
+				}
+			}
+		}
 		accounts, err := ac.organizationService.GetBankAccounts(orgID)
 		if err != nil {
 			return map[string]interface{}{"error": err.Error()}
 		}
 		return accounts
+
+	case "get_trip_distance":
+		from := getStringParam(params, "from", "origin", "pickup")
+		to := getStringParam(params, "to", "destination", "dest")
+		if strings.TrimSpace(to) == "" {
+			return map[string]interface{}{"error": "to is required"}
+		}
+		if strings.TrimSpace(from) == "" {
+			orgDetail, err := ac.organizationService.GetOrganizationDetail(orgID)
+			if err == nil && orgDetail != nil {
+				if v, ok := orgDetail["city_label"].(string); ok && strings.TrimSpace(v) != "" {
+					from = strings.TrimSpace(v)
+				} else if v, ok := orgDetail["city"].(string); ok && strings.TrimSpace(v) != "" {
+					from = strings.TrimSpace(v)
+				}
+			}
+		}
+
+		distanceKm, method, err := estimateTripDistanceKm(ctx, from, to)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+
+		minOverland := 1
+		switch {
+		case distanceKm > 700:
+			minOverland = 4
+		case distanceKm > 400:
+			minOverland = 3
+		case distanceKm > 250:
+			minOverland = 2
+		}
+
+		minDrop := 1
+		switch {
+		case distanceKm > 700:
+			minDrop = 3
+		case distanceKm > 400:
+			minDrop = 2
+		default:
+			minDrop = 1
+		}
+
+		return map[string]interface{}{
+			"from":               from,
+			"to":                 to,
+			"distance_km":        distanceKm,
+			"min_days":           minOverland,
+			"min_days_overland":  minOverland,
+			"min_days_drop_only": minDrop,
+			"method":             method,
+		}
 
 	case "get_order_list":
 		fmt.Println("------ get order list")
@@ -2106,6 +3196,8 @@ func (ac *AIClient) executeTool(ctx context.Context, toolName string, input json
 		if scheduleNumber == "" {
 			return map[string]interface{}{"error": "schedule_number is required"}
 		}
+		roleName, _ := ctx.Value(contextRoleName).(string)
+		sendResultHook := buildAssistantSendResultHook(ac.db, ac.driver, orgID, roleName)
 
 		log.Printf("[WAAI][AI] print_surat_jalan called with schedule_number: '%s'", scheduleNumber)
 
@@ -2149,7 +3241,7 @@ func (ac *AIClient) executeTool(ctx context.Context, toolName string, input json
 		log.Printf("[WAAI][AI] Attempting to send PDF %s to %s via URL: %s", filename, phone, mediaURL)
 
 		// Kirim via URL — Wagy akan download dari URL ini
-		_, err = ac.wagyClient.SendDocumentWithURL(phone, filename, mediaURL, caption)
+		_, err = ac.wagyClient.SendDocumentWithURLAndHook(phone, filename, mediaURL, caption, sendResultHook)
 		if err != nil {
 			log.Printf("[WAAI][AI] Failed to send PDF: %v", err)
 			_ = os.Remove(tempPath) // Bersihkan file meskipun gagal
@@ -2240,11 +3332,39 @@ func (ac *AIClient) executeTool(ctx context.Context, toolName string, input json
 		}
 		return trips
 
+	case "get_fleet_prices":
+		fleetID := getStringParam(params, "fleet_id")
+		typeID := getStringParam(params, "type_id")
+		if fleetID == "" || typeID == "" {
+			return map[string]interface{}{"error": "fleet_id and type_id are required"}
+		}
+		prices, err := ac.fleetService.GetFleetPricesByFleetID(orgID, fleetID, typeID)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		return prices
+
+	case "get_fleet_addons":
+		fleetID := getStringParam(params, "fleet_id")
+		if fleetID == "" {
+			return map[string]interface{}{"error": "fleet_id is required"}
+		}
+		addons, err := ac.fleetService.GetFleetAddonList(orgID, fleetID)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		return addons
+
+	case "create_order":
+		return ac.executeCreateOrder(ctx, orgID, userID, params)
+
 	case "print_invoice":
 		orderID := getStringParam(params, "order_id")
 		if orderID == "" {
 			return map[string]interface{}{"error": "order_id is required"}
 		}
+		roleName, _ := ctx.Value(contextRoleName).(string)
+		sendResultHook := buildAssistantSendResultHook(ac.db, ac.driver, orgID, roleName)
 
 		// Validasi nomor customer: hanya bisa akses invoice miliknya sendiri
 		phone, _ := ctx.Value(phoneKey).(string)
@@ -2276,7 +3396,7 @@ func (ac *AIClient) executeTool(ctx context.Context, toolName string, input json
 
 		filename := fmt.Sprintf("invoice-%s.pdf", orderID)
 		caption := fmt.Sprintf("Berikut invoice untuk pesanan *%s*", orderID)
-		_, err = ac.wagyClient.SendDocument(phone, filename, pdfData, caption)
+		_, err = ac.wagyClient.SendDocumentWithHook(phone, filename, pdfData, caption, sendResultHook)
 		if err != nil {
 			return map[string]interface{}{"error": "Gagal kirim invoice: " + err.Error()}
 		}
@@ -2425,9 +3545,10 @@ func (ac *AIClient) createNewItem(ctx context.Context, orgID, userID string, par
 type waaiContextKey string
 
 const (
-	contextOrganizationID waaiContextKey = "organization_id"
-	contextUserID         waaiContextKey = "user_id"
-	contextRoleName       waaiContextKey = "role_name"
+	contextOrganizationID      waaiContextKey = "organization_id"
+	contextUserID              waaiContextKey = "user_id"
+	contextRoleName            waaiContextKey = "role_name"
+	contextSuppressAdminNotify waaiContextKey = "suppress_admin_notify"
 )
 
 func withAuthorizedTenantContext(ctx context.Context, tenant *TenantInfo) context.Context {
@@ -2448,8 +3569,11 @@ func getAuthorizedContextValues(ctx context.Context) (string, error) {
 	userID = strings.TrimSpace(userID)
 	roleName = strings.TrimSpace(roleName)
 
-	if orgID == "" || userID == "" {
-		return "", fmt.Errorf("missing organization_id or user_id in context")
+	if orgID == "" {
+		return "", fmt.Errorf("missing organization_id in context")
+	}
+	if userID == "" && roleName != "CustomerAssistant" {
+		return "", fmt.Errorf("missing user_id in context")
 	}
 	if roleName == "" {
 		log.Printf("[WAAI][AI] role_name missing in context for org=%s user=%s", orgID, userID)
@@ -2582,6 +3706,10 @@ var (
 	markdownBoldDouble = regexp.MustCompile(`\*\*([^*\n]+?)\*\*`)
 	markdownUnderline  = regexp.MustCompile(`__([^_\n]+?)__`)
 	markdownHeader     = regexp.MustCompile(`(?m)^#{1,6}\s+`)
+	emojiPattern       = regexp.MustCompile(`[\x{1F300}-\x{1FAFF}\x{2600}-\x{27BF}]`)
+	multiBlankLines    = regexp.MustCompile(`\n{3,}`)
+	openingWelcomeLine = regexp.MustCompile(`(?i)^halo[!,.]?\s*selamat datang di\s+([^\n.!?]+)[.!?]?\s*`)
+	helpQuestionLine   = regexp.MustCompile(`(?i)^(ada yang bisa (saya|kami) bantu\??.*)$`)
 )
 
 // formatWhatsAppReply normalizes model output to WhatsApp-friendly formatting.
@@ -2590,6 +3718,7 @@ func formatWhatsAppReply(text string) string {
 		return text
 	}
 
+	text = strings.ReplaceAll(text, "\r\n", "\n")
 	text = markdownBoldTriple.ReplaceAllString(text, "*$1*")
 	for strings.Contains(text, "**") {
 		next := markdownBoldDouble.ReplaceAllString(text, "*$1*")
@@ -2600,8 +3729,36 @@ func formatWhatsAppReply(text string) string {
 	}
 	text = markdownUnderline.ReplaceAllString(text, "*$1*")
 	text = markdownHeader.ReplaceAllString(text, "")
+	text = emojiPattern.ReplaceAllString(text, "")
+
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimSpace(line)
+	}
+	text = strings.Join(lines, "\n")
+	text = multiBlankLines.ReplaceAllString(text, "\n\n")
+	text = normalizeGreetingStyle(text)
 
 	return strings.TrimSpace(text)
+}
+
+func normalizeGreetingStyle(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return text
+	}
+
+	if matches := openingWelcomeLine.FindStringSubmatch(text); len(matches) == 2 {
+		companyName := strings.TrimSpace(matches[1])
+		rest := strings.TrimSpace(openingWelcomeLine.ReplaceAllString(text, ""))
+		if rest != "" {
+			rest = helpQuestionLine.ReplaceAllString(rest, "$1")
+			return "Halo, Selamat datang di " + companyName + "!\n" + rest
+		}
+		return "Halo, Selamat datang di " + companyName + "!"
+	}
+
+	return text
 }
 
 func resolveOrderDateRange(params map[string]interface{}) (string, string) {
@@ -2763,6 +3920,496 @@ func (ac *AIClient) requireAdmin(ctx context.Context) error {
 		return fmt.Errorf("unauthorized: only admin can perform this action")
 	}
 	return nil
+}
+
+func (ac *AIClient) executeCreateOrder(ctx context.Context, orgID, userID string, params map[string]interface{}) interface{} {
+	fleetID := getStringParam(params, "fleet_id")
+	priceID := getStringParam(params, "price_id")
+	fullname := getStringParam(params, "fullname")
+	email := getStringParam(params, "email")
+	address := getStringParam(params, "address")
+	startDate := getStringParam(params, "start_date")
+	endDate := getStringParam(params, "end_date")
+	pickupCityID := getStringParam(params, "pickup_city_id")
+	pickupLocation := getStringParam(params, "pickup_location")
+	qty := getIntParam(params, "qty")
+	additionalRequest := getStringParam(params, "additional_request")
+
+	// Parse destinations and addons from JSON strings
+	var destinations []model.OrderDestination
+	if destStr := getStringParam(params, "destinations"); destStr != "" {
+		_ = json.Unmarshal([]byte(destStr), &destinations)
+	}
+	if destinations == nil {
+		destinations = []model.OrderDestination{}
+	}
+
+	var addons []string
+	if addonStr := getStringParam(params, "addons"); addonStr != "" {
+		_ = json.Unmarshal([]byte(addonStr), &addons)
+	}
+	if addons == nil {
+		addons = []string{}
+	}
+
+	// Get organization code and company origin city
+	orgDetail, err := ac.organizationService.GetOrganizationDetail(orgID)
+	if err != nil {
+		return map[string]interface{}{"error": "Failed to get organization info: " + err.Error()}
+	}
+	orgCode, _ := orgDetail["organization_code"].(string)
+	orgName, _ := orgDetail["organization_name"].(string)
+	roleName, _ := ctx.Value(contextRoleName).(string)
+	if strings.TrimSpace(pickupCityID) == "" && strings.TrimSpace(roleName) == "CustomerAssistant" {
+		if defaultPickupCityID, ok := orgDetail["city"].(string); ok && strings.TrimSpace(defaultPickupCityID) != "" {
+			pickupCityID = strings.TrimSpace(defaultPickupCityID)
+		}
+	}
+
+	missing := make([]string, 0)
+	if strings.TrimSpace(roleName) == "CustomerAssistant" {
+		if strings.TrimSpace(address) == "" && strings.TrimSpace(pickupLocation) != "" {
+			address = pickupLocation
+		}
+	}
+	if fleetID == "" {
+		missing = append(missing, "fleet_id")
+	}
+	if priceID == "" {
+		missing = append(missing, "price_id")
+	}
+	if fullname == "" {
+		missing = append(missing, "fullname")
+	}
+	if strings.TrimSpace(roleName) != "CustomerAssistant" && email == "" {
+		missing = append(missing, "email")
+	}
+	if address == "" {
+		missing = append(missing, "address")
+	}
+	if startDate == "" {
+		missing = append(missing, "start_date")
+	}
+	if endDate == "" {
+		missing = append(missing, "end_date")
+	}
+	if pickupCityID == "" {
+		missing = append(missing, "pickup_city_id")
+	}
+	if pickupLocation == "" {
+		missing = append(missing, "pickup_location")
+	}
+	if len(missing) > 0 {
+		customerPhone, _ := ctx.Value(phoneKey).(string)
+		if suppress, _ := ctx.Value(contextSuppressAdminNotify).(bool); !suppress {
+			ac.notifyAdminCreateOrderFailed(ctx, orgID, strings.TrimSpace(orgName), strings.TrimSpace(customerPhone), map[string]interface{}{
+				"error":            "Missing required parameters",
+				"missing_required": missing,
+				"fleet_id":         fleetID,
+				"price_id":         priceID,
+				"fullname":         fullname,
+				"email":            email,
+				"address":          address,
+				"start_date":       startDate,
+				"end_date":         endDate,
+				"pickup_city_id":   pickupCityID,
+				"pickup_location":  pickupLocation,
+				"qty":              qty,
+			})
+		}
+		return map[string]interface{}{
+			"error":            "Missing required parameters",
+			"missing_required": missing,
+		}
+	}
+
+	if qty <= 0 {
+		qty = 1
+	}
+
+	phone, _ := ctx.Value(phoneKey).(string)
+	reviewRequired := false
+	if strings.TrimSpace(roleName) == "CustomerAssistant" {
+		var validationErr error
+		reviewRequired, validationErr = ac.validateCompanyAssistantOrderRules(orgID, fleetID, priceID, pickupCityID, startDate, endDate, destinations)
+		if validationErr != nil {
+			return map[string]interface{}{"error": validationErr.Error()}
+		}
+	}
+
+	req := &model.CreateOrderRequest{
+		FleetID:           fleetID,
+		PriceID:           priceID,
+		Fullname:          fullname,
+		Email:             email,
+		Phone:             phone,
+		Address:           address,
+		StartDate:         startDate,
+		EndDate:           endDate,
+		PickupCityID:      pickupCityID,
+		PickupLocation:    pickupLocation,
+		Destinations:      destinations,
+		Qty:               qty,
+		Addons:            addons,
+		AdditionalRequest: additionalRequest,
+		OrganizationID:    orgID,
+		OrganizationCode:  orgCode,
+	}
+	if cityID, err := strconv.Atoi(strings.TrimSpace(pickupCityID)); err == nil && cityID > 0 {
+		req.CityID = cityID
+	}
+
+	result, err := ac.orderService.CreateOrder(req)
+	if err != nil {
+		customerPhone, _ := ctx.Value(phoneKey).(string)
+		if suppress, _ := ctx.Value(contextSuppressAdminNotify).(bool); !suppress {
+			ac.notifyAdminCreateOrderFailed(ctx, orgID, strings.TrimSpace(orgName), strings.TrimSpace(customerPhone), map[string]interface{}{
+				"error":            err.Error(),
+				"missing_required": []string{},
+				"fleet_id":         fleetID,
+				"price_id":         priceID,
+				"fullname":         fullname,
+				"email":            email,
+				"address":          address,
+				"start_date":       startDate,
+				"end_date":         endDate,
+				"pickup_city_id":   pickupCityID,
+				"pickup_location":  pickupLocation,
+				"qty":              qty,
+			})
+		}
+		return map[string]interface{}{"error": err.Error()}
+	}
+
+	message := "Pesanan berhasil dibuat"
+	if reviewRequired {
+		message += "\n\nTim sedang meninjau pesanan anda, kami akan segera menghubungi anda. \nTerimakasih, Calista Prima"
+	}
+
+	return map[string]interface{}{
+		"status":   "success",
+		"message":  message,
+		"order_id": result.OrderID,
+		"token":    result.Token,
+	}
+}
+
+func (ac *AIClient) customerHasUnconfirmedOrderStatus2(ctx context.Context, orgID, phone string) bool {
+	if ac == nil || ac.fleetService == nil {
+		return false
+	}
+	orgID = strings.TrimSpace(orgID)
+	phone = strings.TrimSpace(phone)
+	if orgID == "" || phone == "" {
+		return false
+	}
+
+	now := time.Now()
+	from := now.AddDate(0, 0, -90).Format("2006-01-02") + " 00:00:00"
+	to := now.Format("2006-01-02") + " 23:59:59"
+	filter := &model.PartnerOrderListFilter{
+		OrderDateFrom: from,
+		OrderDateTo:   to,
+	}
+
+	res, err := ac.fleetService.GetPartnerOrdersWithSummary(orgID, filter)
+	if err != nil || res == nil {
+		return false
+	}
+
+	for _, o := range res.Orders {
+		if strings.TrimSpace(o.CustomerPhone) == "" || strings.TrimSpace(o.CustomerPhone) != phone {
+			continue
+		}
+		if o.Status == 2 {
+			return true
+		}
+	}
+	return false
+}
+
+func (ac *AIClient) customerHasConfirmedOrderStatus1(ctx context.Context, orgID, phone string) bool {
+	if ac == nil || ac.fleetService == nil {
+		return false
+	}
+	orgID = strings.TrimSpace(orgID)
+	phone = strings.TrimSpace(phone)
+	if orgID == "" || phone == "" {
+		return false
+	}
+
+	now := time.Now()
+	from := now.AddDate(0, 0, -90).Format("2006-01-02") + " 00:00:00"
+	to := now.Format("2006-01-02") + " 23:59:59"
+	filter := &model.PartnerOrderListFilter{
+		OrderDateFrom: from,
+		OrderDateTo:   to,
+	}
+
+	res, err := ac.fleetService.GetPartnerOrdersWithSummary(orgID, filter)
+	if err != nil || res == nil {
+		return false
+	}
+
+	for _, o := range res.Orders {
+		if strings.TrimSpace(o.CustomerPhone) == "" || strings.TrimSpace(o.CustomerPhone) != phone {
+			continue
+		}
+		if o.Status == 1 {
+			return true
+		}
+	}
+	return false
+}
+
+func (ac *AIClient) notifyAdminCreateOrderFailed(ctx context.Context, orgID, orgName, customerPhone string, detail map[string]interface{}) {
+	if ac == nil || ac.organizationService == nil || ac.wagyClient == nil {
+		return
+	}
+
+	orgID = strings.TrimSpace(orgID)
+	if orgID == "" {
+		return
+	}
+
+	adminPhone, err := ac.organizationService.GetAdminAccountNumber(orgID)
+	if err != nil {
+		log.Printf("[WAAI][Company] Failed get admin account number org=%s: %v", orgID, err)
+		return
+	}
+	adminPhone = strings.TrimSpace(adminPhone)
+	if adminPhone == "" {
+		return
+	}
+
+	customerPhone = strings.TrimSpace(customerPhone)
+	orgName = strings.TrimSpace(orgName)
+	if orgName == "" {
+		orgName = orgID
+	}
+
+	message := "Ada kendala saat membuat pesanan via AI Assistant.\n\n" +
+		"Perusahaan: " + orgName + "\n" +
+		"Nomor customer: " + customerPhone + "\n"
+
+	if detail != nil {
+		if fullname := strings.TrimSpace(getStringValue(detail["fullname"])); fullname != "" {
+			message += "Nama: " + fullname + "\n"
+		}
+		if fleetID := strings.TrimSpace(getStringValue(detail["fleet_id"])); fleetID != "" {
+			message += "fleet_id: " + fleetID + "\n"
+		}
+		if priceID := strings.TrimSpace(getStringValue(detail["price_id"])); priceID != "" {
+			message += "price_id: " + priceID + "\n"
+		}
+		if startDate := strings.TrimSpace(getStringValue(detail["start_date"])); startDate != "" {
+			message += "start_date: " + startDate + "\n"
+		}
+		if endDate := strings.TrimSpace(getStringValue(detail["end_date"])); endDate != "" {
+			message += "end_date: " + endDate + "\n"
+		}
+		if pickupCityID := strings.TrimSpace(getStringValue(detail["pickup_city_id"])); pickupCityID != "" {
+			message += "pickup_city_id: " + pickupCityID + "\n"
+		}
+		if pickupLocation := strings.TrimSpace(getStringValue(detail["pickup_location"])); pickupLocation != "" {
+			message += "pickup_location: " + pickupLocation + "\n"
+		}
+		if qtyRaw := getIntParam(detail, "qty"); qtyRaw > 0 {
+			message += "qty: " + strconv.Itoa(qtyRaw) + "\n"
+		}
+		if errMsg := strings.TrimSpace(getStringValue(detail["error"])); errMsg != "" {
+			message += "\nError: " + errMsg + "\n"
+		}
+		if missing := getStringSliceValue(detail["missing_required"]); len(missing) > 0 {
+			message += "Missing: " + strings.Join(missing, ", ") + "\n"
+		}
+	}
+
+	adminPhone = service.NormalizeAssistantAccountNumber(adminPhone)
+	go func() {
+		if _, err := ac.wagyClient.SendMessage(adminPhone, strings.TrimSpace(message)); err != nil {
+			log.Printf("[WAAI][Company] Failed notify admin %s: %v", adminPhone, err)
+		}
+	}()
+}
+
+func (ac *AIClient) validateCompanyAssistantOrderRules(orgID, fleetID, priceID, pickupCityID, startDate, endDate string, destinations []model.OrderDestination) (bool, error) {
+	selectedPrice, err := ac.findFleetPriceByPriceID(orgID, fleetID, priceID)
+	if err != nil {
+		return false, err
+	}
+
+	rentalDays, err := calculateRentalDays(startDate, endDate)
+	if err != nil {
+		return false, err
+	}
+
+	prefs, err := ac.preferenceCityService.GetAll(orgID, nil)
+	if err != nil {
+		return false, err
+	}
+
+	prefByCityID := make(map[string]model.PreferenceCityWithLabels, len(prefs))
+	for _, pref := range prefs {
+		prefByCityID[strconv.Itoa(pref.CityID)] = pref
+	}
+
+	switch selectedPrice.RentType {
+	case model.ServiceTypeCityTour:
+		pref, ok := prefByCityID[strings.TrimSpace(pickupCityID)]
+		if !ok {
+			return true, nil
+		}
+		if !containsString(pref.ServiceTypes, model.ServiceTypeLabels[model.ServiceTypeCityTour]) {
+			return false, fmt.Errorf("kota penjemputan belum tersedia untuk layanan city tour")
+		}
+		if pref.MinimalDay > 0 && rentalDays < pref.MinimalDay {
+			return false, fmt.Errorf("minimal durasi sewa untuk city tour di %s adalah %d hari", fallbackCityLabel(pref, "kota tersebut"), pref.MinimalDay)
+		}
+		return false, nil
+	case model.ServiceTypeOverland, model.ServiceTypeDropOnly:
+		targetCityID := firstDestinationCityID(destinations)
+		if targetCityID == "" {
+			return false, fmt.Errorf("city_id tujuan wajib diisi untuk layanan overland atau drop only")
+		}
+		pref, ok := prefByCityID[targetCityID]
+		if !ok {
+			return true, nil
+		}
+		expectedType := model.ServiceTypeLabels[selectedPrice.RentType]
+		if !containsString(pref.ServiceTypes, expectedType) {
+			return false, fmt.Errorf("kota tujuan %s belum tersedia untuk layanan %s", fallbackCityLabel(pref, "tersebut"), strings.ReplaceAll(expectedType, "_", " "))
+		}
+		if pref.MinimalDay > 0 && rentalDays < pref.MinimalDay {
+			return false, fmt.Errorf("minimal durasi sewa untuk layanan %s ke %s adalah %d hari", strings.ReplaceAll(expectedType, "_", " "), fallbackCityLabel(pref, "kota tersebut"), pref.MinimalDay)
+		}
+		return false, nil
+	default:
+		return false, nil
+	}
+}
+
+func (ac *AIClient) findFleetPriceByPriceID(orgID, fleetID, priceID string) (*model.FleetPriceListItem, error) {
+	for _, typeID := range []string{
+		strconv.Itoa(model.ServiceTypeCityTour),
+		strconv.Itoa(model.ServiceTypeOverland),
+		strconv.Itoa(model.ServiceTypeDropOnly),
+	} {
+		items, err := ac.fleetService.GetFleetPricesByFleetID(orgID, fleetID, typeID)
+		if err != nil {
+			continue
+		}
+		for i := range items {
+			if strings.TrimSpace(items[i].PriceID) == strings.TrimSpace(priceID) {
+				return &items[i], nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("price_id tidak ditemukan pada daftar harga armada")
+}
+
+func calculateRentalDays(startDate, endDate string) (int, error) {
+	layout := "2006-01-02 15:04"
+	start, err := time.ParseInLocation(layout, strings.TrimSpace(startDate), time.Local)
+	if err != nil {
+		return 0, fmt.Errorf("format start_date harus YYYY-MM-DD HH:MM")
+	}
+	end, err := time.ParseInLocation(layout, strings.TrimSpace(endDate), time.Local)
+	if err != nil {
+		return 0, fmt.Errorf("format end_date harus YYYY-MM-DD HH:MM")
+	}
+	if end.Before(start) {
+		return 0, fmt.Errorf("end_date tidak boleh lebih awal dari start_date")
+	}
+
+	durationHours := end.Sub(start).Hours()
+	days := int(durationHours / 24)
+	if durationHours == 0 || durationHours-float64(days*24) > 0 {
+		days++
+	}
+	if days <= 0 {
+		days = 1
+	}
+	return days, nil
+}
+
+func firstDestinationCityID(destinations []model.OrderDestination) string {
+	for _, destination := range destinations {
+		if cityID := strings.TrimSpace(destination.CityID); cityID != "" {
+			return cityID
+		}
+	}
+	return ""
+}
+
+func containsString(items []string, needle string) bool {
+	needle = strings.TrimSpace(strings.ToLower(needle))
+	for _, item := range items {
+		if strings.TrimSpace(strings.ToLower(item)) == needle {
+			return true
+		}
+	}
+	return false
+}
+
+func fallbackCityLabel(pref model.PreferenceCityWithLabels, fallback string) string {
+	if strings.TrimSpace(pref.CityLabel) != "" {
+		return pref.CityLabel
+	}
+	return fallback
+}
+
+func insertAssistantAccountStat(db *sql.DB, driver string, organizationID string, messageType int, status int) {
+	insertAssistantStat(db, driver, "assistant_account_stats", "AssistantAccountStat", organizationID, messageType, status)
+}
+
+func insertAssistantCustomerStat(db *sql.DB, driver string, organizationID string, messageType int, status int) {
+	insertAssistantStat(db, driver, "assistant_customer_stats", "AssistantCustomerStat", organizationID, messageType, status)
+}
+
+func insertAssistantStat(db *sql.DB, driver string, tableName string, logPrefix string, organizationID string, messageType int, status int) {
+	if db == nil || strings.TrimSpace(organizationID) == "" {
+		return
+	}
+
+	period := time.Now().Format("2006-01-02")
+	query := fmt.Sprintf(`
+		INSERT INTO %s (period, count, organization_id, type, status)
+		VALUES ($1, 1, $2, $3, $4)
+		ON CONFLICT (period, type, status, organization_id)
+		DO UPDATE SET count = %s.count + 1
+	`, tableName, tableName)
+
+	_, err := db.Exec(query, period, organizationID, messageType, status)
+	if err != nil {
+		log.Printf("[%s] Failed to insert stat for org %s, type %d, status %d, driver %s: %v", logPrefix, organizationID, messageType, status, driver, err)
+		return
+	}
+
+	log.Printf("[%s] Stat recorded for org %s, type %d, status %d", logPrefix, organizationID, messageType, status)
+}
+
+func buildAssistantSendResultHook(db *sql.DB, driver string, organizationID string, roleName string) func(error) {
+	roleName = strings.TrimSpace(roleName)
+	organizationID = strings.TrimSpace(organizationID)
+
+	return func(err error) {
+		if organizationID == "" {
+			return
+		}
+
+		status := 1
+		if err != nil {
+			status = 0
+		}
+
+		if roleName == "CustomerAssistant" {
+			insertAssistantCustomerStat(db, driver, organizationID, 2, status)
+			return
+		}
+
+		insertAssistantAccountStat(db, driver, organizationID, 2, status)
+	}
 }
 
 func (ac *AIClient) createInventoryRequest(ctx context.Context, orgID, userID string, params map[string]interface{}) interface{} {
