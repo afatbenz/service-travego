@@ -350,21 +350,9 @@ func (s *OrganizationService) GetAPIConfig(userID string) (map[string]interface{
 		return nil, nil
 	}
 
-	role := 0
-	if s.orgUserRepo != nil {
-		r, roleErr := s.orgUserRepo.GetRoleByUserIDAndOrgID(userID, orgs[0].OrganizationId)
-		if roleErr == nil {
-			role = r
-		} else if roleErr != sql.ErrNoRows {
-			return nil, roleErr
-		}
-	}
-
 	authData := helper.AuthSensitiveData{
-		OrganizationID:   orgs[0].OrganizationId,
-		UserID:           userID,
-		OrganizationRole: role,
-		IsAdmin:          role == 1,
+		OrganizationID: orgs[0].OrganizationId,
+		DomainURL:      orgs[0].DomainURL,
 	}
 	apiToken, err := helper.EncryptAuthSensitiveData(authData)
 	if err != nil {

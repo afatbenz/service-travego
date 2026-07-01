@@ -206,15 +206,17 @@ func (r *OrganizationRepository) FindByUsernameUserID(userID string) ([]model.Or
 		var npwpNumber sql.NullString
 		var postalCode sql.NullString
 		var domainURL sql.NullString
+		var companyName sql.NullString
+		var phone sql.NullString
 		err := rows.Scan(
 			&org.OrganizationId,
 			&org.OrganizationCode,
 			&org.OrganizationName,
-			&org.CompanyName,
+			&companyName,
 			&org.Address,
 			&org.City,
 			&org.Province,
-			&org.Phone,
+			&phone,
 			&org.Email,
 			&npwpNumber,
 			&org.OrganizationType,
@@ -235,6 +237,12 @@ func (r *OrganizationRepository) FindByUsernameUserID(userID string) ([]model.Or
 		}
 		if domainURL.Valid {
 			org.DomainURL = domainURL.String
+		}
+		if companyName.Valid {
+			org.CompanyName = companyName.String
+		}
+		if phone.Valid {
+			org.Phone = phone.String
 		}
 		orgs = append(orgs, org)
 	}

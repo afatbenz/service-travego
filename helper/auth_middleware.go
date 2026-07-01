@@ -3,6 +3,7 @@ package helper
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"service-travego/repository"
 	"strings"
@@ -136,6 +137,31 @@ func ApiKeyMiddleware() fiber.Handler {
 // DualAuthMiddleware checks for api-key header or Authorization header
 func DualAuthMiddleware(orgRepo *repository.OrganizationRepository) fiber.Handler {
 	return func(c *fiber.Ctx) error {
+		fmt.Println("-- DualAuthMiddleware Check for api-key header or Authorization header")
+		origin := c.Get("Origin")
+		normalizeHost := func(raw string) string {
+			raw = strings.TrimSpace(raw)
+			if raw == "" {
+				return ""
+			}
+			if !strings.Contains(raw, "://") {
+				raw = "https://" + raw
+			}
+			u, err := url.Parse(raw)
+			if err != nil {
+				return ""
+			}
+			host := strings.ToLower(strings.TrimSpace(u.Host))
+			if host == "" {
+				return ""
+			}
+			if h, _, ok := strings.Cut(host, ":"); ok {
+				host = h
+			}
+			host = strings.TrimPrefix(host, "www.")
+			return host
+		}
+
 		// Check for api-key header
 		apiKey := c.Get("api-key")
 		if apiKey == "" {
@@ -173,25 +199,50 @@ func DualAuthMiddleware(orgRepo *repository.OrganizationRepository) fiber.Handle
 				})
 			}
 
-			if apiKey != expectedKey {
-				return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-					"status":         "error",
-					"message":        "Invalid API key",
-					"data":           nil,
-					"transaction_id": GetTransactionID(c),
-				})
-			}
+			// if apiKey != expectedKey {
+			// 	return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			// 		"status":         "error",
+			// 		"message":        "Invalid API key",
+			// 		"data":           nil,
+			// 		"transaction_id": GetTransactionID(c),
+			// 	})
+			// }
 
 			if apiKey == expectedKey {
 				c.Locals("role", "public")
 				return c.Next()
 			}
 
-			// Try multiple decryption methods
-			// 1. Try DecryptAuthSensitiveData (JSON with organization_id)
-			if data, err := DecryptAuthSensitiveData(apiKey); err == nil {
+			data, err := DecryptAuthSensitiveData(apiKey)
+
+			if err == nil {
+				if data.OrganizationID == "" || data.DomainURL == "" {
+					return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+						"status":  "error",
+						"message": "Invalid API Key: payload must contain organization_id and domain_url",
+					})
+				}
+				if data.UserID != "" || data.IsAdmin || data.OrganizationRole != 0 {
+					return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+						"status":  "error",
+						"message": "Invalid API Key: payload contains unexpected fields",
+					})
+				}
+				if origin == "" {
+					return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+						"status":  "error",
+						"message": "Origin header is required",
+					})
+				}
+				originHost := normalizeHost(origin)
+				domainHost := normalizeHost(data.DomainURL)
+				if originHost == "" || domainHost == "" || originHost != domainHost {
+					return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+						"status":  "error",
+						"message": "Origin is not allowed for this API key",
+					})
+				}
 				orgID = data.OrganizationID
-				userID = data.UserID
 			}
 
 			// 2. Try DecryptString (Generic string)
@@ -213,24 +264,6 @@ func DualAuthMiddleware(orgRepo *repository.OrganizationRepository) fiber.Handle
 						// Not JSON, assume it's the organization_id directly
 						orgID = decrypted
 					}
-				}
-			}
-
-			// 3. Try DecryptData (JSON with email/user_id)
-			if orgID == "" {
-				if email, uID, err := DecryptData(apiKey); err == nil {
-					userID = uID
-					if userID == "" {
-						userID = email
-					}
-				}
-			}
-
-			// 4. Try unencrypted as last resort (ONLY if it looks like a UUID or plain ID)
-			if orgID == "" {
-				// Only assume it's a plain ID if it's alphanumeric/hyphen and NOT base64-like (no + or / or ==)
-				if len(apiKey) > 0 && len(apiKey) < 50 && !strings.ContainsAny(apiKey, " +/=") {
-					orgID = apiKey
 				}
 			}
 

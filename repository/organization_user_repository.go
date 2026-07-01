@@ -196,12 +196,28 @@ func (r *OrganizationUserRepository) GetOrganizationWithJoinDateByUserID(userID 
 		LIMIT 1
 	`, r.getPlaceholder(1))
 
-	err = database.QueryRow(r.db, query, userID).Scan(&organizationCode, &organizationName, &companyName, &joinDate, &organizationRole)
+	var companyNameNullable sql.NullString
+	var joinDateNullable sql.NullTime
+
+	err = database.QueryRow(r.db, query, userID).Scan(
+		&organizationCode,
+		&organizationName,
+		&companyNameNullable,
+		&joinDateNullable,
+		&organizationRole,
+	)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return "", "", "", time.Time{}, 0, sql.ErrNoRows
 		}
 		return "", "", "", time.Time{}, 0, err
+	}
+
+	if companyNameNullable.Valid {
+		companyName = companyNameNullable.String
+	}
+	if joinDateNullable.Valid {
+		joinDate = joinDateNullable.Time
 	}
 
 	return organizationCode, organizationName, companyName, joinDate, organizationRole, nil

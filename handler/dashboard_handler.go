@@ -67,8 +67,8 @@ func (h *DashboardHandler) GetFinance(c *fiber.Ctx) error {
 		return helper.BadRequestResponse(c, "Invalid end_date format")
 	}
 
-	if !startDate.Before(endDate) {
-		return helper.BadRequestResponse(c, "start_date must be less than end_date")
+	if startDate.After(endDate) {
+		return helper.BadRequestResponse(c, "start_date must be less than or equal to end_date")
 	}
 
 	diffDays := int(endDate.Sub(startDate).Hours() / 24)

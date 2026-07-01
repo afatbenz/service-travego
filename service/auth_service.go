@@ -338,7 +338,8 @@ func (s *AuthService) Login(email, phone, password, userID string) (*LoginRespon
 		organizationID = "00"
 		organizationName = "SuperAdmin"
 	}
-	if s.orgUserRepo != nil && !user.IsAdmin {
+	if s.orgUserRepo != nil && organizationID != "00" {
+		fmt.Println("Masuk sini ----")
 		orgID, role, err := s.orgUserRepo.GetOrganizationAndRoleByUserID(user.UserID)
 		if err != nil && err != sql.ErrNoRows {
 			log.Printf("[ERROR] Error getting organization and role - UserID: %s, Error: %v", user.UserID, err)
@@ -347,6 +348,8 @@ func (s *AuthService) Login(email, phone, password, userID string) (*LoginRespon
 			orgRole = role
 		}
 
+		fmt.Println("Test Role --- ", role)
+
 		if role == 1 {
 			user.IsAdmin = true
 		}
@@ -354,8 +357,13 @@ func (s *AuthService) Login(email, phone, password, userID string) (*LoginRespon
 		orgCode, orgName, _, _, _, err := s.orgUserRepo.GetOrganizationWithJoinDateByUserID(user.UserID)
 		if err == nil {
 			organizationName = orgName
-			_ = orgCode
+		} else if err != sql.ErrNoRows {
+			log.Printf("[ERROR] Error getting organization detail - UserID: %s, OrganizationID: %s, Error: %v", user.UserID, organizationID, err)
 		}
+
+		fmt.Println("Test orgCode --- ", orgCode)
+		fmt.Println("Test orgName --- ", orgName)
+		fmt.Println("Test orgErr --- ", err)
 	}
 
 	sensitive := helper.AuthSensitiveData{
@@ -364,12 +372,15 @@ func (s *AuthService) Login(email, phone, password, userID string) (*LoginRespon
 		UserID:           user.UserID,
 		OrganizationRole: orgRole,
 	}
+	fmt.Println("Test sensitive --- ", sensitive)
 
 	encToken, errEnc := helper.EncryptAuthSensitiveData(sensitive)
 	if errEnc != nil {
 		log.Printf("[ERROR] Failed to encrypt auth sensitive data - UserID: %s, Error: %v", user.UserID, errEnc)
 		return nil, NewServiceError(ErrInternalServer, http.StatusInternalServerError, "failed to generate token")
 	}
+
+	fmt.Println("Test organizationName --- ", organizationName)
 
 	token, err := helper.GenerateAuthToken(
 		user.Name,
